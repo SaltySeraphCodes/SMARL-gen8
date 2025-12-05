@@ -1,0 +1,506 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+Smarl Combo Display
+{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
+<div id="lapDisplay">
+</div>
+    <script src="{{ url_for('static', filename='src/smarl_utils.js') }}"></script>
+    <script>    
+    // Global chart element vars
+    var yScale;
+    var xScale;
+    var chart_area;
+    var interactive_chart;
+    var chartSettings;
+    var boardCreated = false;
+
+    // Visible elements
+    var racerBG; 
+    var posRects;
+    var all_elements = [] 
+
+    // D3 functions
+    function reloadChart(){
+        d3.select("#lapDisplay").selectAll("svg").remove();
+        reloadGraphic();
+    }
+
+    function reloadGraphic(data){
+            drawData(data);
+    }
+
+    function createBoard(data) {
+        boardCreated = true;
+        totalCars = data.length;
+        
+        chartSettings = { width: 300, height: 600, margin: {left: 10, right:10, top: 20, bottom:20}} // Reduced margins
+        
+        //Scales
+        xScale = d3.scaleLinear()
+            .domain([0, chartSettings.width])
+            .range([0, chartSettings.width]);
+
+        const ranks = Array.from({length: totalCars}, (_, i) => i + 1);
+
+        yScale = d3.scaleBand()
+            .domain(ranks) 
+            .range([chartSettings.margin.top + 40, chartSettings.height - chartSettings.margin.bottom])
+            .paddingInner(0.05)
+            .paddingOuter(0.05); 
+
+
+        chart_area = d3.select("#lapDisplay").append("svg")
+            .attr('width', chartSettings.width)
+            .attr('height',chartSettings.height)
+        interactive_chart = chart_area.append('g')
+        
+
+        var bgRect = interactive_chart.append('rect')
+        .attr("x",0)
+        .attr('y',0)
+        .attr("rx",8)
+        .attr('ry',8)
+        .attr('width',chartSettings.width)
+        .attr('height',0)
+        .attr('opacity',0)
+        .attr('fill','var(--brand-dark-transparent)') 
+        .transition()
+        .attr('height',chartSettings.height)
+        .attr("opacity",0.90)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+
+        //Header
+        interactive_chart.append("text")
+        .attr('class','headerText')
+        .attr("x", chartSettings.width/2)
+        .attr("y", 15)
+        .attr("opacity",0)
+        .text("LAP ANALYSIS")
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr('font-size','28px') // Slightly smaller header
+        .transition()
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+
+
+        // Title labes
+        interactive_chart.append("text")
+        .attr('class','labelText')
+        .attr("x", 15) // Aligned with the Position Rect start
+        .attr("y", 42)
+        .attr("opacity",0)
+        // Adjusted labels to reflect new column alignment
+        .text('P | Tag | Last Lap | Best Lap') 
+        .attr('text-anchor', 'start')
+        .attr('alignment-baseline', 'central')
+        .attr('font-size','16px')
+        .transition()
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+
+        // Separator line
+        interactive_chart.append("line")
+        .attr('class', 'sepLine') // Using CSS class
+        .attr("x1", 0)
+        .attr("y1", 52)
+        .attr("x2", chartSettings.width)
+        .attr("y2", 52)
+        .attr('stroke-width',3)
+        .transition()
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+
+        drawData(data)
+    }
+
+    // Helper to determine best overall lap time (reused from previous file)
+    function getOverallBestLapTime(data) {
+        let bestTime = null;
+        for (const d of data) {
+            const timeStr = d.bestLap;
+            if (!timeStr) continue;
+            const minutes = parseInt(timeStr.substring(0, 2));
+            const seconds = parseInt(timeStr.substring(3, 5));
+            const milliseconds = parseInt(timeStr.substring(6, 9));
+            const totalMs = (minutes * 60 * 1000) + (seconds * 1000) + milliseconds;
+
+            if (bestTime === null || totalMs < bestTime) {
+                bestTime = totalMs;
+            }
+        }
+        return bestTime;
+    }
+    const timeToMs = (timeStr) => {
+        if (!timeStr) return Infinity;
+        const minutes = parseInt(timeStr.substring(0, 2));
+        const seconds = parseInt(timeStr.substring(3, 5));
+        const milliseconds = parseInt(timeStr.substring(6, 9));
+        return (minutes * 60 * 1000) + (seconds * 1000) + milliseconds;
+    };
+
+
+    function drawData(data){
+        
+        // Helper accessors
+        const getRank = (d) => Number(d.pos);
+        const getYPos = (d) => yScale(getRank(d)) || chartSettings.height;
+        const getRowHeight = () => yScale.bandwidth() || 30; 
+        const halfBand = getRowHeight() / 2;
+        const overallBestLapMs = getOverallBestLapTime(data);
+        
+        // --- 1. Background Rects (racerBG) ---
+        racerBG = interactive_chart.selectAll(".bgRect.racerData")
+        .data(data, function(d) { return d.uid; }) 
+        
+        // EXIT
+        racerBG.exit()
+        .transition()
+        .attr("x", chartSettings.width + 10)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // ENTER
+        const racerBGEnter = racerBG.enter()
+        .append("rect")
+        .attr("class","bgRect racerData racerEl")
+        .attr('rx',3)
+        .attr('ry',3)
+        .attr("x", chartSettings.width + 10)
+        .attr('y', getYPos)
+        .attr("opacity",0)
+        .attr("width",chartSettings.width - 20)
+        .attr("height",getRowHeight);
+        
+        // MERGE (Update & Transition)
+        racerBGEnter.merge(racerBG)
+        .attr("fill",'var(--split-bg-fill)')
+        .attr('stroke','transparent') // Removing stroke for cleaner look
+        .transition()
+        .attr('y', getYPos)
+        .attr("x",10)
+        .attr("opacity",0.80) // Increased opacity slightly
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+
+        // --- 2. Position Rects (posRects) ---
+        posRects = interactive_chart.selectAll(".posRect")
+        .data(data, function(d) { return d.uid; }) 
+        
+        const posRectWidth = 25; // Define position box width
+
+        // EXIT
+        posRects.exit()
+        .transition()
+        .attr("x", -50)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // ENTER
+        const posRectsEnter = posRects.enter()
+        .append("rect")
+        .attr("class","posRect racerEl")
+        .attr("rx", 5)
+        .attr("ry", 5)
+        .attr("x", -50)
+        .attr('y', getYPos)
+        .attr("width",posRectWidth)
+        .attr("height",getRowHeight)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        posRectsEnter.merge(posRects)
+        .transition()
+        .attr('y', getYPos) 
+        .attr("x", 10) // Start at 10, right after margin
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+        
+        
+        // --- 3. Racer Position Text (posText) ---
+        posText = interactive_chart.selectAll(".posText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        posText.exit()
+        .transition()
+        .attr("x", -50 )
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // ENTER
+        const posTextEnter = posText.enter()
+        .append('text')
+        .attr('class','posText racerEl')
+        .attr('dx',"0em")
+        .attr('dy',"0em")
+        .attr("x", -50)
+        .attr('y', getYPos) 
+        .attr('font-size','20px')
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        posTextEnter.merge(posText)
+        .text(function(d){ return d.pos})
+        .transition()
+        .attr('y',function(d){
+            // Center in the band: getYPos(d) gets the top, then add half the band height
+            return getYPos(d) + halfBand + 1; // +1px for minor baseline adjustment
+        }) 
+        .attr("x", 10 + posRectWidth / 2) // Center in the posRect
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+        
+        
+        // --- 4. Racer Color Rect (colRect) ---
+        colRect = interactive_chart.selectAll(".colRect")
+        .data(data, function(d) { return d.uid; }) 
+
+        const colRectX = 40; // New X position for color rect (10 + 25 + 5 padding)
+        const colRectWidth = 6;
+        const colRectHeight = getRowHeight() * 0.8;
+        const colRectYOffset = (getRowHeight() - colRectHeight) / 2;
+
+        // EXIT
+        colRect.exit()
+        .transition()
+        .attr("x", -50)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove()
+
+        // ENTER
+        const colRectEnter = colRect.enter()
+        .append('rect')
+        .attr("class","colRect racerEl")
+        .attr("x", -50)
+        .attr("opacity",0)
+        .attr('y', (d) => getYPos(d) + colRectYOffset)
+        .attr("width",colRectWidth)
+        .attr("height",colRectHeight);
+
+        // MERGE (Update & Transition)
+        colRectEnter.merge(colRect)
+        .attr("fill",function(d){
+            return "#"+d.primary_color
+        })
+        .attr('stroke-width',1)
+        .attr('stroke',function(d){
+             return "#"+d.tertiary_color
+        })
+        .transition()
+        .attr('y', (d) => getYPos(d) + colRectYOffset) 
+        .attr("x", colRectX )
+        .attr("opacity",1)  
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        
+        // --- 5. Racer Tag (tagText) ---
+        tagText = interactive_chart.selectAll(".tagText")
+        .data(data, function(d) { return d.uid; })
+        
+        const tagTextX = colRectX + colRectWidth + 5; // New X position (40+6+5 = 51)
+
+        // EXIT
+        tagText.exit()
+        .transition()
+        .attr("x", -50)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // ENTER
+        const tagTextEnter = tagText.enter()
+        .append('text')
+        .attr('class','tagText racerEl')
+        .attr('id','tagText')
+        .attr("x", -50)
+        .attr("opacity",0)
+        .attr('y', getYPos)
+        .attr('dy',"0em")
+        .attr('font-size','17px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'start')
+        .attr('alignment-baseline', 'central');
+
+        // MERGE (Update & Transition)
+        tagTextEnter.merge(tagText)
+        .text(function(d){
+            return d.tag})
+        .transition()
+        .attr('y', (d) => getYPos(d) + halfBand + 1)
+        .attr("x", tagTextX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        
+        // --- 6. Last Lap Time (lastLapText) ---
+        lastLapText = interactive_chart.selectAll(".lastLapText")
+        .data(data, function(d) { return d.uid; })
+
+        const lastLapX = 160; // New X position for better separation
+
+        // EXIT
+        lastLapText.exit()
+        .transition()
+        .attr("x", chartSettings.width + 10)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // ENTER
+        const lastLapTextEnter = lastLapText.enter()
+        .append('text')
+        .attr('class','lastLapText racerEl')
+        .attr("x", chartSettings.width + 10)
+        .attr('y', getYPos)
+        .attr("opacity",0)
+        .attr('dy',"0em")
+        .attr('font-size','17px')
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central');
+
+        // MERGE (Update & Transition)
+        lastLapTextEnter.merge(lastLapText)
+        .text(function(d){ return d.lastLap})
+        .attr('fill',function(d){
+            // Color blue if lastLap equals bestLap
+            return d.lastLap === d.bestLap ? 'var(--brand-sub-accent)' : 'var(--brand-text)'
+        })
+        .transition()
+        .attr('y', (d) => getYPos(d) + halfBand + 1) 
+        .attr("x", lastLapX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+
+        // --- 7. Best Lap Time (bestLapText) ---
+        bestLapText = interactive_chart.selectAll(".bestLapText")
+        .data(data, function(d) { return d.uid; })
+        
+        const bestLapX = 250; // New X position, close to the right edge
+
+        // EXIT
+        bestLapText.exit()
+        .transition()
+        .attr("x", chartSettings.width + 10)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // ENTER
+        const bestLapTextEnter = bestLapText.enter()
+        .append('text')
+        .attr('class','bestLapText racerEl')
+        .attr("x", chartSettings.width + 10)
+        .attr('y', getYPos)
+        .attr("opacity",0)
+        .attr('dy',"0em")
+        .attr('font-size','17px')
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central');
+
+        // MERGE (Update & Transition)
+        bestLapTextEnter.merge(bestLapText)
+        .text(function(d){ return d.bestLap})
+        .attr('fill',function(d){
+            // Color purple/cyan if it is the overall best lap time of the race
+            const racerTimeMs = timeToMs(d.bestLap);
+            return racerTimeMs === overallBestLapMs ? 'var(--brand-accent)' : 'var(--brand-text)'
+        })
+        .transition()
+        .attr('y', (d) => getYPos(d) + halfBand + 1) 
+        .attr("x", bestLapX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        // --- 8. Secondary Color Triangle (secondary) ---
+        var lineGenerator = d3.line()
+                    .x(function(d) { return d[0]})
+                    .y(function(d) { return d[1] });
+        
+        function triangleGenerator(d){
+            // Position the triangle at the bottom corner of the Tag/Color column
+            const baseX = tagTextX + 35; 
+            const posY = getYPos(d) + getRowHeight() * 0.7; // Start low in the row
+            const height = getRowHeight() * 0.3; // Small triangle
+            const width = 8;
+            
+            return [ 
+                [baseX, posY],                  
+                [baseX + width, posY],                 
+                [baseX, posY + height]                 
+            ];
+        }
+        
+        secondary = interactive_chart.selectAll(".secondary")
+        .data(data, function(d) { return d.uid; }) 
+
+        secondary.enter()
+        .append("path")
+        .attr("class","secondary racerEl")
+        .attr("d", function(d) { return lineGenerator(triangleGenerator(d));})
+        .attr("fill",function(d){
+            return "#"+d.secondary_color
+        })
+        .attr('stroke','transparent') // Removing stroke for cleaner look
+        .attr("opacity",0)
+        .transition()
+        .attr("opacity",1)  
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        secondary.transition()
+        .attr("d", function(d) {
+             return lineGenerator(triangleGenerator(d));})
+        .attr("fill",function(d){
+            return "#"+d.secondary_color 
+        })
+        .attr("opacity",1)  
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        secondary.exit()
+        .transition()
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove()
+
+        // NOTE: Removed `all_elements.push(...)` as it is not needed for D3 joins and transitions.
+    }
+
+    </script>
+    <script> 
+    var socket = io.connect('http://' + document.domain + ':' + location.port);
+    // ... (socket functions omitted for brevity, assumed to be the same as the last overhaul)
+    socket.on( 'connect', function() {
+      socket.emit( 'getRace', { data: 'getRace' } )
+    })
+     
+    socket.on( 'raceData', function( data ) {
+        data = data['realtime_data']
+        smarl_data = data.filter(function(d,i){return (Number(d.pos) <= 16 && Number(d.pos) != 0)} )
+        smarl_data.sort((a, b) => Number(a.pos) - Number(b.pos)); // Ensure data is sorted
+        
+      if (smarl_data.length > 0 && !boardCreated){
+        initialize(smarl_data)
+      } else if(smarl_data.length > 0 && boardCreated){
+          updateGraphic(smarl_data)
+      }else{
+          console.log("No data yet??")
+      }
+        function initialize(data){
+                createBoard(data);
+        }
+        function updateGraphic(data){
+            reloadGraphic(data)
+        }
+    })
+    </script>
+
+{% endblock %}

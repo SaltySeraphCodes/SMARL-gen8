@@ -1,0 +1,278 @@
+/*
+    File: static/css/stream_brand.css
+    Global Styles for ALL SMARL Overlays (D3/SVG and HTML/DOM)
+*/
+
+/* ---------------------------------- */
+/* 1. BRANDING COLOR/FONT VARIABLES */
+/* ---------------------------------- */
+:root {
+    /* --- COLOR PALETTE --- */
+    --brand-main: #FF4500;     /* Primary Brand/Accent (OrangeRed - Used for Borders/Headers) */
+    --brand-main-faint: rgba(255, 69, 0, 0.2); /* Faint version for subtle background fills */
+    
+    --brand-text: #FFFFFF;     /* General Text/Outline Color (White) */
+    --brand-text-dark: #222222; /* Dark text for contrast against light backgrounds (e.g., Position boxes) */
+    
+    --brand-accent: #00FFFF;   /* Secondary Highlight/Action Color (Cyan/Teal - Used for Best Lap/Stats) */
+    --brand-sub-accent: #3c87c9; /* Tertiary Highlight/Blue (Used for Last Lap = Best Lap) */
+
+    --brand-dark: rgba(0, 0, 0, 0.9); /* Opaque Dark Base/Box Background */
+    --brand-dark-transparent: rgba(0, 0, 0, 0.7); /* Standard Box Background (with transparency) */
+    
+    /* D3/SPLIT SPECIFIC VARIANTS */
+    --split-bg-fill: var(--brand-dark-transparent); /* Background for alternating rows/boxes */
+    --best-lap-fill: var(--brand-accent); /* Color for Overall Best Lap status */
+
+    /* --- RACE STATUS INDICATOR COLORS --- */
+    --status-racing: #38b000;       /* Green Flag */
+    --status-caution: #FFD700;      /* Yellow Flag */
+    --status-finished: #FFFFFF;     /* Checkered Flag / Final Lap */
+    --status-pre-race: var(--brand-dark); /* Formation Lap / Neutral */
+
+    /* --- TYPOGRAPHY --- */
+    --brand-font-primary: 'Arial', sans-serif, monospace; 
+    --brand-font-mono: 'Roboto Mono', monospace;
+    --brand-font-header: 'Russo One', sans-serif, monospace; /* Recommended: Google font with impact */
+    
+    /* --- MEASUREMENTS --- */
+    --border-radius-default: 8px; /* Slightly larger radius for a modern feel */
+    --border-radius-small: 4px;
+    --ticker-height: 35px; 
+}
+
+
+/* ---------------------------------- */
+/* 2. BASE STYLES (Applies to all overlays) */
+/* ---------------------------------- */
+body {
+    background-color: transparent !important; 
+    color: var(--brand-text);
+    font-family: var(--brand-font-primary);
+    margin: 0;
+    padding: 0;
+    overflow: hidden; 
+    -webkit-font-smoothing: antialiased;
+}
+
+
+/* ---------------------------------- */
+/* 3. D3/SVG STYLES (Used by all D3 components: Combo, Splits, Focus) */
+/* ---------------------------------- */
+
+/* General Text Styles */
+.headerText { 
+    font-family: var(--brand-font-header); 
+    font-size: 35px; 
+    fill: var(--brand-text); /* Use fill for SVG text */
+    text-shadow: 
+        -1px -1px 2px #000000,
+        1px 1px 2px #000000;
+}
+
+.labelText, .lapText { /* Grouping all secondary texts */
+    font-family: var(--brand-font-primary); 
+    fill: var(--brand-text); 
+    font-size: 30px; 
+    font-weight: bold;
+    stroke-width: 0.5px;
+    stroke: #000000;
+}
+
+.tagText {
+    font-family: var(--brand-font-mono); 
+    fill: var(--brand-text); 
+    font-size: 35px; 
+    font-weight: bold;
+    stroke-width: 0px;
+    stroke: #000000;
+    text-shadow: 
+        -2px -2px 2px #000000b0,  /* Dark shadow up-left */
+        2px -2px 2px #000000b0,   /* Dark shadow up-right */
+        -2px 2px 2px #000000b0,   /* Dark shadow down-left */
+        2px 2px 2px #000000b0;    /* Dark shadow down-right */
+
+}
+
+
+/* Target all text elements in the racer data rows */
+.racerEl text {
+    /* Subtle outline for better definition against complex backgrounds */
+    text-shadow: 
+        -1px -1px 1px #000000b0,  /* Dark shadow up-left */
+        1px -1px 1px #000000b0,   /* Dark shadow up-right */
+        -1px 1px 1px #000000b0,   /* Dark shadow down-left */
+        1px 1px 1px #000000b0;    /* Dark shadow down-right */
+}
+
+/* Override the posText, since it's on a solid background box */
+.posText {
+    text-shadow: none !important; 
+}
+
+.deltaText { 
+    font-weight: 400;
+ }
+
+/* Background/Container Elements */
+.bgRect { 
+    fill: var(--split-bg-fill); 
+    /* Use D3 transitions for border-radius on SVG rects if needed, or apply via CSS where possible */
+}
+
+/* Position Box (the small rect around '1st', '2nd', etc.) */
+.posRect { 
+    fill: var(--brand-text); /* White/Light Background */
+    stroke: var(--brand-dark); 
+    stroke-width: 2px;
+}
+.posText { 
+    fill: var(--brand-text-dark); /* Dark text inside the light box */
+    font-family: var(--brand-font-header); 
+    font-weight: 700;
+}
+
+/* Separator Line */
+.sepLine { 
+    stroke: var(--brand-main); 
+    stroke-width: 3px;
+}
+
+/* Specific Lap Time Colors */
+.lastLapText {
+    /* Base color is brand-text, overridden by JS D3 transition/fill */
+    font-weight: 700;
+}
+.bestLapText {
+    /* Base color is brand-text, overridden by JS D3 transition/fill */
+    font-weight: 700;
+}
+
+.gapText {
+     font-weight: 400; 
+}
+
+/* ---------------------------------- */
+/* 4. HTML COMPONENT STYLES (For non-D3 HTML elements) */
+/* ---------------------------------- */
+.ticker-separator {
+    /* Use the main brand accent color, or a neutral white, for the pipe */
+    color: var(--brand-main); 
+    /* Prevent the color from bleeding into the surrounding spaces */
+    padding: 0; 
+    margin: 0;
+}
+
+.overlay-box {
+    background: var(--brand-dark);
+    border: 3px solid var(--brand-main);
+    padding: 8px 15px;
+    border-radius: var(--border-radius-default);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6); 
+    text-shadow: 1px 1px 2px #000;
+}
+
+/* ---------------------------------- */
+/* 5. MAP DISPLAY STYLES */
+/* ---------------------------------- */
+.chart-line {
+    /* Primary track path */
+    stroke: var(--brand-text);
+    stroke-opacity: 0.7;
+    stroke-width: 45;
+}
+
+/* NOW PLAYING */
+#now-playing-container {
+    position: absolute;
+    top: 20px; 
+    left: 20px;
+    font-size: 20px;
+    display: flex;
+    align-items: baseline;
+    padding: 5px 10px;
+    background: var(--brand-dark-transparent);
+    border-radius: var(--border-radius-small);
+}
+#np-prefix {
+    color: var(--brand-accent);
+    margin-right: 5px;
+    font-family: var(--brand-font-header);
+}
+#song-title { font-weight: bold; color: var(--brand-text); margin-right: 5px; }
+#song-artist { font-style: italic; font-size: 0.8em; color: #ccc; }
+
+
+/* RACE STATUS PANEL */
+#race-status-panel {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    gap: 15px;
+    padding: 5px;
+}
+.status-item {
+    font-size: 18px;
+    text-align: right;
+    border-left: 3px solid var(--brand-main); /* Use main brand color */
+    padding-left: 10px;
+}
+#racer-count-value { 
+    color: var(--brand-accent);
+    font-size: 1.2em;
+    font-family: var(--brand-font-header);
+}
+#status-text {
+    font-family: var(--brand-font-header);
+}
+
+/* STATS TICKER */
+
+
+
+#stats-ticker {
+    position: absolute;
+    bottom: 0px; 
+    width: 100%;
+    height: var(--ticker-height); 
+    border-top: 3px solid var(--brand-main);
+    background: var(--brand-dark);
+    overflow: hidden; 
+    line-height: var(--ticker-height); 
+}
+
+/* NEW: Ticker Wrapper - The element that will be animated */
+#ticker-wrapper {
+    /* Must be larger than the content to accommodate the whole animation */
+    /* Width will be set dynamically in JS if we stick to the old method, 
+       but let's use the simplest CSS trick:
+    */
+    display: inline-block; /* Allows width to be set by content */
+    white-space: nowrap;
+    animation: ticker-roll linear infinite;
+    animation-duration: 90s; /* Overwritten by JS */
+}
+/* Ticker Content (Now just displays text) - Get rid of 'position: absolute' */
+#ticker-content {
+    /* REMOVE: position: absolute; */
+    white-space: nowrap; /* Correct */
+    font-size: 24px;
+    padding: 0 10px;
+    /* REMOVE: animation-related properties */
+    display: inline-block; /* Allow it to wrap the content */
+    font-family: var(--brand-font-header);
+    color: var(--brand-text);
+}
+
+/* Continuous roll animation DEFINED HERE */
+@keyframes ticker-roll {
+    /* 🟢 Fix: Start fully off screen */
+    0% { transform: translateX(100vw); } /* Start one viewport width to the right */
+    
+    /* 🟢 Fix: End after scrolling 100% of the content's width plus the screen width */
+    /* This calculation is still tricky in pure CSS for multi-repeated content. 
+       Let's stick to the simpler percentage-based trick and calculate duration in JS.
+    */
+    100% { transform: translateX(-100%); } /* Scroll left by the wrapper's full width */
+}

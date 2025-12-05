@@ -1,0 +1,104 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+SMARL Dashboard
+{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
+
+<style>
+/* ----------------------------------------------------
+ * REFINED DASHBOARD GRID LAYOUT (8 Overlays)
+ * ---------------------------------------------------- */
+#smarl-dash-container {
+    display: grid;
+    /* Defines 3 columns for the main content:
+     * - Col 1: Map (700px)
+     * - Col 2: Vertical Stack (350px)
+     * - Col 3: Timing / Intro (700px)
+     */
+    grid-template-columns: 700px 350px 700px; 
+    grid-template-rows: repeat(4, auto); /* 4 Flexible rows */
+    gap: 15px; 
+    width: 100vw;
+    height: 100vh;
+    padding: 15px;
+    box-sizing: border-box;
+    background-color: var(--brand-dark);
+}
+
+/* --- LARGE PANELS (Rows 1 & 2) --- */
+#map-frame { 
+    grid-area: 1 / 1 / 3 / 2; /* Spans rows 1 & 2, column 1 (700x700) */
+    width: 700px; 
+    height: 700px;
+}
+#timing-frame {
+    grid-area: 1 / 3 / 3 / 4; /* Spans rows 1 & 2, column 3 (700x700) */
+    width: 700px; 
+    height: 700px;
+}
+
+/* --- CENTRAL STACK (Column 2) --- */
+#split-frame {
+    grid-area: 1 / 2 / 2 / 3; /* Row 1, Column 2 */
+    width: 350px; 
+    height: 250px; /* Reduced height to fit 4 elements vertically */
+}
+#combo-frame {
+    grid-area: 2 / 2 / 3 / 3; /* Row 2, Column 2 */
+    width: 350px;
+    height: 250px; /* Reduced height */
+}
+#finish-frame { 
+    grid-area: 3 / 2 / 4 / 3; /* Row 3, Column 2 */
+    width: 350px;
+    height: 250px; /* Reduced height */
+}
+#season-frame { 
+    grid-area: 4 / 2 / 5 / 3; /* NEW: Row 4, Column 2 (Bottom of the stack) */
+    width: 350px;
+    height: 250px; /* Standardized height */
+}
+
+/* --- WIDE INTRO BOARD (Row 3 & 4 of Col 1/3) --- */
+#intro-frame {
+    grid-area: 3 / 1 / 5 / 2; /* NEW: Spans rows 3 & 4, Column 1 - Replaces map's space */
+    width: 700px;
+    height: 515px; /* Fits the remaining space below the Map */
+}
+
+/* --- WIDE FOCUS BAR (Below everything, Row 5) --- */
+#focus-frame {
+    /* We must adjust the grid rows and column span, let's place it at the very bottom */
+    grid-area: 5 / 1 / 6 / 4; /* New Row 5 (Implicit), spanning all 3 columns */
+    width: 1780px; 
+    height: 120px;
+}
+
+
+/* Base styling for all overlay IFrames (KEPT) */
+.overlay-iframe {
+    border: none;
+    background-color: var(--brand-dark-transparent); 
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); 
+}
+</style>
+    
+<div id="smarl-dash-container">
+    <iframe id="map-frame" class="overlay-iframe" src="{{url_for('smarl_map_display')}}" title="Live Race Map"></iframe>
+    <iframe id="timing-frame" class="overlay-iframe" src="{{url_for('smarl_split_board')}}" title="Racing Splits"></iframe>
+
+    <iframe id="split-frame" class="overlay-iframe" src="{{url_for('smarl_split_board')}}" title="Racing Splits"></iframe>
+    <iframe id="combo-frame" class="overlay-iframe" src="{{url_for('smarl_combo_board')}}" title="Lap Analysis"></iframe>
+    <iframe id="finish-frame" class="overlay-iframe" src="{{url_for('smarl_finish_display')}}" title="Race Results"></iframe>
+    <iframe id="season-frame" class="overlay-iframe" src="{{url_for('tarl_season_board')}}" title="Season Standings"></iframe>
+
+    <iframe id="intro-frame" class="overlay-iframe" src="{{url_for('tarl_intro_board')}}" title="Race Introduction"></iframe>
+    
+    <iframe id="focus-frame" class="overlay-iframe" src="{{url_for('smarl_focused_board')}}" title="Driver Info"></iframe>
+</div>
+
+<script type="text/javascript">
+ // ... (Socket and initialization logic remains the same) ...
+</script>
+{% endblock %}

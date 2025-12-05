@@ -1,0 +1,16 @@
+{
+    "status": "Stopped",
+    "race_timer_information": "WAITING FOR RACERS",
+    "racer_count": "0/16",
+    "entries_status": "ENTRIES OPEN - 16 SLOTS LEFT",
+    "current_song": {
+        "title": "geodesis",
+        "artist": "dreem"
+    },
+    "stats_ticker": [
+        "Current Track Record: 01:17.094 by ccscrapracingleague",
+        "Last Race Winner: N/A",
+        "Next Race Approximate Start: TBA",
+        "Total Entrants This Season: 16"
+    ]
+}

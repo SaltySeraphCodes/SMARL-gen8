@@ -1,0 +1,880 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+Smarl Season Display
+{% endblock %}
+{% block content %}
+<div id="lapDisplay">
+</div>
+	<script>	
+		// Displays the results of the season according to the last racer
+	var boardCreated = false;	
+	function reloadChart(){
+		d3.select("#lapDisplay").selectAll("svg").remove();
+		reloadGraphic();
+	}
+
+	function reloadGraphic(data){
+		drawData(data);
+	}
+	// Global chart element vars
+	// data helpers
+	var yScale;
+	var labelScale;
+	var xScale;
+	var chart_area;
+	var interactive_chart;
+	var chartSettings;
+
+	// Visible elements
+	var racerBG; // The background squares that contain the data
+	var posRects;
+
+	var all_elements = []
+
+	function createBoard(data) {
+		boardCreated = true
+		
+		totalCars = data.length // Find out somehow
+		console.log("tcars",totalCars,data)
+		var labelList = ['P', 'Racer', '#Wins', '#Podiums','Points'] // Arrow to show position changes??
+		chartSettings = { width: 1920, height: 1080, margin: {left: 300, right:600, top: 0, bottom:50}}
+		//Scales
+		xScale = d3.scaleLinear()
+			.domain([0,chartSettings.width])
+			.range([chartSettings.margin.left,chartSettings.width - chartSettings.margin.right]);
+		labelScale=d3.scaleLinear()
+			.domain([0,labelList.length-1.5])
+			.range([chartSettings.margin.left,chartSettings.width - chartSettings.margin.right]);
+
+		yScale = d3.scaleLinear()
+			.domain([0,totalCars +1])// Total cars racing
+			.range([chartSettings.margin.top + 100,chartSettings.height - chartSettings.margin.bottom]); // May need to reverse...
+			//.domain([d3.max(data, function(d){return d['total_trades']}),0])
+		
+			//.range([0,chartSettings.height - chartSettings.margin.top]);
+
+		chart_area = d3.select("#lapDisplay").append("svg")
+			.attr('width', chartSettings.width)
+			.attr('height',chartSettings.height)
+		interactive_chart = chart_area.append('g')
+		
+		var bgRect = interactive_chart.append('rect')
+		.attr("x",chartSettings.margin.left)
+		.attr('y',chartSettings.margin.top)
+		.attr("rx",5)
+		.attr('ry',5)
+		.attr('width',chartSettings.width - chartSettings.margin.right)
+		.attr('height',0)
+		.attr('opacity',0)
+		.attr('fill','light-grey')
+		.transition()
+		.attr('height',chartSettings.height - chartSettings.margin.bottom)
+		.attr("opacity",0.99)
+		.duration("{{properties.transition_short}}")
+
+
+		var imageSize = 230
+		var smarlLogo = interactive_chart.append('image')
+		.attr('xlink:href', "{{url_for('static', filename='images/SMARLLOGO3.png')}}")
+		.attr('x',xScale(0))
+		.attr('y',22 + chartSettings.margin.top - imageSize/2)
+		.attr('opacity',0)
+	 	.attr('width', imageSize)
+		.attr('height', imageSize + 50)
+		.transition()
+		.delay(1000)
+		.attr('opacity',1)
+		.duration(1500)
+
+		//Header
+		var leagueTitle = "{{raceData.leagueTitle}}"
+		var header = interactive_chart.append("text")
+		.attr('class','headerText')
+		.attr("x", chartSettings.width/2)
+		.attr("y", -100 )
+		.attr("opacity",0)
+		.text(leagueTitle+" Standings") // TODO: make dynamic or make sure to change before races
+		.attr('text-anchor', 'middle')
+		.attr('alignment-baseline', 'central')
+		.attr('font-family',"sans-serif")
+		.attr('font-weight',"bold")
+		.attr('font-size','55px')
+		.attr('fill','white')
+		.transition()
+		.attr("y", chartSettings.margin.top + 55 )
+		.attr("opacity",1)
+		.duration(1400)
+
+		// Label BGs
+		labelRects = interactive_chart.selectAll(".labelRect")
+		.data(labelList)
+
+		labelRects.enter()
+		.append("rect")
+		.attr("class","labelRect titleEl")
+		.attr("rx", 7)
+		.attr("ry", 7)
+		.attr("x", function(d,i){
+			return labelScale(i) + 3
+			var labelLen = d.length
+			var pos = (i*200) +5
+			if (i>0){
+				lastLen = labelList[i-1].length
+				lastWidth =lastLen * 40
+				lastPos = (i-1)*200+10 
+				curPos = i*200 +5
+				pos = (lastPos + lastWidth)   // set padding?
+				console.log("lastWidth",d,labelList[i-1],lastWidth,lastPos)
+			}
+			return xScale(pos)	
+		})
+		.attr("y",chartSettings.margin.top-20)
+		.attr("width",function(d,i){
+			var labelLen = d.length ;
+			var multi = 12;
+			if (labelLen < 3) {
+				return 3 *multi
+				//console.log("setting 2",d)
+			}
+			if (labelLen < 5 && labelLen >=3) {
+				return 5 *  multi
+				//console.log("setting 5", d)
+			}
+			if (labelLen > 8) {
+				return 9 * multi
+			}
+			return labelLen * multi
+		})
+		.attr("height",40)
+		.attr("fill",'#C0C0C0')
+		.attr('stroke','white')
+		.attr("opacity",0)
+		.transition()
+		.attr("y", chartSettings.margin.top +90)
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+		
+		labelRects.transition()
+		.duration("{{properties.transition_longer}}")
+	
+		
+		labelRects.exit()
+		.transition()
+		.attr("y",yScale(-100))
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+
+		// Title labes
+
+		var labels= interactive_chart.selectAll(".labelText")
+		.data(labelList)
+
+
+		labels.enter()
+		.append('text')
+		.attr('class', 'labelText')
+		.attr("x", function(d,i){
+			var offset = 0
+			if (d == 'P'){
+				offset = -3
+			} else if ( d == 'Racer'){
+				offset = -9;
+			} else if (d == '#Wins'){
+				offset = -9;
+			} else if (d == '#Podiums'){
+				offset = -9;
+			} else if (d == '#FL'){
+				offset = -2;
+			} else if (d == 'Points'){
+				offset = -6
+			} else if (d == 'Sponsor'){
+				offset = -7
+			}
+			return	labelScale(i) + offset
+		})
+		.attr("y",chartSettings.margin.top-20)
+		.attr('dx',"1em")
+		.attr('dy',"1.5em")
+		.attr("opacity",0)
+		.text(function(d,i){
+			return d
+		})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','18px')
+		.attr('font-weight',"bold")
+		.attr('fill','black')
+		.transition()
+		.attr("y", chartSettings.margin.top +90)
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+
+		// Separator line
+		var sepLine = interactive_chart.append("line")
+		.attr("x1", chartSettings.margin.left)
+		.attr("y1", chartSettings.margin.top +135)
+		.attr("x2", chartSettings.width - chartSettings.margin.left)
+		.attr("y2", chartSettings.margin.top +135)
+		.attr('stroke-width',3)
+		.attr("stroke",'white')
+		.transition()
+		.attr("opacity",1)
+		.duration("{{properties.transition_long}}")
+		drawData(data)
+	}
+	function drawData(data){
+		// bgRect
+		totalCars = data.length
+		console.log("tcars2",data)
+		yScale.domain([0,totalCars +1])// Total cars racing
+			  .range([chartSettings.margin.top + 100,chartSettings.height - chartSettings.margin.bottom]); // May need to reverse...
+			
+		// Bckground rects
+		racerBG = interactive_chart.selectAll(".bgRect")
+		.data(data)
+		
+		// Enter
+		racerBG.enter()
+		.append("rect")
+		.attr("class","bgRect racerEl")
+		.attr('rx',3)
+		.attr('ry',3)
+		.attr("x",xScale(10))
+		.attr("y",function (d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			//console.log("bg?",d['racer_rank'],i,bg)
+			return yScale( bg)  + 320
+		})
+		.attr("opacity",0)
+		.attr("width",chartSettings.width- chartSettings.margin.right - 13)
+		.attr("height",30)
+		.attr("fill",function(d,i){
+			var color = '#663399'
+			color = 'black'; // Possibly do something with positions here?
+			return color
+		})
+		.attr('stroke','white')
+		.transition()
+		.attr("x",xScale(10))
+		.attr("opacity",0.25)
+		.attr("y",function (d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+		.duration("{{properties.transition_longer}}")
+
+		//Transition update
+		racerBG.transition()
+		.attr("y",function (d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+		.attr("x",xScale(10))
+		.attr("opacity",0.25)
+		.duration("{{properties.transition_longer}}")
+		.attr("fill",function(d,i){
+			var color = 'black'
+			return color
+		})
+
+		racerBG.exit()
+		.transition()
+		.attr("x",xScale(3000))
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+
+
+		all_elements.push(racerBG)
+
+		//Racer Positions
+		posRects = interactive_chart.selectAll(".posRect")
+		.data(data)
+
+		posRects.enter()
+		.append("rect")
+		.attr("class","posRect racerEl")
+		.attr("rx", 7)
+		.attr("ry", 7)
+		.attr("x",xScale(505))
+		.attr("y",function (d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+		.attr("width",40)
+		.attr("height",30)
+		.attr("fill",'white')
+		.attr('stroke','black')
+		.attr("opacity",0)
+		.transition()
+		.attr("x",labelScale(0))
+		.attr("y",function (d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+		
+		posRects.transition()
+		.attr("y",function (d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+		.attr("x",labelScale(0))
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+	
+		
+		posRects.exit()
+		.transition()
+		.attr("x",xScale(205))
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+		
+		all_elements.push(posRects)
+
+		// Racer Position Text
+		posText = interactive_chart.selectAll(".posText")
+		.data(data)
+
+		posText.enter()
+		.append('text')
+		.attr('class','posText racerEl')
+		.attr("x", xScale(500))
+		.attr("y",function (d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+		.attr('dx',".3em")
+		.attr('dy',".5em")
+		.text(function (d,i){
+			return d['racer_rank']
+		})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','20px')
+		.attr('font-weight','bold')
+		.attr('fill','black')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.attr("opacity",0)
+		.transition()
+		.attr("x",function(d,i){
+			var xOffset = 12
+			if (d['racer_rank'] > 9){
+				xOffset = 0
+			}
+			 return xScale(xOffset)
+		})
+		.attr("y",function (d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) -3
+		})
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+
+		posText.transition()
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) -3
+		}) 
+		.text(function (d,i){
+			return d['racer_rank']
+		})
+		.attr("x",function(d,i){
+			var xOffset = 12
+			if (d['racer_rank'] > 9){
+				xOffset = 0
+			}
+			 return xScale(xOffset)
+		})
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+		
+		posText.exit()
+		.transition()
+		.attr("x",xScale(2215) )
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+		
+		
+		all_elements.push(posText)
+
+		// Racer name text -- Willkeep here but uneeded, i really need tag and color
+		nameText = interactive_chart.selectAll(".nameText")
+		.data(data)
+
+		nameText.enter()
+		.append('text')
+		.attr('class','nameText racerEl')
+		.attr("x", xScale(1900))
+		.attr("opacity",0)
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+		.attr('dx',"-1em")
+		.attr('dy',"0.5em")
+		.text(function(d,i){ return d['name']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','20px')
+		.attr('fill','white')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.transition()
+		.attr("x",labelScale(1) -70 )
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+     		.delay(1000)
+
+		nameText.transition()
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		}) 
+		.attr("x",labelScale(1) -70 )
+		.attr("opacity",1)
+		.text(function(d,i){ return d['name']})
+		.duration("{{properties.transition_longer}}")
+
+
+		nameText.exit()
+		.transition()
+		.attr("x",230 )
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+		all_elements.push(nameText)
+		
+		
+		//Racer color - small rect that matches racer color
+		colRect = interactive_chart.selectAll(".colRect")
+		.data(data)
+
+		colRect.enter()
+		.append('rect')
+		.attr("class","colRect racerEl")
+		.attr("x",xScale(1900))
+		.attr("opacity",0)
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) +2
+		})
+		.attr("width",60)
+		.attr("height",25)
+		.attr("fill",function(d,i){
+			colors = d['colors'];
+			sep_colors = colors.split(",");
+			return "#"+sep_colors[0]
+		})
+		.attr('stroke',function(d,i){
+			colors = d['colors'];
+			sep_colors = colors.split(",");
+			return "#"+sep_colors[2]})
+		.attr('stroke-width',1)
+		.transition()
+		.attr("x",xScale(110))
+		.attr("opacity",1)	
+		.duration("{{properties.transition_longer}}")
+     		.delay(1000)
+
+		colRect.transition()
+		.attr("fill",function(d,i){
+			colors = d['colors'];
+			sep_colors = colors.split(",");
+			return "#"+sep_colors[0]
+		})
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) +2
+		}) 
+		.attr("x",xScale(110))
+		.attr("opacity",1)	
+		.duration("{{properties.transition_longer}}")
+
+		colRect.exit()
+		.transition()
+		.attr("x",xScale(1900))
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+
+		all_elements.push(colRect)
+	//Racer secondary color - small triangle/corner that represents racer's secondary color
+	var lineGenerator = d3.line()
+                    .x(function(d) { return xScale(d[0]) + 86 })
+                    .y(function(d) { return d[1] });
+		
+		function triangleGenerator(posY,width,height){
+			return [ [0,posY], [width,posY], [width,posY + height]]
+		}
+		
+		//var triangle = lineGenerator() 
+		secondary = interactive_chart.selectAll(".secondary")
+		.data(data)
+		secondary.enter()
+		.append("path")
+		.attr("d", function(d,i) {
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			var triangleP = triangleGenerator(yScale(bg) + 2,60,25)
+			 return lineGenerator(triangleP);})
+		.attr("class","secondary racerEl")
+		.attr('stroke','black')
+		.attr('stroke-width',1)
+		.attr("opacity",0)
+		
+		.attr("fill",function(d,i){
+			colors = d['colors'];
+			sep_colors = colors.split(",");
+			return "#"+sep_colors[1]
+		})
+		.transition()
+		.attr("x",10)
+		.attr("opacity",1)	
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+		.duration("{{properties.transition_longer}}")
+     		.delay(2000)
+
+		secondary.transition()
+		.attr("d", function(d) {
+
+		var triangleP = triangleGenerator(yScale(d['']) + 8,60,30)
+		return lineGenerator(triangleP);})
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) + 2
+		}) 
+		.attr("x",xScale(1)+50)
+		.attr("fill",function(d,i){
+			colors = d['colors'];
+			sep_colors = colors.split(",");
+			return "#"+sep_colors[1]
+		})
+		.attr("opacity",1)	
+		.duration("{{properties.transition_longer}}")
+
+		secondary.exit()
+		.transition()
+		
+		.attr("x",xScale(1900))
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+
+		all_elements.push(secondary)
+		// #wins
+		numWinsText = interactive_chart.selectAll(".numWinsText")
+		.data(data)
+
+		numWinsText.enter()
+		.append('text')
+		.attr('class','numWinsText racerEl')
+		.attr("x", xScale(2000))
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+		.attr("opacity",0)
+     		.attr('dx',"0em")
+		.attr('dy',".3em")
+		.text(function(d,i){ return d['wins']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','23px')
+		.attr('fill','white')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.transition()
+		.attr("x", labelScale(2)+30)
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+     		.delay(1000)
+
+		numWinsText.transition()
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		}) 
+		.attr("x", labelScale(2)+30)
+		.attr("opacity",1)
+		.text(function(d,i){ return d['wins']})
+		.duration("{{properties.transition_longer}}")
+
+		numWinsText.exit()
+		.transition()
+		.attr("x", xScale(2000))
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+
+		all_elements.push(numWinsText)
+
+		// Num Podiums
+		numPodiumText = interactive_chart.selectAll(".numPodiumText")
+		.data(data)
+		numPodiumText.enter()
+		.append('text')
+		.attr('class','numPodiumText racerEl')
+		.attr('id','numPodiumText')
+		.attr("x", xScale(2000))
+		.attr("opacity",0)
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		})
+     	.attr('dx',"0.5em")
+		.attr('dy',".3em")
+		.text(function(d,i){
+			return d['podiums']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','22px')
+		.attr('fill','white')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.transition()
+		.attr("x",labelScale(3) +40)
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+     		.delay(1000)
+		
+		numPodiumText.transition()
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		}) 
+		.text(function(d,i){
+			return d['Podiums']})
+			.attr("x",labelScale(3) +40)
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+
+		numPodiumText.exit()
+		.transition()
+		.attr("x", xScale(2000))
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+		all_elements.push(numPodiumText)
+		
+		/*// Num fastest laps
+		fastestLapText = interactive_chart.selectAll(".fastestLapText")
+		.data(data)
+
+		fastestLapText.enter()
+		.append('text')
+		.attr('class','fastestLapText racerEl')
+		.attr("x", xScale(2800))
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) 
+		})
+		.attr("opacity",0)
+     	.attr('dx',".5em")
+		.attr('dy',".65em")
+		.text(function(d,i){ 
+			return d['Fastest']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','23px')
+		.attr('fill','white')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.transition()
+		.attr("x", labelScale(4) + 25)
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+     	.delay(1000)
+
+		 fastestLapText.transition()
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) 
+		}) 
+		.text(function(d,i){ 
+			return d['Fastest']})
+		.attr("x", labelScale(4) + 25)
+		.attr("opacity",1)
+		
+		.duration("{{properties.transition_longer}}")
+
+		fastestLapText.exit()
+		.transition()
+		.attr("x", xScale(2000))
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+		all_elements.push(fastestLapText)
+		*/
+
+		
+		// Points Text
+		pointText = interactive_chart.selectAll(".pointText")
+		.data(data)
+
+		pointText.enter()
+		.append('text')
+		.attr('class','pointText racerEl')
+		.attr("x",xScale(2300))
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		}) 
+		.attr('dx',".7em")
+		.attr('dy',".2em")
+		.text(function(d,i){
+			return d['racer_season_points']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','25px')
+		.attr('fill','white')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.attr("opacity",0)
+		.transition()
+		.attr("x",labelScale(4) + 20)
+		.attr("opacity",1)
+		.duration("{{properties.transition_longer}}")
+		.delay(1000)
+
+		pointText.transition()
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg)
+		}) 
+		.attr("x",labelScale(8) +10)
+		.attr("opacity",1)
+		.text(function(d,i){ 
+			return  d['racer_season_points']})
+		.duration("{{properties.transition_longer}}")
+		
+		pointText.exit()
+		.transition()
+		.attr("x",xScale(2300 ))
+		.attr("opacity",0)
+		.duration("{{properties.transition_longer}}")
+		.remove()
+
+		// Sponsor
+		/*
+		var imageSize = 40
+		sponsorLogo = interactive_chart.selectAll(".sponsorImg")
+		.data(data)
+
+		sponsorLogo.enter()
+		.append('image')
+		.attr('class','sponsorImg')
+		
+		.attr('xlink:href', function(d,i){
+			let logo = d['Logo']
+			if (logo == ''){
+				logo = 'empty.png'
+			}
+			let logoURL ="{{url_for('static',filename='images/SponsorImages/')}}"
+			let fullURL = logoURL.concat(logo)
+			return fullURL	
+		})
+		.attr('x',xScale(2300))
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) +3
+		}) 
+		.attr('opacity',0)
+	 	.attr('width', imageSize)
+		.attr('height', imageSize)
+
+		.transition()
+		.attr('x',labelScale(1) + 130)
+		.attr('opacity',1)
+		.delay(1000)
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) +3
+		}) 
+		.duration("{{properties.transition_longer}}")
+
+     	sponsorLogo.transition()
+     	.duration("{{properties.transition_longer}}")
+		.attr('opacity',1)
+		.attr('x',labelScale(1) + 130)
+		.attr('y',function(d,i){
+			let bg = (d['racer_rank'] == 0)? i +1 : d['racer_rank']
+			return yScale(bg) +3
+		}) 
+		.attr('xlink:href', function(d,i){
+			let logo = d['Logo']
+			if (logo == ''){
+				logo = 'empty.png'
+			}
+			let logoURL ="{{url_for('static',filename='images/SponsorImages/')}}"
+			let fullURL = logoURL.concat(logo)
+			return fullURL	
+		})
+
+     		sponsorLogo.exit()
+		.attr('opacity',0)
+		//.duration("{{properties.transition_longer}}")
+		.remove()*/
+	}
+
+	</script>
+	<script> 
+		// loads,parses, and calls all chart creation
+		var smarl_data  = [] 
+	   // Helper functions
+		function findObjectByKey(array, key, value) {
+		  for (var i = 0; i < array.length; i++) {
+			  if (array[i][key] === value) {
+				  return array[i];
+			  }
+		  }
+		  return null;
+		}
+		function findIndexByKey(array, key, value) {
+		  for (var i = 0; i < array.length; i++) {
+			  if (array[i][key] === value) {
+				  return i;
+			  }
+		  }
+		  return null;
+		  }
+	  // SOCKET FUNCTIONS
+		var socket = io.connect('http://' + document.domain + ':' + location.port);
+		socket.on( 'connect', function() {
+		socket.emit( 'getSeason', {
+			data: 'getSeason'
+		} )
+		 
+		socket.on( 'seasonData', function( data ) {
+			console.log("seasonData",data)
+			let currentLeague = "{{raceData.league_id}}"
+			console.log("cur league",currentLeague, "{{raceData}}")
+			let league_data = data.filter(function(racer) { return Number(racer.league_id) === Number(currentLeague); });
+			// Filter data by League
+			console.log("filtering for league",league_data,currentLeague)
+			
+		  if (league_data.length > 0 && !boardCreated){
+				initialize(league_data)
+		  } else if(league_data.length > 0 && boardCreated){
+				updateGraphic(league_data)
+		  }else{
+			  console.log("No data yet??")
+		  }
+		})})
+		function initialize(data){
+			//updateInterval = setInterval(updateGraphic, 1000);
+			createBoard(data);
+		}
+		function updateGraphic(data){
+			// Do whatever too
+			reloadGraphic(data);
+		}
+		
+	
+		$(document).ready(function() {
+			
+		});
+		</script>
+
+{% endblock %}
+

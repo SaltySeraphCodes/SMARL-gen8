@@ -1,0 +1,648 @@
+{
+   "partList" : [
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "0e8031ff",
+         "name" : "smar_driver_controller",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_driver_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_driver_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropZ",
+         "scripted" : {
+            "classname" : "Driver",
+            "filename" : "$MOD_DATA/Scripts/gen7Driver.lua"
+         },
+         "sticky" : "-Y+X-X-Z+Z",
+         "uuid" : "fbc31377-6081-426d-b518-f676840c407c"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "aa80aaff",
+         "name" : "smar_driver_controller",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_driver_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_driver_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropZ",
+         "scripted" : {
+            "classname" : "Driver",
+            "filename" : "$MOD_DATA/Scripts/Gen8/DriverGen8.lua"
+         },
+         "sticky" : "-Y+X-X-Z+Z",
+         "uuid" : "31256788-71fb-4003-a9ca-9e6164a8faa3"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "222222ff",
+         "name" : "smar_engine_controller",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropFull",
+         "scripted" : {
+            "classname" : "Engine",
+            "filename" : "$MOD_DATA/Scripts/gen7Engine.lua"
+         },
+         "uuid" : "42dd8836-3cbb-495c-86b4-44fb9c9916b3"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "222222ff",
+         "name" : "smar_engine_controller",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropFull",
+         "scripted" : {
+            "classname" : "Engine",
+            "filename" : "$MOD_DATA/Scripts/Gen8/EngineGen8.lua"
+         },
+         "uuid" : "74bfdcd7-cfb2-4791-9611-602154eb90dd"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "fefefeff",
+         "name" : "smar_track_generator",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_track_generator_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_track_generator_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropZ",
+         "scripted" : {
+            "classname" : "Generator",
+            "filename" : "$MOD_DATA/Scripts/raceLineGenerator.lua"
+         },
+         "sticky" : "-Z",
+         "uuid" : "5d8f2445-31bb-4079-94ab-dc1df1e6e3ed"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "3efe3eff",
+         "name" : "smar_track_loader",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_track_loader_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_track_loader_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropZ",
+         "scripted" : {
+            "classname" : "Loader",
+            "filename" : "$CONTENT_DATA/Scripts/raceLineLoader.lua"
+         },
+         "sticky" : "-Z",
+         "uuid" : "9f5ce20a-b774-4df9-9b6a-d1993c705138"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "6677ffff",
+         "name" : "smar_downforce",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_downforce_block_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_downforce_block_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropZ",
+         "scripted" : {
+            "classname" : "DownforceBlock",
+            "filename" : "$CONTENT_DATA/Scripts/downforceblock.lua"
+         },
+         "sticky" : "-Z",
+         "uuid" : "ab524867-122b-4f98-990b-67ff6d2e9c5c"
+      },
+      {
+         "box" : {
+            "x" : 3,
+            "y" : 8,
+            "z" : 4
+         },
+         "color" : "eeeeeeff",
+         "flammable" : false,
+         "name" : "obj_interactive_beacon",
+         "physicsMaterial" : "Mechanical",
+         "ratings" : {
+            "buoyancy" : 2,
+            "density" : 3,
+            "durability" : 10,
+            "friction" : 3
+         },
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$SURVIVAL_DATA/Objects/Mesh/interactive/obj_interactive_beacon.fbx",
+                  "minViewSize" : 55,
+                  "pose0" : "$SURVIVAL_DATA/Objects/Mesh/interactive/obj_interactive_beacon_pose0.fbx",
+                  "subMeshMap" : {
+                     "radar" : {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$SURVIVAL_DATA/Objects/Textures/interactive/obj_interactive_beacon_dif.tga",
+                           "$SURVIVAL_DATA/Objects/Textures/interactive/obj_interactive_beacon_asg.tga",
+                           "$SURVIVAL_DATA/Objects/Textures/interactive/obj_interactive_beacon_nor.tga"
+                        ]
+                     },
+                     "radar_uvanim" : {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 1,
+                              "v" : 0.250
+                           }
+                        },
+                        "material" : "PoseUVAnimDifAsg",
+                        "textureList" : [
+                           "$SURVIVAL_DATA/Objects/Textures/interactive/obj_interactive_beaconuvanim_dif.tga",
+                           "$SURVIVAL_DATA/Objects/Textures/interactive/obj_interactive_beaconuvanim_asg.tga",
+                           ""
+                        ]
+                     }
+                  }
+               }
+            ]
+         },
+         "rotationSet" : "PropY",
+         "scripted" : {
+            "classname" : "Control",
+            "data" : {},
+            "filename" : "$MOD_DATA/Scripts/RaceControl.lua"
+         },
+         "sticky" : "-Y+X-X-Z+Z",
+         "uuid" : "011818d5-aead-49d8-aca6-50a33cb88e96"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "22BB55ff",
+         "name" : "smar_check_point",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_check_point_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_check_point_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropY",
+         "scripted" : {
+            "classname" : "CheckPoint",
+            "filename" : "$MOD_DATA/Scripts/CheckPoint.lua"
+         },
+         "sticky" : "-Y+X-X-Z+Z",
+         "uuid" : "e80d963c-3af2-47aa-99d8-365e1569a568"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "a7a602ff",
+         "name" : "smar_camera",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_camera_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_camera_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropZ",
+         "scripted" : {
+            "classname" : "RaceCamera",
+            "filename" : "$CONTENT_DATA/Scripts/RaceCamera.lua"
+         },
+         "sticky" : "-Z",
+         "uuid" : "04caa519-f127-4235-a792-7a83a79afd21"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "ee6f6fff",
+         "name" : "smar_BrakeUnits",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_brakes_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_brakes_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropZ",
+         "scripted" : {
+            "classname" : "BrakeLights",
+            "filename" : "$CONTENT_DATA/Scripts/BrakeLights.lua"
+         },
+         "sticky" : "-Z",
+         "uuid" : "b20d3826-3235-459c-a4c9-ef1438caaed9"
+      },
+      {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "222222",
+         "name" : "smar_pit_point",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_pit_point.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_pit_point.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_point_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_point_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_point_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_point_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_point_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_point_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropY",
+         "scripted" : {
+            "classname" : "PitPoint",
+            "filename" : "$MOD_DATA/Scripts/PitPoint.lua"
+         },
+         "sticky" : "-Y+X-X-Z+Z",
+         "uuid" : "bd16db06-b593-443f-8680-94b01842d067"
+      },
+        {
+         "box" : {
+            "x" : 1,
+            "y" : 1,
+            "z" : 1
+         },
+         "color" : "7744ff",
+         "name" : "smar_pit_box",
+         "physicsMaterial" : "Mechanical",
+         "renderable" : {
+            "lodList" : [
+               {
+                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_pit_box.fbx",
+                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_pit_box.fbx",
+                  "subMeshList" : [
+                     {
+                        "material" : "PoseAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif_nor.tga"
+                        ]
+                     },
+                     {
+                        "custom" : {
+                           "uv0" : {
+                              "u" : 0.166666670,
+                              "v" : 0.16450
+                           }
+                        },
+                        "material" : "UVAnimDifAsgNor",
+                        "textureList" : [
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif_nor.tga"
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         "rotationSet" : "PropY",
+         "scripted" : {
+            "classname" : "PitBox",
+            "filename" : "$MOD_DATA/Scripts/PitBox.lua"
+         },
+         "sticky" : "-Y+X-X-Z+Z",
+         "uuid" : "f3105b84-0577-4d34-93b3-10fa62531f5c"
+      }
+   ]
+}

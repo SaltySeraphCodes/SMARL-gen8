@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="Widget" skin="PanelEmpty" name="BehaviorPanel" position_real="0.27 0.1 0.458203 0.740278">
+        <Widget type="Widget" skin="BackgroundDarkRoundedUpperRight" position_real="0 0 1.00085 0.12758">
+            <Widget type="TextBox" name="Header" skin="TextBox" position_real="0.0868824 0.15 0.7 0.666667">
+                <Property key="Caption" value="Advanced Behavior Control" />
+                <Property key="FontName" value="SM_HeaderLarge_Medium" />
+                <Property key="TextAlign" value="Left VCenter" />
+                <Property key="TextColour" value="0.9 0.9 0.9" />
+            </Widget>
+            <Widget type="ImageBox" skin="ImageBox" position_real="0.028109 0.32549 0.0357752 0.308823">
+                <Property key="ImageTexture" value="gui_mainmenu_icon_options.png" />
+                <Property key="Colour" value="1 0.780392 0.227451" />
+            </Widget>
+            <Widget type="Button" skin="SecondaryButton" name="SaveEdits" position_real="0.7621638 0.304902 0.1839864 0.382353">
+                <Property key="Caption" value="Save" />
+                <Property key="FontName" value="SM_ButtonSmall" />
+                <Property key="TextAlign" value="Center" />
+            </Widget>
+            
+        </Widget>
+        <Widget type="Widget" skin="BackgroundLightRoundedLowerLeft" name="BehaviorOptionsPanel" position_real="0 0.12758 1.00085 0.810507">
+            <Widget type="Widget" skin="PanelEmpty" name="ContainerHostPanel" position_real="0.056218 0.00694444 0.942078 0.92129688524">
+                <Widget type="Widget" skin="PanelEmpty" position_real="0 0 1 0.4">
+                    <Widget name="WallDist" skin="TextBox" type="TextBox" position_real="0 0.001 0.650877 0.7">
+                        <Property key="Caption" value="Avoid Wall Dist" />
+                        <Property key="FontName" value="SM_TextSmall" />
+                        <Property key="TextAlign" value="Left VCenter" />
+                        <Property key="NeedMouse" value="false" />
+                    </Widget>
+                    <Widget type="EditBox" skin="EditBoxEmpty" name="WallDistV" position_real="0 0.001 0.3 0.7">
+                        <Property key="FontName" value="SM_TextSmall" />
+                        <Property key="TextAlign" value="Right VCenter" />
+                        <Property key="ReadOnly" value="false" />
+                        <Property key="Enabled" value="true" />
+                        <Property key="WordWrap" value="false" />
+                        <UserString key="FontName" value="SM_TextSmall" />
+                    </Widget>
+                </Widget>
+
+            </Widget>
+        </Widget>
+    </Widget>
+    <CodeGeneratorSettings />
+</MyGUI>

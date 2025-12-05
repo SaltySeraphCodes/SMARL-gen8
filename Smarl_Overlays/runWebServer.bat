@@ -1,0 +1,1 @@
+Powershell C:\Users\Canthony\Documents\PyhonEnvs\RaceManager\Scripts\Activate.ps1 & C:\Users\Canthony\Documents\PyhonEnvs\RaceManager\Scripts\python.exe .\application.py

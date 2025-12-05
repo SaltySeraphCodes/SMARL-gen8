@@ -1,0 +1,66 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MyGUI type="Layout" version="3.2.0">
+     <Widget type="Widget" skin="PanelEmpty" name="StatusPanel" position_real="0 0.0925926 0.151042 0.117593">
+        <Property key="NeedKey" value="false" />
+        <Property key="NeedMouse" value="false" />
+        <Widget type="Widget" skin="HudBackgroundLarge" position_real="0.172414 0 0.827586 0.314961">
+            <Widget type="Widget" skin="HudBackgroundShadowLarge" position_real="0.158333 0.05 0.833333 0.9">
+                <Widget type="ProgressBar" skin="HUDProgressBarRedLarge" name="HealthLoss" position_real="0.015 0.0833333 0.97 0.833333">
+                    <Property key="Range" value="100" />
+                    <Property key="RangePosition" value="100" />
+                    <Property key="Alpha" value="1" />
+                    <Widget type="ProgressBar" skin="HUDProgressBarGreen" name="Health" position_real="0 0 1 1">
+                        <Property key="Range" value="100" />
+                        <Property key="RangePosition" value="50" />
+                        <Property key="InheritsAlpha" value="false" />
+                        <Widget type="TextBox" skin="TextBox" name="HealthLossText" position_real="0.71134 0 0.257732 1">
+                            <Property key="TextAlign" value="Right VCenter" />
+                            <Property key="Caption" value="-50" />
+                            <Property key="FontName" value="SM_NumberSmall" />
+                            <Property key="TextShadow" value="true" />
+                            <Property key="TextColour" value="1 1 0.752941" />
+                            <Property key="InheritsAlpha" value="false" />
+                            <Property key="TextShadowColour" value="0 0 0 0.2" />
+                        </Widget>
+                    </Widget>
+                </Widget>
+            </Widget>
+            <Widget type="ImageBox" skin="ImageBox" name="HealthIcon" position_real="0.0416667 0.25 0.0833333 0.5">
+                <Property key="ImageTexture" value="gui_icon_hud_health.png" />
+            </Widget>
+        </Widget>
+        <Widget type="Widget" skin="HudBackgroundSmall" position_real="0.172414 0.393701 0.827586 0.15748">
+            <Widget type="Widget" skin="HudBackgroundShadowSmall" position_real="0.158333 0.1 0.833333 0.8">
+                <Widget type="ProgressBar" skin="HUDProgressBarRedSmall" name="FoodLoss" position_real="0.015 0.1875 0.97 0.625">
+                    <Property key="Range" value="100" />
+                    <Property key="RangePosition" value="100" />
+                    <Widget type="ProgressBar" skin="HUDProgressBarYellow" name="Food" position_real="0 0 1 1">
+                        <Property key="Range" value="100" />
+                        <Property key="RangePosition" value="50" />
+                        <Property key="InheritsAlpha" value="false" />
+                    </Widget>
+                </Widget>
+            </Widget>
+            <Widget type="ImageBox" skin="ImageBox" name="FoodIcon" position_real="0.0416667 0 0.0833333 1">
+                <Property key="ImageTexture" value="gui_icon_hud_food.png" />
+            </Widget>
+        </Widget>
+        <Widget type="Widget" skin="HudBackgroundSmall" position_real="0.172414 0.629921 0.827586 0.15748">
+            <Widget type="Widget" skin="HudBackgroundShadowSmall" position_real="0.158333 0.1 0.833333 0.8">
+                <Widget type="ProgressBar" skin="HUDProgressBarRedSmall" name="WaterLoss" position_real="0.015 0.1875 0.97 0.625">
+                    <Property key="Range" value="100" />
+                    <Property key="RangePosition" value="100" />
+                    <Widget type="ProgressBar" skin="HUDProgressBarBlue" name="Water" position_real="0 0 1 1">
+                        <Property key="Range" value="100" />
+                        <Property key="RangePosition" value="50" />
+                        <Property key="InheritsAlpha" value="false" />
+                    </Widget>
+                </Widget>
+            </Widget>
+            <Widget type="ImageBox" skin="ImageBox" name="WaterIcon" position_real="0.0416667 0 0.0833333 1">
+                <Property key="ImageTexture" value="gui_icon_hud_water.png" />
+            </Widget>
+        </Widget>
+    </Widget>
+    <CodeGeneratorSettings />
+</MyGUI>

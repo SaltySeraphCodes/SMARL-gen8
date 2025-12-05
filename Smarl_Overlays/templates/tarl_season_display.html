@@ -1,0 +1,658 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+TARL Season Display
+{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
+<div id="lapDisplay">
+</div>
+    <script src="{{ url_for('static', filename='src/smarl_utils.js') }}"></script>
+    <script>    
+    // Displays the results of the season based off of twitch stats
+    var twitch_stats = {};
+    var boardCreated = false;   
+    function reloadChart(){
+        d3.select("#lapDisplay").selectAll("svg").remove();
+        reloadGraphic();
+    }
+
+    function reloadGraphic(data){
+        drawData(data);
+    }
+    // Global chart element vars
+    var yScale; 
+    var labelScale;
+    var xScale;
+    var chart_area;
+    var interactive_chart;
+    var chartSettings;
+    
+    // NOTE: Row height/padding is now managed implicitly by d3.scaleBand's range and padding settings
+    const PADDING_TOP = 140; 
+    var scrolling_group;
+    var racerBG; 
+    var posRects;
+    
+    const MAX_RACERS_VISIBLE = 16; 
+
+    function createBoard(data) {
+        boardCreated = true; 
+        let totalRacers = data.length
+        var labelList = ['P', 'Racer', '#Wins', '#Podiums','Points'] 
+        chartSettings = { width: 1920, height: 1080, margin: {left: 300, right:600, top: 0, bottom:50}}
+        
+        //Scales
+        xScale = d3.scaleLinear()
+            .domain([0,chartSettings.width])
+            .range([chartSettings.margin.left,chartSettings.width - chartSettings.margin.right]);
+        labelScale=d3.scaleLinear()
+            .domain([0,labelList.length-1.5])
+            .range([chartSettings.margin.left,chartSettings.width - chartSettings.margin.right]);
+
+       // *************** SCALING FIX: Adjusting Y-Scale for ALL data *****************
+        const ranks = Array.from({length: totalRacers}, (_, i) => i + 1);
+        
+        yScale = d3.scaleBand()
+            .domain(ranks) 
+            .range([chartSettings.margin.top + PADDING_TOP, chartSettings.height - chartSettings.margin.bottom - 20])
+            .paddingInner(0.1)
+            .paddingOuter(0.2); 
+        // *****************************************************************
+
+
+        chart_area = d3.select("#lapDisplay").append("svg")
+            .attr('width', chartSettings.width)
+            .attr('height',chartSettings.height)
+        interactive_chart = chart_area.append('g')
+        
+        // 1. Create the Scroll Viewport Group: All dynamic content goes here
+        scrolling_group = interactive_chart.append('g')
+            .attr("class", "scrolling-viewport");
+        
+        // ... (Background, Logo, Header, LabelRects, Labels, SepLine creation remains here, attached to interactive_chart, NOT scrolling_group) ...
+        
+        var bgRect = interactive_chart.append('rect')
+        .attr("x",chartSettings.margin.left)
+        .attr('y',chartSettings.margin.top)
+        .attr("rx",5)
+        .attr('ry',5)
+        .attr('width',chartSettings.width - chartSettings.margin.right)
+        .attr('height',0)
+        .attr('opacity',0)
+        // --- USING CSS VAR ---
+        .attr('fill','var(--brand-dark)') 
+        .transition()
+        .attr('height',chartSettings.height - chartSettings.margin.bottom)
+        .attr("opacity",0.99)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+
+
+        var imageSize = 230
+        var smarlLogo = interactive_chart.append('image')
+        .attr('xlink:href', "{{url_for('static', filename='images/SMARLLOGO3.png')}}")
+        .attr('x',xScale(0))
+        .attr('y',22 + chartSettings.margin.top - imageSize/2)
+        .attr('opacity',0)
+        .attr('width', imageSize)
+        .attr('height', imageSize + 50)
+        .transition()
+        .delay(1000)
+        .attr('opacity',1)
+        .duration(1500)
+
+        //Header
+        var leagueTitle = "{{raceData.leagueTitle}}"
+        var header = interactive_chart.append("text")
+        .attr('class','headerText')
+        .attr("x", chartSettings.width/2)
+        .attr("y", -100 )
+        .attr("opacity",0)
+        .text(leagueTitle+" Standings") 
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        // --- USING CSS VAR ---
+        .attr('font-family',"var(--brand-font-header)")
+        .attr('font-weight',"bold")
+        .attr('font-size','55px')
+        .attr('fill','var(--brand-text)')
+        .transition()
+        .attr("y", chartSettings.margin.top + 55 )
+        .attr("opacity",1)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+
+        // Label BGs
+        labelRects = interactive_chart.selectAll(".labelRect")
+        .data(labelList)
+
+        labelRects.enter()
+        .append("rect")
+        .attr("class","labelRect titleEl")
+        .attr("rx", 7)
+        .attr("ry", 7)
+        .attr("x", function(d,i){
+            return labelScale(i) + 3
+        })
+        .attr("y",chartSettings.margin.top-20)
+        .attr("width",function(d,i){
+            var labelLen = d.length ;
+            var multi = 12;
+            if (labelLen < 3) {
+                return 3 *multi
+            }
+            if (labelLen < 5 && labelLen >=3) {
+                return 5 * multi
+            }
+            if (labelLen > 8) {
+                return 9 * multi
+            }
+            return labelLen * multi
+        })
+        .attr("height",40)
+        // --- USING CSS VAR ---
+        .attr("fill",'var(--brand-main)') 
+        .attr('stroke','var(--brand-text)') 
+        .attr("opacity",0)
+        .transition()
+        .attr("y", chartSettings.margin.top +90)
+        .attr("opacity",1)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        
+        labelRects.transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        
+        labelRects.exit()
+        .transition()
+        .attr("y",-100) 
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove()
+
+        // Title labes
+        var labels= interactive_chart.selectAll(".labelText")
+        .data(labelList)
+
+        labels.enter()
+        .append('text')
+        .attr('class', 'labelText')
+        .attr("x", function(d,i){
+            var offset = 0
+            if (d == 'P'){
+                offset = -3
+            } else if ( d == 'Racer'){
+                offset = -9;
+            } else if (d == '#Wins'){
+                offset = -9;
+            } else if (d == '#Podiums'){
+                offset = -9;
+            } else if (d == '#FL'){
+                offset = -2;
+            } else if (d == 'Points'){
+                offset = -6
+            } else if (d == 'Sponsor'){
+                offset = -7
+            }
+            return  labelScale(i) + offset
+        })
+        .attr("y",chartSettings.margin.top-20)
+        .attr('dx',"1em")
+        .attr('dy',"1.5em")
+        .attr("opacity",0)
+        .text(function(d,i){
+            return d
+        })
+        // --- USING CSS VAR ---
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','18px')
+        .attr('font-weight',"bold")
+        .attr('fill','var(--brand-dark)') 
+        .transition()
+        .attr("y", chartSettings.margin.top +90)
+        .attr("opacity",1)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+
+        // Separator line
+        var sepLine = interactive_chart.append("line")
+        .attr("x1", chartSettings.margin.left)
+        .attr("y1", chartSettings.margin.top +135)
+        .attr("x2", chartSettings.width - chartSettings.margin.left)
+        .attr("y2", chartSettings.margin.top +135)
+        .attr('stroke-width',3)
+        // --- USING CSS VAR ---
+        .attr("stroke",'var(--brand-text)') 
+        .transition()
+        .attr("opacity",1)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+
+        drawData(data);
+
+        if (totalRacers > MAX_RACERS_VISIBLE) {
+            startScrollLoop(totalRacers);
+        }
+    }
+    
+    // New function to handle the scrolling animation loop
+    function startScrollLoop(totalRacers) {
+        
+        if (totalRacers <= MAX_RACERS_VISIBLE) {
+            return; 
+        }
+
+        // --- Robust Scroll Distance Calculation ---
+        const scrollDistancePerRacer = yScale.step(); 
+
+        // Number of racers that need to scroll past the bottom of the visible area
+        // Note: The y-scale range determines the visible area. 
+        // We scroll until the last visible row (MAX_RACERS_VISIBLE) moves to the top edge.
+        const racersToScroll = totalRacers - MAX_RACERS_VISIBLE;
+        
+        // Final Y position (translate Y must be negative to move content up)
+        const finalTranslateY = -(racersToScroll * scrollDistancePerRacer) - yScale.paddingOuter() * scrollDistancePerRacer; 
+        
+        // Duration: 1 second per row that scrolls 
+        const scrollDuration = racersToScroll * 1000;
+        
+        // Define the transition function
+        function transitionToBottom() {
+            scrolling_group.transition("scroll")
+                .duration(scrollDuration)
+                .delay(SMARL_SETTINGS.SCROLL_WAIT) 
+                .ease(d3.easeLinear) 
+                // Move the content up by the calculated finalTranslateY
+                .attr("transform", `translate(0, ${finalTranslateY})`) 
+                // When the scroll ends, transition back to the top
+                .on("end", transitionToTop); 
+        }
+
+        // Define the transition back to the top function (The reset/repeat)
+        function transitionToTop() {
+            scrolling_group.transition("reset")
+                .duration(2000) // Quick smooth transition back up
+                .delay(SMARL_SETTINGS.SCROLL_WAIT) // Wait 5 seconds on the last page
+                .ease(d3.easeQuadOut)
+                .attr("transform", "translate(0, 0)") // Reset to the starting position
+                // When the reset ends, start the scroll to bottom again
+                .on("end", transitionToBottom); 
+        }
+
+        // Initialize the loop
+        transitionToBottom();
+    }
+
+    function drawData(data){
+        // **IMPORTANT:** All elements are now attached to the scrolling_group
+        const getYPos = (d) => yScale(d['racer_rank']) || chartSettings.height;
+        const getRowHeight = () => yScale.bandwidth() || 45; // Use band scale height
+        const halfBand = getRowHeight() / 2;
+
+        // --- 1. Background Rects (racerBG) ---
+        racerBG = scrolling_group.selectAll(".bgRect")
+        .data(data, function(d) { return d.uid; }) 
+        
+        // EXIT
+        racerBG.exit()
+        .transition()
+        .attr("x",xScale(3000))
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // ENTER
+        const racerBGEnter = racerBG.enter()
+        .append("rect")
+        .attr("class","bgRect racerEl")
+        .attr('rx',3)
+        .attr('ry',3)
+        .attr("width",chartSettings.width- chartSettings.margin.right - 13)
+        // --- USING CSS VAR ---
+        .attr('stroke','var(--brand-text)') 
+        .attr("fill",'var(--brand-dark)') 
+        // Initial state: Start off-screen bottom
+        .attr("x",xScale(10))
+        .attr("y", chartSettings.height + 50) 
+        .attr("height",getRowHeight)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        racerBGEnter.merge(racerBG)
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .attr("x",xScale(10))
+        .attr("y", getYPos) 
+        .attr("height",getRowHeight)
+        .attr("opacity",0.25);
+
+        // --- 2. Position Rects (posRects) ---
+        posRects = scrolling_group.selectAll(".posRect")
+        .data(data, function(d) { return d.uid; }) 
+        
+        // EXIT
+        posRects.exit()
+        .transition()
+        .attr("x",xScale(205))
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // ENTER
+        const posRectsEnter = posRects.enter()
+        .append("rect")
+        .attr("class","posRect racerEl")
+        .attr("rx", 7)
+        .attr("ry", 7)
+        .attr("width",40)
+        // --- USING CSS VAR ---
+        .attr("fill",'var(--brand-text)') 
+        .attr('stroke','var(--brand-dark)') 
+        // Initial state: Start off-screen right
+        .attr("x", xScale(505)) 
+        .attr("y", getYPos)
+        .attr("height",getRowHeight)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        posRectsEnter.merge(posRects)
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .attr("x",labelScale(0))
+        .attr("y", getYPos)
+        .attr("height",getRowHeight)
+        .attr("opacity",1);
+        
+        // --- 3. Racer Position Text (posText) ---
+        posText = scrolling_group.selectAll(".posText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        posText.exit()
+        .transition()
+        .attr("x",xScale(2215) )
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // ENTER
+        const posTextEnter = posText.enter()
+        .append('text')
+        .attr('class','posText racerEl')
+        .attr('dx',".3em")
+        .attr('dy',".5em")
+        // --- USING CSS VAR ---
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','20px')
+        .attr('font-weight','bold')
+        .attr('fill','var(--brand-dark)') 
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right
+        .attr("x", xScale(500))
+        .attr("y", getYPos)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        posTextEnter.merge(posText)
+        .text(function (d){ return d['racer_rank'] })
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .attr("opacity",1)
+        .attr("y",function(d){ 
+            const bandCenter = getYPos(d) + halfBand;
+            return bandCenter - 10; 
+        })
+        .attr("x",function(d){
+            const basePos = labelScale(0);
+            const xOffset = (d['racer_rank'] > 9) ? 20 : 18; 
+            return basePos + xOffset;
+        });
+        
+        // --- 4. Racer Name Text (nameText) ---
+        nameText = scrolling_group.selectAll(".nameText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        nameText.exit()
+        .transition()
+        .attr("x",230 )
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // ENTER
+        const nameTextEnter = nameText.enter()
+        .append('text')
+        .attr('class','nameText racerEl')
+        .attr('dx',"-1em")
+        .attr('dy',"0.5em")
+        // --- USING CSS VAR ---
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','20px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'start') // Changed to start for better name alignment
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right
+        .attr("x", xScale(1900))
+        .attr('y', getYPos)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        nameTextEnter.merge(nameText)
+        .text(function(d){ return d['name']})
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x",labelScale(1) -70 )
+        .attr('y',function(d){
+            const bandCenter = getYPos(d) + halfBand;
+            return bandCenter - 10; 
+        }) 
+        .attr("opacity",1);
+        
+        // --- 5. #Wins Text (numWinsText) ---
+        numWinsText = scrolling_group.selectAll(".numWinsText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        numWinsText.exit()
+        .transition()
+        .attr("x", xScale(2000))
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // ENTER
+        const numWinsTextEnter = numWinsText.enter()
+        .append('text')
+        .attr('class','numWinsText racerEl')
+        .attr('dx',"0em")
+        .attr('dy',".3em")
+        // --- USING CSS VAR ---
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','23px')
+        .attr('fill','var(--brand-accent)') 
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right
+        .attr("x", xScale(2000))
+        .attr('y', getYPos)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        numWinsTextEnter.merge(numWinsText)
+        .text(function(d){ return d['wins']})
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x", labelScale(2)+30)
+        .attr('y',function(d){
+            const bandCenter = getYPos(d) + halfBand;
+            return bandCenter - 10;
+        }) 
+        .attr("opacity",1);
+
+        // --- 6. Num Podiums Text (numPodiumText) ---
+        numPodiumText = scrolling_group.selectAll(".numPodiumText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        numPodiumText.exit()
+        .transition()
+        .attr("x", xScale(2000))
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // ENTER
+        const numPodiumTextEnter = numPodiumText.enter()
+        .append('text')
+        .attr('class','numPodiumText racerEl')
+        .attr('id','numPodiumText')
+        .attr('dx',"0.5em")
+        .attr('dy',".3em")
+        // --- USING CSS VAR ---
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','22px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right
+        .attr("x", xScale(2000))
+        .attr('y', getYPos)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        numPodiumTextEnter.merge(numPodiumText)
+        .text(function(d){ return d['podiums']})
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x",labelScale(3) +40)
+        .attr('y',function(d){
+            const bandCenter = getYPos(d) + halfBand;
+            return bandCenter - 10;
+        })
+        .attr("opacity",1);
+        
+        
+        // --- 7. Points Text (pointText) ---
+        pointText = scrolling_group.selectAll(".pointText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        pointText.exit()
+        .transition()
+        .attr("x",xScale(2300 ))
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // ENTER
+        const pointTextEnter = pointText.enter()
+        .append('text')
+        .attr('class','pointText racerEl')
+        .attr('dx',".7em")
+        .attr('dy',".2em")
+        // --- USING CSS VAR ---
+        .attr('font-family',"var(--brand-font-header)") 
+        .attr('font-size','25px')
+        .attr('fill','var(--brand-main)') 
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right
+        .attr("x",xScale(2300))
+        .attr('y', getYPos) 
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        pointTextEnter.merge(pointText)
+        .text(function(d){ return d['points']})
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x",labelScale(4) + 20)
+        .attr('y',function(d){ 
+            const bandCenter = getYPos(d) + halfBand;
+            return bandCenter - 10;
+        }) 
+        .attr("opacity",1);
+    }
+
+    </script>
+    <script> 
+        // loads,parses, and calls all chart creation
+        var smarl_data  = [] 
+    
+      // SOCKET FUNCTIONS
+        var socket = io.connect('http://' + document.domain + ':' + location.port);
+        socket.on('connect', function() { // Twitch stats also doubles as season data
+            socket.emit( 'getTwitchStats', {
+            data: 'getStats'
+          }) })
+         
+        socket.on('twitchStats', function( data ) {
+            let data2 = JSON.parse(data)
+            //console.log("Got twitch stat",data2)
+            twitch_stats = data2;
+            setupStats(data)
+        })
+         
+        function setupStats(data) {
+            let rawData = JSON.parse(data);
+            // 1. Convert Object to Array (and add UID as a property)
+            let racerArray = Object.keys(rawData).map(uid => ({
+                uid: uid,
+                ...rawData[uid]
+            }));
+            // 2. Sort the Array (Crucial for correct D3 ranking)
+            // Primary Sort: points (descending), Secondary Sort: wins (descending)
+            racerArray.sort((a, b) => {
+                if (b.points !== a.points) {
+                    return b.points - a.points; // Higher points first
+                }
+                return b.wins - a.wins; // Then higher wins
+            });
+            // 3. Assign Rank
+            racerArray.forEach((racer, index) => {
+                // Rank is 1-based index (index + 1)
+                racer.racer_rank = index + 1;
+            });
+
+          if (racerArray.length > 0 && !boardCreated){
+                createBoard(racerArray);
+          } else if(racerArray.length > 0 && boardCreated){
+                updateGraphic(racerArray)
+          }else{
+              console.log("No data yet??")
+          }
+        }
+
+        function updateGraphic(data){
+            // Do whatever too
+            reloadGraphic(data);
+        }
+        
+    
+        $(document).ready(function() {
+            
+        });
+    </script>
+{% endblock %}

@@ -1,0 +1,495 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+Smarl Last Lap Display
+{% endblock %}
+{% block content %}
+<div id="lapDisplay">
+</div>
+	<script>	
+	function reloadChart(){
+		d3.select("#lapDisplay").selectAll("svg").remove();
+		reloadGraphic();
+	}
+
+	function reloadGraphic(){
+		getData( function(data) {
+			drawData(data);
+		});
+	}
+	// Global chart element vars
+	// data helpers
+	var yScale;
+	var xScale;
+	var chart_area;
+	var interactive_chart;
+	var chartSettings;
+
+	// Visible elements
+	var racerBG; // The background squares that contain the data
+	var posRects;
+
+	var all_elements = []
+
+	function createBoard(data) {
+		totalCars = 9 // Find out somehow
+		chartSettings = { width: 190, height: 400, margin: {left: 30, right:30, top: 20, bottom:20}}
+		//Scales
+		xScale = d3.scaleLinear()
+			.domain([0,(data.length)])
+			.range([0,chartSettings.width]);
+
+		yScale = d3.scaleLinear()
+			.domain([0,totalCars])// Total cars racing
+			.range([chartSettings.margin.top,chartSettings.height - chartSettings.margin.bottom]); // May need to reverse...
+			//.domain([d3.max(data, function(d){return d['total_trades']}),0])
+			//.range([0,chartSettings.height - chartSettings.margin.top]);
+
+		chart_area = d3.select("#lapDisplay").append("svg")
+			.attr('width', chartSettings.width)
+			.attr('height',chartSettings.height)
+		interactive_chart = chart_area.append('g')
+		
+		var bgRect = interactive_chart.append('rect')
+		.attr("x",0)
+		.attr('y',0)
+		.attr("rx",5)
+		.attr('ry',5)
+		.attr('width',chartSettings.width)
+		.attr('height',0)
+		.attr('opacity',0)
+		.attr('fill','light-grey')
+		.transition()
+		.attr('height',chartSettings.height)
+		.attr("opacity",0.70)
+		.duration(500)
+
+		//Header
+		var header = interactive_chart.append("text")
+		.attr('class','headerText')
+		.attr("x", 20)
+		.attr("y", 25)
+		.attr("opacity",0)
+		.text("Lap Times")
+		.attr('font-family',"sans-serif")
+		.attr('font-size','32px')
+		.attr('fill','white')
+		.transition()
+		.attr("opacity",1)
+		.duration(1000)
+
+
+		// Title labes
+
+		labels= interactive_chart.append("text")
+		.attr('class','labelText')
+		.attr("x", 15)
+		.attr("y", 49)
+		.attr("opacity",0)
+		.text('P___Tag__Last Lap_ L#')
+		.attr('font-family',"sans-serif")
+		.attr('font-size','15px')
+		.attr('fill','white')
+		.transition()
+		.attr("opacity",1)
+		.duration(1000)
+
+		// Separator line
+		var sepLine = interactive_chart.append("line")
+		.attr("x1", 0)
+		.attr("y1", 52)
+		.attr("x2", chartSettings.width)
+		.attr("y2", 52)
+		.attr('stroke-width',3)
+		.attr("stroke",'white')
+		.transition()
+		.attr("opacity",1)
+		.duration(1000)
+
+		drawData(data)
+	}
+	function drawData(data){
+		// bgRect
+		// Bckground rects
+		racerBG = interactive_chart.selectAll(".bgRect")
+		.data(data)
+		
+		// Enter
+		racerBG.enter()
+		.append("rect")
+		.attr("class","bgRect racerEl")
+		.attr('rx',3)
+		.attr('ry',3)
+		.attr("x",200)
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		})
+		.attr("opacity",0)
+		.attr("width",chartSettings.width-15)
+		.attr("height",30)
+		.attr("fill",function (d,i){
+			var color = 'black';
+			if (d['lastLap'] == d['bestLap']){
+				color = '#1b70ba' 
+			}
+			return color}
+		)
+		.attr('stroke','black')
+		.transition()
+		.attr("x",10)
+		.attr("opacity",0.50)
+		.duration(1300)
+
+		//Transition update
+		racerBG.transition()
+		.attr('y', function(d,i){
+			return yScale(d['pos']) // Rememeber to update this to the proper name
+		})
+		.attr("fill",function (d,i){
+			var color = 'black';
+			if (d['lastLap'] == d['bestLap']){
+				color = '#1b70ba' 
+			}
+			return color}
+		)
+		.duration(1300)
+
+		racerBG.exit()
+		.transition()
+		.attr("x",200)
+		.attr("opacity",0)
+		.duration(1300)
+		.remove()
+
+
+		all_elements.push(racerBG)
+
+		//Racer Positions
+		posRects = interactive_chart.selectAll(".posRect")
+		.data(data)
+
+		posRects.enter()
+		.append("rect")
+		.attr("class","posRect racerEl")
+		.attr("rx", 7)
+		.attr("ry", 7)
+		.attr("x",205)
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		})
+		.attr("width",25)
+		.attr("height",30)
+		.attr("fill",'white')
+		.attr('stroke','black')
+		.attr("opacity",0)
+		.transition()
+		.attr("x",5)
+		.attr("opacity",1)
+		.duration(1300)
+		
+		posRects.transition()
+		.attr('y', function(d,i){
+			return yScale(d['pos']) // Rememeber to update this to the proper name
+		})
+		.duration(1300)
+	
+		
+		posRects.exit()
+		.transition()
+		.attr("x",205)
+		.attr("opacity",0)
+		.duration(1300)
+		.remove()
+		
+		all_elements.push(posRects)
+
+		// Racer Position Text
+		posText = interactive_chart.selectAll(".posText")
+		.data(data)
+
+		posText.enter()
+		.append('text')
+		.attr('class','posText racerEl')
+		.attr("x", 210)
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		}) 
+		.attr('dx',".1em")
+		.attr('dy',".38em")
+		.text(function(d,i){ return d['pos']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','20px')
+		.attr('fill','black')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.attr("opacity",0)
+		.transition()
+		.attr("x",10)
+		.attr("opacity",1)
+		.duration(1300)
+
+		posText.transition()
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		}) 
+		.text(function(d,i){ return d['pos']})
+		.duration(1300)
+		
+		posText.exit()
+		.transition()
+		.attr("x",210 )
+		.attr("opacity",0)
+		.duration(1300)
+		.remove()
+		
+		
+		all_elements.push(posText)
+
+		// Racer name text -- Willkeep here but uneeded, i really need tag and color
+		/*
+		nameText = interactive_chart.selectAll(".nameText")
+		.data(data)
+
+		nameText.enter()
+		.append('text')
+		.attr('class','nameText racerEl')
+		.attr("x", 230)
+		.attr("opacity",0)
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		})
+		.attr('dx',".1em")
+		.attr('dy',".50em")
+		.text(function(d,i){ return d['name']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','15px')
+		.attr('fill','white')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.transition()
+		.attr("x",30 )
+		.attr("opacity",1)
+		.duration(1300)
+
+		nameText.transition()
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		}) 
+		.text(function(d,i){ return d['name']})
+		.duration(1300)
+
+
+		nameText.exit()
+		.transition()
+		.attr("x",230 )
+		.attr("opacity",0)
+		.duration(1300)
+		.remove()
+		all_elements.push(nameText)
+		*/
+		
+		//Racer color - small rect that matches racer color
+		colRect = interactive_chart.selectAll(".colRect")
+		.data(data)
+
+		colRect.enter()
+		.append('rect')
+		.attr("class","colRect racerEl")
+		.attr("x",235)
+		.attr("opacity",0)
+		.attr('y',function(d,i){
+			return yScale(d['pos'])+5
+		})
+
+		.attr("width",10)
+		.attr("height",20)
+		.attr("fill",function(d,i){
+			return "#"+d['color']
+		})
+		.attr('stroke','black')
+		.transition()
+		.attr("x",35 )
+		.attr("opacity",1)	
+		.duration(1300)
+
+		colRect.transition()
+		.attr('y',function(d,i){
+			return yScale(d['pos']) +5
+		}) 
+		.duration(1300)
+
+		colRect.exit()
+		.transition()
+		.attr("x",235 )
+		.attr("opacity",0)
+		.duration(1300)
+		.remove()
+
+		all_elements.push(colRect)
+
+		//Racer Tag (3 letter tag)
+		tagText = interactive_chart.selectAll(".tagText")
+		.data(data)
+		
+		tagText.enter()
+		.append('text')
+		.attr('class','tagText racerEl')
+		.attr('id','tagText')
+		.attr("x", 250)
+		.attr("opacity",0)
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		})
+		.attr('dy',".65em")
+		.text(function(d,i){
+			return d['tag']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','14px')
+		.attr('fill','white')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.transition()
+		.attr("x", 50)
+		.attr("opacity",1)
+		.duration(1300)
+		all_elements.push(tagText)
+
+
+		tagText.transition()
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		}) 
+		.duration(1300)
+
+		tagText.exit()
+		.transition()
+		.attr("x", 250)
+		.attr("opacity",0)
+		.duration(1300)
+		.remove()
+
+		
+		
+
+		// Lap time -- last lap time
+		lastLapText = interactive_chart.selectAll(".lastLapText")
+		.data(data)
+
+		lastLapText.enter()
+		.append('text')
+		.attr('class','lastLapText racerEl')
+		.attr("x", 290)
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		})
+		.attr("opacity",0)
+		.attr('dy',".65em")
+		.text(function(d,i){ return d['lastLap']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','14px')
+		.attr('fill','white')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.transition()
+		.attr("x", 90)
+		.attr("opacity",1)
+		.duration(1300)
+		all_elements.push(lastLapText)
+
+		lastLapText.transition()
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		}) 
+		.text(function(d,i){ return d['lastLap']})
+		.duration(1300)
+
+		lastLapText.exit()
+		.transition()
+		.attr("x", 290)
+		.attr("opacity",0)
+		.duration(1300)
+		.remove()
+
+
+		// Racer lap Text
+		lapText = interactive_chart.selectAll(".lapText")
+		.data(data)
+
+		lapText.enter()
+		.append('text')
+		.attr('class','lapText racerEl')
+		.attr("x", 360)
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		}) 
+		.attr('dx',".1em")
+		.attr('dy',".58em")
+		.text(function(d,i){ return d['lapNum']})
+		.attr('font-family',"sans-serif")
+		.attr('font-size','15px')
+		.attr('fill','white')
+		.attr('text-anchor', 'center')
+		.attr('alignment-baseline', 'hanging')
+		.attr("opacity",0)
+		.transition()
+		.attr("x",160)
+		.attr("opacity",1)
+		.duration(1300)
+
+		lapText.transition()
+		.attr('y',function(d,i){
+			return yScale(d['pos'])
+		}) 
+		.text(function(d,i){ return d['lapNum']})
+		.duration(1300)
+		
+		lapText.exit()
+		.transition()
+		.attr("x",360 )
+		.attr("opacity",0)
+		.duration(1300)
+		.remove()
+	}
+
+	</script>
+	<script> 
+	// loads,parses, and calls all chart creation
+		function initialize(){
+			updateInterval = setInterval(updateGraphic, 1000);
+			getData(function(data){
+				createBoard(data);
+			});
+		}
+		function updateGraphic(){
+			// Do whatever too
+			reloadGraphic()
+		}
+			
+		dataIndex = 0
+		function getData(_callback){	
+			var request = new XMLHttpRequest();
+			request.onreadystatechange = function() {
+				if (this.readyState == 4 && this.status == 200) {
+					if (this.responseText == "noData"){
+						_callback({})
+					}else{
+						data = parseData(this.response,_callback)
+					}
+			       }
+		        };
+			request.open("POST", "/smarl_get_realtime_data", true);
+			request.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+			request.send(); // race name here?
+		}
+		function parseData(rawData,_callback){
+			data = JSON.parse(rawData)
+			_callback(data)
+		}
+
+		$(document).ready(function() {
+		    $('.select2-search').select2();
+			initialize();
+		});
+	</script>
+
+{% endblock %}
+

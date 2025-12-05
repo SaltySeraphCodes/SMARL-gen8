@@ -1,0 +1,80 @@
+[
+    {
+        "racer_id" : 1,
+        "race_id" : 1,
+        "session_id" : 1,
+        "lap_number" : 1,
+        "racer_name": "Torque Master",
+        "s1" : 30.20,
+        "s2" : 15.26,
+        "s3" : 12.87,
+        "lt" : 58.1,
+        "ts" : 102.7,
+        "as" : 97.5
+    },
+    {
+        "racer_id" : 2,
+        "race_id" : 1,
+        "session_id" : 1,
+        "lap_number" : 1,
+        "racer_name": "Oswald",
+        "s1" : 30.20,
+        "s2" : 15.26,
+        "s3" : 12.87,
+        "lt" : 58.1,
+        "ts" : 102.7,
+        "as" : 97.5
+    },
+    {
+        "racer_id" : 1,
+        "race_id" : 1,
+        "session_id" : 1,
+        "lap_number" : 2,
+        "racer_name": "Torque Master",
+        "s1" : 30.20,
+        "s2" : 15.26,
+        "s3" : 12.87,
+        "lt" : 58.1,
+        "ts" : 102.7,
+        "as" : 97.5
+    },
+    {
+        "racer_id" : 2,
+        "race_id" : 1,
+        "session_id" : 1,
+        "lap_number" : 2,
+        "racer_name": "Oswald",
+        "s1" : 30.20,
+        "s2" : 15.26,
+        "s3" : 12.87,
+        "lt" : 58.1,
+        "ts" : 102.7,
+        "as" : 97.5
+    },
+    {
+        "racer_id" : 1,
+        "race_id" : 1,
+        "session_id" : 1,
+        "lap_number" : 3,
+        "racer_name": "Torque Master",
+        "s1" : 30.20,
+        "s2" : 15.26,
+        "s3" : 12.87,
+        "lt" : 58.1,
+        "ts" : 102.7,
+        "as" : 97.5
+    },
+    {
+        "racer_id" : 2,
+        "race_id" : 1,
+        "session_id" : 1,
+        "lap_number" : 3,
+        "racer_name": "Oswald",
+        "s1" : 30.20,
+        "s2" : 15.26,
+        "s3" : 12.87,
+        "lt" : 58.1,
+        "ts" : 102.7,
+        "as" : 97.5
+    }
+]

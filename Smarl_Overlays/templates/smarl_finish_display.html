@@ -1,0 +1,824 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+Smarl Finish Display
+{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
+<div id="lapDisplay">
+</div>
+    <script src="{{ url_for('static', filename='src/smarl_utils.js') }}"></script>
+    <script>    
+        // Displays the results of the last race 
+    var boardCreated = false;   
+
+    function reloadGraphic(data,minTime){
+        drawData(data,minTime);
+    }
+    // Global chart element vars
+    // data helpers
+    var yScale;
+    var labelScale;
+    var xScale;
+    var chart_area;
+    var interactive_chart;
+    var chartSettings;
+
+    // Visible elements
+    var racerBG; // The background squares that contain the data
+    var posRects;
+
+    var all_elements = []
+
+    function createBoard(data) {
+        boardCreated = true
+        // --- OPTIMIZATION: Use centralized setting ---
+        totalCars = SMARL_SETTINGS.TOTAL_CARS 
+        var labelList = ['P', 'Color', 'Name', 'Tag', 'Best Lap', 'Split', 'Points'] // May need to figure out sponsor names and make a conversion table, store that into database as well
+        chartSettings = { width: 1920, height: 1080, margin: {left: 300, right:600, top: 0, bottom:50}}
+        //Scales
+        xScale = d3.scaleLinear()
+            .domain([0,chartSettings.width])
+            .range([chartSettings.margin.left,chartSettings.width - chartSettings.margin.right]);
+        labelScale=d3.scaleLinear()
+            .domain([0,labelList.length-2.1])
+            .range([chartSettings.margin.left,chartSettings.width - chartSettings.margin.right]);
+
+        yScale = d3.scaleLinear()
+            .domain([0,totalCars +1])// Total cars racing
+            .range([chartSettings.margin.top + 100,chartSettings.height - chartSettings.margin.bottom]); // May need to reverse...
+            //.domain([d3.max(data, function(d){return d['total_trades']}),0])
+        
+            //.range([0,chartSettings.height - chartSettings.margin.top]);
+
+        chart_area = d3.select("#lapDisplay").append("svg")
+            .attr('width', chartSettings.width)
+            .attr('height',chartSettings.height)
+        interactive_chart = chart_area.append('g')
+        
+        var bgRect = interactive_chart.append('rect')
+        .attr("x",chartSettings.margin.left)
+        .attr('y',chartSettings.margin.top)
+        .attr("rx",5)
+        .attr('ry',5)
+        .attr('width',chartSettings.width - chartSettings.margin.right)
+        .attr('height',0)
+        .attr('opacity',0)
+        .attr('fill','var(--brand-dark)')
+        .transition()
+        .attr('height',chartSettings.height - chartSettings.margin.bottom)
+        .attr("opacity",0.99)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+
+
+        var imageSize = 230
+        var smarlLogo = interactive_chart.append('image')
+        .attr('xlink:href', "{{url_for('static', filename='images/SMARLLOGO3.png')}}")
+        .attr('x',xScale(0))
+        .attr('y',22 + chartSettings.margin.top - imageSize/2)
+        .attr('opacity',0)
+        .attr('width', imageSize)
+        .attr('height', imageSize + 50)
+        .transition()
+        .delay(1000)
+        .attr('opacity',1)
+        .duration(1500)
+
+        //Header
+        var header = interactive_chart.append("text")
+        .attr('class','headerText')
+        .attr("x", chartSettings.width/2)
+        .attr("y", -100 )
+        .attr("opacity",0)
+        .text( "Race Results") 
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr('font-family',"var(--brand-font-header)")
+        .attr('font-weight',"bold")
+        .attr('font-size','55px')
+        .attr('fill','var(--brand-text)')
+        .transition()
+        .attr("y", chartSettings.margin.top + 55 )
+        .attr("opacity",1)
+        .duration(1400)
+
+        // Label BGs
+        labelRects = interactive_chart.selectAll(".labelRect")
+        .data(labelList)
+
+        labelRects.enter()
+        .append("rect")
+        .attr("class","labelRect titleEl")
+        .attr("rx", 7)
+        .attr("ry", 7)
+        .attr("x", function(d,i){
+            return labelScale(i) + 3
+            var labelLen = d.length
+            var pos = (i*200) +5
+            if (i>0){
+                lastLen = labelList[i-1].length
+                lastWidth =lastLen * 40
+                lastPos = (i-1)*200+10 
+                curPos = i*200 +5
+                pos = (lastPos + lastWidth)   // set padding?
+                console.log("lastWidth",d,labelList[i-1],lastWidth,lastPos)
+            }
+            return xScale(pos)  
+        })
+        .attr("y",chartSettings.margin.top-20)
+        .attr("width",function(d,i){
+            var labelLen = d.length ;
+            var multi = 12;
+            if (labelLen < 3) {
+                return 3 *multi
+                //console.log("setting 2",d)
+            }
+            if (labelLen < 7 && labelLen >=3) {
+                return 5 * multi
+                //console.log("setting 5", d)
+            }
+            if (labelLen > 8) {
+                return 9 * multi
+            }
+            return labelLen * multi
+        })
+        .attr("height",40)
+        .attr("fill",'var(--brand-main)') // Primary brand color for label background
+        .attr('stroke','var(--brand-text)') // White stroke
+        .attr("opacity",0)
+        .transition()
+        .attr("y", chartSettings.margin.top +90)
+        .attr("opacity",1)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        
+        labelRects.transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+    
+        
+        labelRects.exit()
+        .transition()
+        .attr("y",yScale(-100))
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove()
+
+        // Title labes
+
+        var labels= interactive_chart.selectAll(".labelText")
+        .data(labelList)
+
+
+        labels.enter()
+        .append('text')
+        .attr('class', 'labelText')
+        .attr("x", function(d,i){
+            var offset = 0
+            if (d == 'P'){
+                offset = -3
+            } else if ( d == 'Color'){
+                offset = -8;
+            } else if (d == 'Name'){
+                offset = -8;
+            } else if (d == 'Best Lap'){
+                offset = -7;
+            } else if (d == 'Split'){
+                offset = -6;
+            } else if (d == 'Points'){
+                offset = -11
+            } else if (d == 'Sponsor'){
+                offset = -7
+            }
+            return  labelScale(i) + offset
+        })
+
+        .attr("y",chartSettings.margin.top-20)
+        .attr('dx',"1em")
+        .attr('dy',"1.5em")
+        .attr("opacity",0)
+        .text(function(d,i){
+            return d
+        })
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','18px')
+        .attr('font-weight',"bold")
+        .attr('fill','var(--brand-dark)') // Dark text on top of the brand-main background
+        .transition()
+        .attr("y", chartSettings.margin.top +90)
+        .attr("opacity",1)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+
+        // Separator line
+        var sepLine = interactive_chart.append("line")
+        .attr("x1", chartSettings.margin.left)
+        .attr("y1", chartSettings.margin.top +135)
+        .attr("x2", chartSettings.width - chartSettings.margin.left)
+        .attr("y2", chartSettings.margin.top +135)
+        .attr('stroke-width',3)
+        .attr("stroke",'var(--brand-text)')
+        .transition()
+        .attr("opacity",1)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        drawData(data)
+    }
+    function drawData(data,minTime){
+        // bgRect
+        // --- OPTIMIZATION: Use centralized setting ---
+        totalCars = SMARL_SETTINGS.TOTAL_CARS 
+        yScale.domain([0,totalCars +1])// Total cars racing
+              .range([chartSettings.margin.top + 100,chartSettings.height - chartSettings.margin.bottom]); // May need to reverse...
+            
+        // Bckground rects (The main dark background strip)
+        racerBG = interactive_chart.selectAll(".bgRect")
+        .data(data, function(d) { return d.id; }) 
+        
+        // --- 1. EXIT Selection ---
+        racerBG.exit()
+        .transition()
+        .attr("x",xScale(3000)) // Transition out to the far right
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+        
+        // The fill function is the same for ENTER and UPDATE, so we define it once here:
+        const bestLapFill = function(d,i){
+            // --- OPTIMIZATION: Use imported timeToMs ---
+            const currentMs = timeToMs(d.bestLap);
+            const accent = 'var(--brand-accent)'; // Best lap color
+            const darkBg = 'var(--brand-dark)';    // Default color
+            
+            // Note: We are using minTime which was correctly passed into drawData
+            if (currentMs === minTime || Math.abs(currentMs - minTime) < 1) { 
+                return accent;
+            }
+            return darkBg
+        };
+
+        // --- 2. ENTER Selection ---
+        const racerBGEnter = racerBG.enter()
+        .append("rect")
+        .attr("class","bgRect racerEl")
+        .attr('rx',3)
+        .attr('ry',3)
+        .attr("width",chartSettings.width - chartSettings.margin.right - 13)
+        .attr("height",45)
+        .attr('stroke','var(--brand-text)')
+        // Initial state: Start far down/off-screen to animate up
+        .attr("x",xScale(10))
+        .attr("y",function (d,i){
+            return yScale(d['pos']) + 300
+        })
+        .attr("opacity",0);
+
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        racerBGEnter.merge(racerBG)
+        // Apply the fill color (which depends on the data)
+        .attr("fill", bestLapFill)
+        // Apply the transition to the final position and opacity
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .attr("x",xScale(10))
+        .attr("y",function (d,i){
+            return yScale(d['pos'])
+        })
+        .attr("opacity",0.25);
+        
+        // The old racerBG.transition() block is now REMOVED
+        all_elements.push(racerBGEnter.merge(racerBG));
+
+
+        // Racer Positions (The white background box for the position number)
+        posRects = interactive_chart.selectAll(".posRect")
+        .data(data, function(d) { return d.id; }) 
+
+        // --- 1. EXIT Selection ---
+        posRects.exit()
+        .transition()
+        .attr("x",xScale(205)) // Transition out to the left
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+        
+        // --- 2. ENTER Selection ---
+        const posRectsEnter = posRects.enter()
+        .append("rect")
+        .attr("class","posRect racerEl")
+        .attr("rx", 7)
+        .attr("ry", 7)
+        .attr("width",40)
+        .attr("height",45)
+        .attr("fill",'var(--brand-text)')
+        .attr('stroke','var(--brand-dark)')
+        // Initial state: Start where existing elements exit (off-screen left)
+        .attr("x", xScale(505)) 
+        .attr("y", function (d,i){ return yScale(d['pos']); })
+        .attr("opacity", 0); 
+
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        posRectsEnter.merge(posRects)
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        // Final position for both new and existing elements
+        .attr("x",labelScale(0))
+        .attr("y",function (d,i){
+            return yScale(d['pos'])
+        })
+        .attr("opacity",1);
+        
+        // The old posRects.transition() block is now REMOVED
+        all_elements.push(posRectsEnter.merge(posRects));
+
+        // Racer Position Text
+        posText = interactive_chart.selectAll(".posText")
+        .data(data, function(d) { return d.id; })
+
+        // --- 1. EXIT Selection ---
+        posText.exit()
+        .transition()
+        .attr("x",xScale(2215) ) // Transition out to the right
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // --- 2. ENTER Selection ---
+        // This is where new elements are created and given their initial (off-screen) position.
+        const posTextEnter = posText.enter()
+        .append('text')
+        .attr('class','posText racerEl')
+        .attr('dx',".3em")
+        .attr('dy',".7em")
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','24px')
+        .attr('font-weight','bold')
+        .attr('fill','var(--brand-dark)')
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Set initial state far right/off-screen (matches the exit transition start point)
+        .attr("x", xScale(500)) 
+        .attr("y", function (d,i){ return yScale(d['pos']); }) // Use its intended final Y position for vertical entry
+        .attr("opacity", 0); // Start invisible
+
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        // The merged selection includes elements that are new (posTextEnter) 
+        // and elements that are already on screen (posText).
+        posTextEnter.merge(posText)
+        // Update the text content
+        .text(function (d,i){
+            return d['pos']
+        })
+        // Apply the transition to the final position
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .attr("opacity", 1) // Always ensure visibility
+        .attr("y",function (d,i){
+            return yScale(d['pos']) - 3 // Final Y position adjustment
+        })
+        .attr("x",function(d,i){
+            // Simplified position calculation based on position value
+            // Moves the text to the center of the position rectangle (labelScale(0))
+            // and applies an offset (30) to center single/double digits.
+            const basePos = labelScale(0);
+            const xOffset = (d['pos'] > 9) ? 28 : 20; // 28 for double digits, 20 for single digit center
+            return basePos + xOffset;
+        });
+        all_elements.push(posTextEnter.merge(posText)); // Push the merged selection for future use
+
+
+        // Racer name text
+        nameText = interactive_chart.selectAll(".nameText")
+        .data(data, function(d) { return d.id; }) 
+
+        // --- 1. EXIT Selection ---
+        nameText.exit()
+        .transition()
+        .attr("x",xScale(230)) // Transition out to the left
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+        
+        // --- 2. ENTER Selection ---
+        const nameTextEnter = nameText.enter()
+        .append('text')
+        .attr('class','nameText racerEl')
+        .attr('dx',"-1em")
+        .attr('dy',"1em")
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','20px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right
+        .attr("x", xScale(1900))
+        .attr('y',function(d,i){ return yScale(d['pos']); })
+        .attr("opacity",0);
+
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        nameTextEnter.merge(nameText)
+        .text(function(d,i){ return d['name']})
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000) // Keep the entry/update delay if needed, though it might look cleaner without it
+        .attr("x",labelScale(2) -40)
+        .attr('y',function(d,i){
+            return yScale(d['pos'])
+        }) 
+        .attr("opacity",1);
+
+        all_elements.push(nameTextEnter.merge(nameText))
+        
+        
+        /// Racer color - small rect that matches racer color
+        colRect = interactive_chart.selectAll(".colRect")
+        .data(data, function(d) { return d.id; }) 
+
+        // --- 1. EXIT Selection ---
+        colRect.exit()
+        .transition()
+        .attr("x",xScale(1900))
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // Define a function for the fill color logic (primary_color and tertiary_color for stroke)
+        const getColorAttrs = (d) => {
+            const primary = d['primary_color'];
+            const tertiary = d['tertiary_color'];
+            // If the first character is NOT '#', prepend '#'
+            return {
+                fill: (primary.charAt(0) === '#') ? primary : "#" + primary,
+                stroke: (tertiary.charAt(0) === '#') ? tertiary : "#" + tertiary
+            };
+        };
+
+        // --- 2. ENTER Selection ---
+        const colRectEnter = colRect.enter()
+        .append('rect')
+        .attr("class","colRect racerEl")
+        .attr("width",100)
+        .attr("height",30)
+        .attr('stroke-width',2)
+        // Initial state: Start off-screen right
+        .attr("x",xScale(1900))
+        .attr('y',function(d,i){ return yScale(d['pos']) +8; })
+        .attr("opacity",0)
+        // Set initial color properties
+        .attr("fill", d => getColorAttrs(d).fill)
+        .attr('stroke', d => getColorAttrs(d).stroke);
+        
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        colRectEnter.merge(colRect)
+        // Update color properties (in case they change mid-race)
+        .attr("fill", d => getColorAttrs(d).fill)
+        .attr('stroke', d => getColorAttrs(d).stroke)
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x",xScale(300))
+        .attr('y',function(d,i){
+            return yScale(d['pos']) +8
+        }) 
+        .attr("opacity",1);  
+
+        all_elements.push(colRectEnter.merge(colRect));
+
+    
+        var lineGenerator = d3.line()
+                    .x(function(d) { return xScale(d[0]) + 228 })
+                    .y(function(d) { return d[1] });
+        
+        function triangleGenerator(posY,width,height){
+            return [ [0,posY], [width,posY], [width,posY + height]]
+        }
+        
+        //Racer secondary color - small triangle/corner that represents racer's secondary color
+        secondary = interactive_chart.selectAll(".secondary")
+        .data(data, function(d) { return d.id; }) 
+
+        // --- 1. EXIT Selection ---
+        secondary.exit()
+        .transition()
+        .attr("x",xScale(1900))
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // Function to determine secondary color fill
+        const getSecondaryFill = (d) => {
+            let color = d['secondary_color'];
+            return (color.charAt(0) === '#') ? color : "#" + color;
+        }
+        
+        // --- 2. ENTER Selection ---
+        const secondaryEnter = secondary.enter()
+        .append("path")
+        .attr("class","secondary racerEl")
+        .attr('stroke','var(--brand-dark)')
+        .attr('stroke-width',1)
+        .attr("opacity",0)
+        // Initial path: Drawn at the starting Y, but X is set later via transition.
+        .attr("d", function(d) {
+            var triangleP = triangleGenerator(yScale(d['pos']) + 8,60,30)
+             return lineGenerator(triangleP);
+        })
+        .attr("fill", getSecondaryFill);
+        
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        secondaryEnter.merge(secondary)
+        // Update path data (position update) and color
+        .attr("d", function(d) {
+            var triangleP = triangleGenerator(yScale(d['pos']) + 8,60,30)
+            return lineGenerator(triangleP);
+        })
+        .attr("fill", getSecondaryFill)
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(2000)
+        // The X position relies on the lineGenerator's internal scale, so we transition the Y
+        .attr('y',function(d,i){
+            // This Y position shift will cause the path to move smoothly
+            return yScale(d['pos']) + 10 
+        }) 
+        .attr("opacity",1);
+
+        all_elements.push(secondaryEnter.merge(secondary));
+        
+        //Racer Tag (3 letter tag)
+        tagText = interactive_chart.selectAll(".tagText")
+        .data(data, function(d) { return d.id; }) 
+        
+        // --- 1. EXIT Selection ---
+        tagText.exit()
+        .transition()
+        .attr("x", xScale(2000)) // Transition out to the right
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // --- 2. ENTER Selection ---
+        const tagTextEnter = tagText.enter()
+        .append('text')
+        .attr('class','tagText racerEl')
+        .attr('id','tagText')
+        .attr('dx',"0.5em")
+        .attr('dy',".65em")
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','22px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right
+        .attr("x", xScale(2000))
+        .attr('y',function(d,i){ return yScale(d['pos']); })
+        .attr("opacity",0);
+
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        tagTextEnter.merge(tagText)
+        .text(function(d,i){ return d['tag']})
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x",labelScale(3))
+        .attr('y',function(d,i){
+            return yScale(d['pos'])
+        }) 
+        .attr("opacity",1);
+        
+        all_elements.push(tagTextEnter.merge(tagText));
+        
+        
+        // Lap time -- last lap time
+        bestLapText = interactive_chart.selectAll(".bestLapText")
+        .data(data, function(d) { return d.id; }) 
+
+        // --- 1. EXIT Selection ---
+        bestLapText.exit()
+        .transition()
+        .attr("x", xScale(2000)) // Transition out to the right
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // --- 2. ENTER Selection ---
+        const bestLapTextEnter = bestLapText.enter()
+        .append('text')
+        .attr('class','bestLapText racerEl')
+        .attr('dx',"0em")
+        .attr('dy',".65em")
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','23px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right
+        .attr("x", xScale(2000))
+        .attr('y',function(d,i){ return yScale(d['pos']); })
+        .attr("opacity",0);
+
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        bestLapTextEnter.merge(bestLapText)
+        .text(function(d,i){ return d['bestLap']})
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x", labelScale(4))
+        .attr('y',function(d,i){
+            return yScale(d['pos'])
+        }) 
+        .attr("opacity",1);
+
+        all_elements.push(bestLapTextEnter.merge(bestLapText));
+
+        
+        // Finish Split Text
+        finSplitText = interactive_chart.selectAll(".finSplitText")
+        .data(data, function(d) { return d.id; }) 
+        
+        // --- 1. EXIT Selection ---
+        finSplitText.exit()
+        .transition()
+        .attr("x", xScale(2000)) // Transition out to the right
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // Define function to generate text (needed for enter and merge)
+        const getSplitText = (d) => {
+            var symbol = '+'
+            if (d['pos'] == 1){
+                symbol = ''
+            }
+            // Use the data's 'split' property for both
+            return symbol + d['split'];
+        };
+
+        // --- 2. ENTER Selection ---
+        const finSplitTextEnter = finSplitText.enter()
+        .append('text')
+        .attr('class','finSplitText racerEl')
+        .attr('dx',".5em")
+        .attr('dy',".65em")
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','23px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right (using original xScale(2800))
+        .attr("x", xScale(2800))
+        .attr('y',function(d,i){ return yScale(d['pos']); })
+        .attr("opacity",0);
+
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        finSplitTextEnter.merge(finSplitText)
+        .text(getSplitText)
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x", labelScale(5) - 15)
+        .attr('y',function(d,i){
+            return yScale(d['pos']) 
+        }) 
+        .attr("opacity",1);
+
+        all_elements.push(finSplitTextEnter.merge(finSplitText));
+
+        
+        // Points Text
+        var pointList = [15, 12, 10, 8, 7, 6, 5, 4, 3, 2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1] 
+        pointText = interactive_chart.selectAll(".pointText")
+        .data(data, function(d) { return d.id; }) 
+
+        // --- 1. EXIT Selection ---
+        pointText.exit()
+        .transition()
+        .attr("x",xScale(2300 )) // Transition out to the right
+        .attr("opacity",0)
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // Define function to generate text (needed for enter and merge)
+        const getPointsText = (d) => {
+             // Access the point list using the position (1-indexed)
+            return pointList[Number(d['pos']) -1]; 
+        }
+
+        // --- 2. ENTER Selection ---
+        const pointTextEnter = pointText.enter()
+        .append('text')
+        .attr('class','pointText racerEl')
+        .attr('dx',".7em")
+        .attr('dy',".58em")
+        .attr('font-family',"var(--brand-font-header)") // Using header font for the key number
+        .attr('font-size','25px')
+        .attr('fill','var(--brand-main)') // Using the primary brand color for the key number
+        .attr('text-anchor', 'center')
+        .attr('alignment-baseline', 'hanging')
+        // Initial state: Start off-screen right
+        .attr("x",xScale(2300))
+        .attr('y',function(d,i){ return yScale(d['pos']); }) 
+        .attr("opacity",0);
+
+        // --- 3. MERGE (Apply common updates and final transition) ---
+        pointTextEnter.merge(pointText)
+        .text(getPointsText)
+        .transition()
+        // --- OPTIMIZATION: Use centralized setting ---
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x",labelScale(6))
+        .attr('y',function(d,i){
+            return yScale( d['pos']);
+        }) 
+        .attr("opacity",1);
+        
+        all_elements.push(pointTextEnter.merge(pointText));
+
+    }
+
+    </script>
+    <script> 
+        // loads,parses, and calls all chart creation
+        var smarl_data  = [] 
+       // Helper functions
+        function findObjectByKey(array, key, value) {
+          for (var i = 0; i < array.length; i++) {
+              if (array[i][key] === value) {
+                  return array[i];
+              }
+          }
+          return null;
+        }
+        function findIndexByKey(array, key, value) {
+          for (var i = 0; i < array.length; i++) {
+              if (array[i][key] === value) {
+                  return i;
+              }
+          }
+          return null;
+          }
+      // SOCKET FUNCTIONS
+        var socket = io.connect('http://' + document.domain + ':' + location.port);
+        socket.on( 'connect', function() {
+        /*socket.emit( 'getFinish', {
+            data: 'getFinish'
+        } )*/
+         
+        socket.on( 'raceData', function( data ) {
+            //console.log("raceData",data)
+            smarl_data = data['finish_data']
+          if (smarl_data.length > 0 && !boardCreated){
+            initialize(smarl_data)
+          } else if(smarl_data.length > 0 && boardCreated){
+              updateGraphic(smarl_data)
+          }else{
+              console.log("No data yet??")
+          }
+        })})
+        function initialize(data){
+            //updateInterval = setInterval(updateGraphic, 1000);
+            createBoard(data);
+        }
+        function updateGraphic(data){
+            // Get best lap stuff
+            let minMs = Number.MAX_SAFE_INTEGER;
+            data.forEach(d => {
+                // --- OPTIMIZATION: Use imported timeToMs ---
+                const currentMs = timeToMs(d.bestLap); 
+                if (currentMs < minMs) {
+                    minMs = currentMs;
+                }
+            });
+            // Do whatever too
+            reloadGraphic(data,minMs);
+        }
+        
+        // --- OPTIMIZATION: The timeToMs function has been REMOVED from here. ---
+        
+        $(document).ready(function() {
+            
+        });
+        </script>
+
+{% endblock %}

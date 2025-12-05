@@ -1,0 +1,545 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+TARL Season Display
+{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
+<div id="lapDisplay">
+</div>
+    <script src="{{ url_for('static', filename='src/smarl_utils.js') }}"></script>
+    <script>    
+    // Displays the results of the season based off of twitch stats
+    var twitch_stats = {};
+    var boardCreated = false;   
+    function reloadChart(){
+        d3.select("#lapDisplay").selectAll("svg").remove();
+        reloadGraphic();
+    }
+
+    function reloadGraphic(data){
+        drawData(data);
+    }
+    // Global chart element vars
+    var yScale; 
+    var xScale;
+    var chart_area;
+    var interactive_chart;
+    var chartSettings;
+    
+    const PADDING_TOP = 140; 
+    var scrolling_group;
+    var racerBG; 
+    var posRects;
+    
+    const MAX_RACERS_VISIBLE = 16; 
+    const CONTENT_WIDTH = 1000;
+    const ROW_HEIGHT = 60; // Height of each racer row in pixels (e.g., 45px)
+    const VISIBLE_ROWS = 16; // Number of rows visible without scrolling
+    const LIST_HEIGHT = ROW_HEIGHT * VISIBLE_ROWS;
+    // --- NEW: Column positioning settings copied from the race board ---
+    const CHART_LEFT_MARGIN = 350; // magic number to center chart
+    const COLUMN_GAP = 10;
+    
+    // *** MODIFIED: New column setup for [Place, Racer/Name, #Wins, #Podiums, Points] ***
+    // Using the same widths/xStarts as the race board for consistency.
+    const columnSettings = {
+        'Place':        { index: 0, width: 100,  xStart: CHART_LEFT_MARGIN },
+        'Name':    { index: 1, width: 420, xStart: CHART_LEFT_MARGIN + 100 + COLUMN_GAP },
+        'Wins':    { index: 2, width: 150, xStart: CHART_LEFT_MARGIN + COLUMN_GAP + 100 + COLUMN_GAP + 420 + COLUMN_GAP },
+        'Podiums': { index: 3, width: 150, xStart: CHART_LEFT_MARGIN + COLUMN_GAP + 100 + COLUMN_GAP + 420 + COLUMN_GAP + 150 + COLUMN_GAP },
+        'Points':   { index: 4, width: 150, xStart: CHART_LEFT_MARGIN + COLUMN_GAP + 100 + COLUMN_GAP + 420 + COLUMN_GAP + 150 + COLUMN_GAP + 150 + COLUMN_GAP }
+    };
+
+    // Calculate the actual content width based on the new settings
+    const TOTAL_WIDTH = columnSettings['Points'].xStart + columnSettings['Points'].width - CHART_LEFT_MARGIN;
+    const CHART_RIGHT_MARGIN = 1;
+
+   
+    // Old fixed X-Coordinates removed. The new `columnSettings` is used.
+    const getColX = (label) => columnSettings[label].xStart + (columnSettings[label].width / 2);
+
+    function createBoard(data) {
+        boardCreated = true; 
+        let totalRacers = data.length
+        // *** MODIFIED: Removed 'Color' column ***
+        var labelList = ['Place', 'Name', 'Wins', 'Podiums','Points'] 
+        
+        const canvasWidth = 1920;
+        const contentHeight = 1000; 
+        // *** MODIFIED: Use the fixed chart margin for centering ***
+        const marginH = CHART_LEFT_MARGIN;
+
+        chartSettings = { 
+            width: canvasWidth, 
+            height: 1100, 
+            margin: {left: CHART_LEFT_MARGIN, right: CHART_RIGHT_MARGIN, top: 100, bottom: -20}
+        };
+        
+        //Scales
+        xScale = d3.scaleLinear()
+            .domain([0, TOTAL_WIDTH]) 
+            .range([chartSettings.margin.left, chartSettings.margin.left + TOTAL_WIDTH]);
+
+       // SCALING: Y-Scale for ALL data, but range limits visible rows
+        const ranks = Array.from({length: totalRacers}, (_, i) => i + 1);
+        yScale = d3.scaleBand()
+            .domain(ranks) 
+            //.range([chartSettings.margin.top + PADDING_TOP, chartSettings.height - chartSettings.margin.bottom +100] )
+            .range([chartSettings.margin.top + PADDING_TOP, totalRacers * ROW_HEIGHT])
+            .paddingInner(0.05)
+            .paddingOuter(0.05); 
+        
+        chart_area = d3.select("#lapDisplay").append("svg")
+            .attr('width', chartSettings.width)
+            .attr('height',chartSettings.height)
+            
+        interactive_chart = chart_area.append('g')
+        // 1. Define the Clip Path
+        const CLIP_Y_START = chartSettings.margin.top + PADDING_TOP; // This is the separator line Y: 140
+        const CLIP_HEIGHT = chartSettings.height - chartSettings.margin.bottom - CLIP_Y_START;
+
+        interactive_chart.append('defs')
+            .append('clipPath')
+            .attr('id', 'racerClip') // Give it an ID
+            .append('rect')
+            // X and Width match the main board background
+            .attr('x', CHART_LEFT_MARGIN) 
+            .attr('y', CLIP_Y_START) // Start just below the separator line (y: 140)
+            .attr('width', TOTAL_WIDTH)
+            .attr('height', CLIP_HEIGHT); // Span to the bottom of the chart area
+       
+        // Background
+        var bgRect = interactive_chart.append('rect')
+        // *** MODIFIED X and WIDTH to use new settings ***
+        .attr("x",CHART_LEFT_MARGIN)
+        .attr('y',chartSettings.margin.top)
+        .attr("rx",10)
+        .attr('ry',10)
+        .attr('width',TOTAL_WIDTH)
+        .attr('height',0)
+        .attr('opacity',0)
+        .attr('fill','var(--brand-dark-transparent)') 
+        .transition()
+        .attr('height',chartSettings.height - chartSettings.margin.bottom - chartSettings.margin.top)
+        .attr("opacity",0.90)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+
+        // Header
+        var leagueTitle = "{{raceData.leagueTitle}}" // Fallback for safety
+        var header = interactive_chart.append("text")
+        .attr('class','headerText titleEl')
+        .attr("x", CHART_LEFT_MARGIN + TOTAL_WIDTH/2) // Centered over the new total width
+        .attr("y", -100 )
+        .attr("opacity",0)
+        .text(leagueTitle+" STANDINGS") 
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr('font-family',"var(--brand-font-header)")
+        .attr('fill','var(--brand-text)')
+        .transition()
+        .attr("y", chartSettings.margin.top + 50 )
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+
+        // --- Column Labels (Aligned using columnSettings) ---
+        const labelY = chartSettings.margin.top + 90; // Y position of the rect TOP
+        const LABEL_RECT_HEIGHT = 40; // New constant for clarity
+        const LABEL_TEXT_Y_BASE = labelY + (LABEL_RECT_HEIGHT / 2); // Calculated Y for vertical center
+        const LABEL_TEXT_OFFSET_Y = 10; // You can tweak this value (e.g., 1, 2, 3) for perfect visual alignment
+        const LABEL_TEXT_Y_FINAL = LABEL_TEXT_Y_BASE + LABEL_TEXT_OFFSET_Y;
+        labelList.forEach( (d) => {
+            const settings = columnSettings[d];
+            const xStart = settings.xStart;
+            const width = settings.width;
+            const anchor = 'middle'
+            
+            // Label BGs
+            interactive_chart.append("rect")
+            .attr("class","labelRect titleEl")
+            .attr("rx", 5).attr("ry", 5)
+            .attr("width", width)
+            .attr("height", LABEL_RECT_HEIGHT)
+            // *** REVISED X: Use xStart directly ***
+            .attr("x", xStart) 
+            .attr("y", labelY)
+            .attr("fill",'var(--brand-main)') 
+            .attr("opacity",0)
+            .transition()
+            .attr("opacity",1)
+            .duration(SMARL_SETTINGS.TRANSITION_LONG);
+
+            // Title labels
+            interactive_chart.append('text')
+            .attr('class', 'labelText')
+            // *** REVISED X: Center or left-align based on anchor ***
+            .attr("x", xStart + (anchor === 'middle' ? width / 2 : 5))
+            .attr("y", LABEL_TEXT_Y_FINAL)
+            .attr('text-anchor', anchor)
+            .text(d) // Display 'Name' instead of 'Racer' for consistency
+            .attr("opacity",0)
+            .transition()
+            .attr("opacity",1)
+            .duration(SMARL_SETTINGS.TRANSITION_LONG);
+        });
+        
+        // Separator line
+        interactive_chart.append("line")
+        .attr("x1", columnSettings['Place'].xStart)
+        .attr("y1", chartSettings.margin.top + 140)
+        .attr("x2", columnSettings['Points'].xStart + columnSettings['Points'].width)
+        .attr("y2", chartSettings.margin.top + 140)
+        .attr('stroke-width',3)
+        .attr("stroke",'var(--brand-main-faint)') 
+        .transition()
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+
+        const static_clip_group = interactive_chart.append('g')
+        .attr("clip-path", "url(#racerClip)")
+        .attr("class", "static-clip-container"); // New static group
+
+          // 1. Create the Scroll Viewport Group: All dynamic content goes here
+        scrolling_group = static_clip_group.append('g')
+            .attr("class", "scrolling-viewport") // moved this because the background rect was on top of everything
+        
+            drawData(data);
+
+        if (totalRacers > MAX_RACERS_VISIBLE) {
+            startScrollLoop(totalRacers);
+        }
+      
+    }
+    
+    function startScrollLoop(totalRacers) {
+        
+        if (totalRacers <= MAX_RACERS_VISIBLE) {
+            return; 
+        }
+
+        const scrollDistancePerRacer = yScale.step(); 
+
+        // Number of racers that need to scroll past the bottom of the visible area
+        const racersToScroll = totalRacers - MAX_RACERS_VISIBLE;
+        
+        // Final Y position (Negative translation)
+        const finalTranslateY = -(racersToScroll * scrollDistancePerRacer); 
+        
+        // Duration: 1 second per row that scrolls 
+        const scrollDuration = racersToScroll * 1000;
+        
+        function transitionToBottom() {
+            scrolling_group.transition("scroll")
+                .duration(scrollDuration)
+                .delay(SMARL_SETTINGS.SCROLL_WAIT) 
+                .ease(d3.easeLinear) 
+                .attr("transform", `translate(0, ${finalTranslateY})`) 
+                .on("end", transitionToTop); 
+        }
+
+        function transitionToTop() {
+            scrolling_group.transition("reset")
+                .duration(2000) 
+                .delay(SMARL_SETTINGS.SCROLL_WAIT) 
+                .ease(d3.easeQuadOut)
+                .attr("transform", "translate(0, 0)") 
+                .on("end", transitionToBottom); 
+        }
+
+        // Initialize the loop
+        transitionToBottom();
+    }
+
+    function drawData(data){
+        // **IMPORTANT:** All elements are now attached to the scrolling_group
+        const getYPos = (d) => yScale(d['racer_rank']) || chartSettings.height;
+        const getRowHeight = () => yScale.bandwidth() || 45; 
+        const halfBand = getRowHeight() / 2;
+        
+        // Highlight logic for podium positions (1st, 2nd, 3rd)
+        const getRowFill = (d, i) => {
+            const rank = d['racer_rank'];
+            if (rank === 1) return 'var(--status-podium)'; // Gold
+            if (rank === 2) return 'var(--status-racing-faint)'; // Silver/Accent Faint
+            if (rank === 3) return 'var(--brand-main-faint)'; // Bronze/Main Faint
+            // Alternate colors for readability
+            return i % 2 === 0 ? 'var(--brand-dark-faint)' : 'var(--brand-dark)';
+        };
+
+        // 1. Background Rects (racerBG)
+        racerBG = scrolling_group.selectAll(".bgRect.racerData")
+        .data(data, function(d) { return d.uid; }) 
+        
+        // EXIT
+        racerBG.exit().transition().attr("x", columnSettings['Points'].xStart + 300).attr("opacity",0).duration(SMARL_SETTINGS.TRANSITION_SHORT).remove();
+
+        // ENTER
+        const racerBGEnter = racerBG.enter()
+        .append("rect")
+        .attr("class","bgRect racerData racerEl")
+        .attr('rx',3).attr('ry',3)
+        // *** MODIFIED: Use total width and xStart from new settings ***
+        .attr("width",TOTAL_WIDTH) 
+        .attr('stroke','var(--brand-text)') 
+        .attr("x",columnSettings['Points'].xStart + 300) // Start off-screen right
+        .attr("y", getYPos) 
+        .attr("height",getRowHeight)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        racerBGEnter.merge(racerBG)
+        .attr("fill", getRowFill)
+        .transition()
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("x",columnSettings['Place'].xStart) // Align to start of Color column
+        .attr("y", getYPos) 
+        .attr("height",getRowHeight)
+        .attr("opacity",0.85);
+        
+        
+       // Removed color rects
+
+
+        // 4. Position Rects (posRects) - P Column 
+        posRects = scrolling_group.selectAll(".posRect")
+        .data(data, function(d) { return d.uid; }) 
+        
+        const posCol = columnSettings['Place'];
+        const posRectWidth = 80;
+        const posRectHeight = getRowHeight() * 0.9;
+        const posRectYOffset = (getRowHeight() - posRectHeight) / 2;
+        // *** REVISED X: Center in P column ***
+        const posRectX = posCol.xStart + (posCol.width / 2) - (posRectWidth / 2);
+
+        // EXIT
+        posRects.exit().transition().attr("x", -100).attr("opacity",0).duration(SMARL_SETTINGS.TRANSITION_SHORT).remove();
+
+        // ENTER
+        const posRectsEnter = posRects.enter()
+        .append("rect")
+        .attr("class","posRect racerEl")
+        .attr("rx", 5).attr("ry", 5)
+        .attr("width",posRectWidth)
+        .attr("height",posRectHeight)
+        .attr("fill",'var(--brand-text)') 
+        .attr('stroke','var(--brand-dark)') 
+        .attr("x", posRectX) 
+        .attr("y", (d) => getYPos(d) + posRectYOffset + 100)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        posRectsEnter.merge(posRects)
+        .transition()
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("x", posRectX)
+        .attr("y", (d) => getYPos(d) + posRectYOffset)
+        .attr("opacity",1);
+        
+        // 5. Racer Position Text (posText) - P Column
+        posText = scrolling_group.selectAll(".posText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        posText.exit().transition().attr("x", -100).attr("opacity",0).duration(SMARL_SETTINGS.TRANSITION_SHORT).remove();
+
+        // ENTER
+        const posTextEnter = posText.enter()
+        .append('text')
+        .attr('class','posText racerEl headerText')
+        .attr('font-size','24px')
+        .attr('font-weight','bold')
+        .attr('fill','var(--brand-dark)') 
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("x", posCol.xStart + posCol.width / 2)
+        .attr("y", getYPos)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        posTextEnter.merge(posText)
+        .text(function (d){ return d['racer_rank'] })
+        .transition()
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("opacity",1)
+        .attr("y",(d) => getYPos(d) + halfBand + 1)
+        .attr("x", posCol.xStart + posCol.width / 2); 
+        
+        // 6. Racer Name Text (nameText) - Racer Column
+        const nameCol = columnSettings['Name'];
+        nameText = scrolling_group.selectAll(".nameText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        nameText.exit().transition().attr("x", nameCol.xStart - 100 ).attr("opacity",0).duration(SMARL_SETTINGS.TRANSITION_SHORT).remove();
+
+        // ENTER
+        const nameTextEnter = nameText.enter()
+        .append('text')
+        .attr('class','nameText racerEl labelText')
+        .attr('font-size','20px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'start')
+        .attr('alignment-baseline', 'central')
+        .attr("x", nameCol.xStart - 100)
+        .attr('y', getYPos)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        nameTextEnter.merge(nameText)
+        .text(function(d){ return d['name']})
+        .transition()
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .delay(SMARL_SETTINGS.TRANSITION_LONG) 
+        .attr("x", nameCol.xStart + 5) // Left aligned with small offset
+        .attr('y',(d) => getYPos(d) + halfBand + 1) 
+        .attr("opacity",1);
+        
+        // 7. #Wins Text (numWinsText) - Wins Column 
+        const winsCol = columnSettings['Wins'];
+        numWinsText = scrolling_group.selectAll(".numWinsText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        numWinsText.exit().transition().attr("x", winsCol.xStart + 100).attr("opacity",0).duration(SMARL_SETTINGS.TRANSITION_SHORT).remove();
+
+        // ENTER
+        const numWinsTextEnter = numWinsText.enter()
+        .append('text')
+        .attr('class','numWinsText racerEl headerText')
+        .attr('font-size','28px') // Larger text for wins/points
+        .attr('fill','var(--brand-accent)') // Accent color for Wins
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("x", winsCol.xStart + 100)
+        .attr('y', getYPos)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        numWinsTextEnter.merge(numWinsText)
+        .text(function(d){ return d['wins']})
+        .transition()
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .delay(SMARL_SETTINGS.TRANSITION_LONG)
+        .attr("x", winsCol.xStart + winsCol.width / 2) // Centered in Wins column
+        .attr('y',(d) => getYPos(d) + halfBand + 1) 
+        .attr("opacity",1);
+
+        // 8. Num Podiums Text (numPodiumText) - Podiums Column
+        const podiumCol = columnSettings['Podiums'];
+        numPodiumText = scrolling_group.selectAll(".numPodiumText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        numPodiumText.exit().transition().attr("x", podiumCol.xStart + 100).attr("opacity",0).duration(SMARL_SETTINGS.TRANSITION_SHORT).remove();
+
+        // ENTER
+        const numPodiumTextEnter = numPodiumText.enter()
+        .append('text')
+        .attr('class','numPodiumText racerEl labelText')
+        .attr('font-size','22px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("x", podiumCol.xStart + 100)
+        .attr('y', getYPos)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        numPodiumTextEnter.merge(numPodiumText)
+        .text(function(d){ return d['podiums']})
+        .transition()
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .delay(SMARL_SETTINGS.TRANSITION_LONG)
+        .attr("x", podiumCol.xStart + podiumCol.width / 2) // Centered in Podiums column
+        .attr('y',(d) => getYPos(d) + halfBand + 1)
+        .attr("opacity",1);
+        
+        
+        // 9. Points Text (pointText) - Points Column 
+        const ptsCol = columnSettings['Points'];
+        pointText = scrolling_group.selectAll(".pointText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // EXIT
+        pointText.exit().transition().attr("x",ptsCol.xStart + 100).attr("opacity",0).duration(SMARL_SETTINGS.TRANSITION_SHORT).remove();
+
+        // ENTER
+        const pointTextEnter = pointText.enter()
+        .append('text')
+        .attr('class','pointText racerEl headerText')
+        .attr('font-size','30px') // Largest text for points
+        .attr('fill','var(--brand-main)') // Primary Brand color for Points
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("x", ptsCol.xStart + 100)
+        .attr('y', getYPos) 
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        pointTextEnter.merge(pointText)
+        .text(function(d){ return d['points']})
+        .transition()
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .delay(SMARL_SETTINGS.TRANSITION_LONG)
+        .attr("x",ptsCol.xStart + ptsCol.width / 2) // Centered in Points column
+        .attr('y',(d) => getYPos(d) + halfBand + 1) 
+        .attr("opacity",1);
+    }
+
+    </script>
+    <script> 
+        // loads,parses, and calls all chart creation
+        var smarl_data  = [] 
+    
+      // SOCKET FUNCTIONS
+        var socket = io.connect('http://' + document.domain + ':' + location.port);
+        socket.on('connect', function() { // Twitch stats also doubles as season data
+            socket.emit( 'getTwitchStats', {
+            data: 'getStats'
+          }) })
+         
+        socket.on('twitchStats', function( data ) {
+            let data2 = JSON.parse(data)
+            twitch_stats = data2;
+            setupStats(data)
+        })
+         
+        function setupStats(data) {
+            let rawData = JSON.parse(data);
+            // 1. Convert Object to Array (and add UID as a property)
+            let racerArray = Object.keys(rawData).map(uid => ({
+                uid: uid,
+                ...rawData[uid]
+            }));
+            // 2. Sort the Array (Crucial for correct D3 ranking)
+            racerArray.sort((a, b) => {
+                if (b.points !== a.points) {
+                    return b.points - a.points; // Primary Sort: Higher points first
+                }
+                if (b.wins !== a.wins) {
+                    return b.wins - a.wins; // Secondary Sort: Then higher wins
+                }
+                return b.podiums - a.podiums; // Tertiary Sort: Then higher podiums
+            });
+            // 3. Assign Rank
+            racerArray.forEach((racer, index) => {
+                // Rank is 1-based index (index + 1)
+                racer.racer_rank = index + 1;
+            });
+
+          if (racerArray.length > 0 && !boardCreated){
+                createBoard(racerArray);
+          } else if(racerArray.length > 0 && boardCreated){
+                updateGraphic(racerArray)
+          }
+        }
+
+        function updateGraphic(data){
+            reloadGraphic(data);
+        }
+        
+    
+        $(document).ready(function() {
+            
+        });
+    </script>
+{% endblock %}

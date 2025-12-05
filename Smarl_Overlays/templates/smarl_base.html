@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}SMARL{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.7/js/select2.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.7/css/select2.min.css" rel="stylesheet">
+
+</head>
+<body>
+<nav class="navbar navbar-inverse navbar-fixed-top">
+
+<div class="container">
+
+    <div class="jumbotron " style="background-color: orange">
+    <div class="row align-items-center justify-content-center">
+	    <a href="{{url_for('smarl_home_page')}}">
+		SMARL DATA MANAGER
+        </a>
+	{% if 'userID' in session %}
+        <button class="btn btn-dark mx-3" type="button" onclick="location.href='/classes'">Races</button>
+        <button class="btn btn-dark mx-3" type="button" onclick="location.href='/list_announcements'">Racers</button>
+        <button class="btn btn-dark mx-3" type="button" onclick="location.href='/main_calendar'">Wallet</button>
+        <button class="btn btn-dark mx-3" type="button" onclick="location.href='/messenger'">Stats</button>
+        <button class="btn btn-dark mx-3" type="button" onclick="location.href='/contact'">Sponsoring</button>
+            <div class="dropdown d-inline-block mx-3">
+                <button class="dropdown-toggle btn-dark" type="button" id="UserDropdownBtn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">User Options</button>
+            <div aria-labelledby="UserDropdownBtn" class="dropdown-menu" name="User Options">
+            <a href="/logout" class="dropdown-item" value="Option 2">logout</a>
+            </div>
+            </div>
+    </div>
+    </div>
+
+</div>
+</nav>
+
+	{% else %}
+	<p> Please login </p>
+
+
+
+	 {% endif %}
+
+    {% for message in get_flashed_messages() %}
+        <div class="alert alert-info">
+            <strong>Info:</strong> {{ message }}
+        </div>
+    {% endfor %}
+
+ <div class="container">
+
+    {% block content %}
+
+    {% endblock %}
+ </div>
+
+</div>
+
+
+</body>
+</html>
+

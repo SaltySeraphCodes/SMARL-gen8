@@ -1,0 +1,131 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="Widget" skin="PanelEmpty" name="ControlRacePanel" position_real="0.27 0.1 0.458203 0.740278">
+        <Widget type="Widget" skin="BackgroundDarkRoundedUpperRight" position_real="0 0 1.00085 0.12758">
+            <Widget type="TextBox" name="Header" skin="TextBox" position_real="0.0868824 0.15 0.7 0.666667">
+                <Property key="Caption" value="SMAR Race Control" />
+                <Property key="FontName" value="SM_HeaderLarge_Medium" />
+                <Property key="TextAlign" value="Left VCenter" />
+                <Property key="TextColour" value="0.9 0.9 0.9" />
+            </Widget>
+            <Widget type="ImageBox" skin="ImageBox" position_real="0.028109 0.32549 0.0357752 0.308823">
+                <Property key="ImageTexture" value="gui_mainmenu_icon_options.png" />
+                <Property key="Colour" value="1 0.780392 0.227451" />
+            </Widget>
+            <Widget type="Button" skin="SecondaryButton" name="ResetRace" position_real="0.7621638 0.304902 0.1839864 0.382353">
+                <Property key="Caption" value="Reset Race" />
+                <Property key="FontName" value="SM_ButtonSmall" />
+                <Property key="TextAlign" value="Center" />
+            </Widget>
+            
+        </Widget>
+        <Widget type="Widget" skin="BackgroundLightRoundedLowerLeft" name="ControlRaceOptionsPanel" position_real="0 0.12758 1.00085 0.810507">
+            <Widget type="Widget" skin="PanelEmpty" name="ContainerHostPanel" position_real="0.056218 0.00694444 0.942078 0.92129688524">
+                <Widget type="Widget" skin="PanelEmpty" position_real="0 0 1 0.4">
+                    <Widget type="TextBox" skin="TextBox" name="ModeText" position_real="0 0 0.350877 1">
+                        <Property key="Caption" value="Race Mode:" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Left VCenter" />
+                        <Property key="NeedMouse" value="false" />
+                    </Widget>
+                    <Widget type="Widget" skin="PanelEmpty" position_real="0.15 0.415385 0.7 0.255385">
+                        <Widget type="Button" skin="BeaconIconColorBorder" name="ColorButtonRed" position_real="0 0 0.117647 1">
+                            <Widget type="Widget" skin="BeaconIconColor" position_real="0.142857 0.142857 0.714286 0.714286">
+                                <Property key="Colour" value="#dd2222" />
+                                <Property key="NeedMouse" value="false" />
+                                <Property key="NeedKey" value="false" />
+                            </Widget>
+                        </Widget>
+                        <Widget type="Button" skin="BeaconIconColorBorder" name="ColorButtonYellow" position_real="0.12605 0 0.117647 1">
+                            <Widget type="Widget" skin="BeaconIconColor" position_real="0.142857 0.142857 0.714286 0.714286">
+                                <Property key="Colour" value="#dddd22" />
+                                <Property key="NeedMouse" value="false" />
+                                <Property key="NeedKey" value="false" />
+                            </Widget>
+                        </Widget>
+                        <Widget type="Button" skin="BeaconIconColorBorder" name="ColorButtonGreen" position_real="0.252101 0 0.117647 1">
+                            <Widget type="Widget" skin="BeaconIconColor" position_real="0.142857 0.142857 0.714286 0.714286">
+                                <Property key="Colour" value="#22dd22" />
+                                <Property key="NeedMouse" value="false" />
+                                <Property key="NeedKey" value="false" />
+                            </Widget>
+                        </Widget>
+                        <Widget type="Button" skin="BeaconIconColorBorder" name="ColorButtonWhite" position_real="0.37706 0 0.117647 1">
+                            <Widget type="Widget" skin="BeaconIconColor" position_real="0.142857 0.142857 0.714286 0.714286">
+                                <Property key="Colour" value="#eeeeee" />
+                                <Property key="NeedMouse" value="false" />
+                                <Property key="NeedKey" value="false" />
+                            </Widget>
+                        </Widget>
+                    </Widget>
+                     
+                </Widget>
+
+                
+
+
+                <Widget name = "RaceStatus" type="Widget" skin="PanelEmpty" position_real="0 0.5 1 0.1">
+                    <Widget name="StatusText" skin="TextBox" type="TextBox" position_real="0 0.05 0.350877 1">
+                        <Property key="Caption" value="Race Status:" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Left VCenter" />
+                        <Property key="NeedMouse" value="false" />
+                    </Widget>
+
+                    <Widget name="LapStat" type="TextBox" skin="TextBox"  position_real="0.25 0.35 0.4 0.5">
+                        <Property key="Caption" value="Lap 1 of 3" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                </Widget>
+
+            </Widget>
+        </Widget>
+    </Widget>
+    <Widget type="Widget" skin="WhiteSkin" name="PopUpYNMainPanel" position_real="0 0 1 1">
+        <Property key="Alpha" value="0.5" />
+        <Property key="Colour" value="0 0 0" />
+    <Property key="Visible" value="false" />
+    <Widget type="Widget" skin="BackgroundPromptNarrow" position_real="0.3645835 0.2592595 0.270833 0.481481">
+        <Property key="InheritsAlpha" value="false" />
+        <Widget type="Widget" skin="PanelEmpty" position_real="0.115385 0.0615385 0.769231 0.807692">
+            <Property key="NeedKey" value="false" />
+            <Property key="InheritsAlpha" value="false" />
+            <Widget type="ImageBox" skin="ImageBox" position_real="0.4375 0.119048 0.125 0.119048">
+                <Property key="ImageTexture" value="gui_icon_popup_alert.png" />
+            </Widget>
+            <Widget type="EditBox" skin="TextBox" name="PopUpYNTitle" position_real="0 0.278571 1 0.2">
+                <Property key="Caption" value="Are you sure?" />
+                <Property key="FontName" value="SM_HeaderLarge_Medium" />
+                <Property key="TextAlign" value="Center" />
+                <Property key="WordWrap" value="true" />
+                <Property key="Static" value="true" />
+                <Property key="MultiLine" value="true" />
+            </Widget>
+            <Widget type="EditBox" skin="EditBoxEmpty" name="PopUpYNMessage" position_real="0.1 0.504762 0.8 0.297619">
+                <Property key="FontName" value="SM_Text" />
+                <Property key="Caption" value="Start Game?" />
+                <Property key="WordWrap" value="true" />
+                <Property key="TextShadow" value="false" />
+                <Property key="TextAlign" value="HCenter Top" />
+                <Property key="TextColour" value="0.564706 0.572549 0.572549" />
+                <Property key="ReadOnly" value="true" />
+                <Property key="Static" value="true" />
+            </Widget>
+            <Widget type="Button" skin="PrimaryButton" name="PopUpYNYes" position_real="0.09 0.792857 0.4 0.147619">
+                <Property key="Caption" value="#{MENU_YN_YES}" />
+                <Property key="FontName" value="SM_Button" />
+                <Property key="TextAlign" value="Center" />
+            </Widget>
+            <Widget type="Button" skin="SecondaryButton" name="PopUpYNNo" position_real="0.53 0.807143 0.37 0.119048">
+                <Property key="Caption" value="#{MENU_YN_NO}" />
+                <Property key="FontName" value="SM_Button" />
+                <Property key="TextAlign" value="Center" />
+            </Widget>
+        </Widget>
+    </Widget>
+    </Widget>
+
+
+    <CodeGeneratorSettings />
+</MyGUI>

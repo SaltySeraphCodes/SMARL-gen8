@@ -1,0 +1,1162 @@
+{
+    "BOT_UID0006": {
+        "name": "BT06_Bot",
+        "wins": 0,
+        "races_entered": 11,
+        "best_lap_time": "01:17.745",
+        "podiums": 0,
+        "points": 12,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0003": {
+        "name": "BT03_Bot",
+        "wins": 0,
+        "races_entered": 11,
+        "best_lap_time": "01:17.569",
+        "podiums": 0,
+        "points": 26,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0008": {
+        "name": "BT08_Bot",
+        "wins": 0,
+        "races_entered": 11,
+        "best_lap_time": "01:18.204",
+        "podiums": 2,
+        "points": 36,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0001": {
+        "name": "SpeedRunner 78",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.333",
+        "podiums": 9,
+        "points": 250,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0002": {
+        "name": "Turbo_Tim",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:15.011",
+        "podiums": 6,
+        "points": 201,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0003": {
+        "name": "AceRacer_X",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.999",
+        "podiums": 7,
+        "points": 245,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0004": {
+        "name": "Ghost_Pilot",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:16.802",
+        "podiums": 2,
+        "points": 115,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0005": {
+        "name": "The_Rookie_99",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.550",
+        "podiums": 1,
+        "points": 85,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0006": {
+        "name": "King_of_Asphalt",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:14.501",
+        "podiums": 5,
+        "points": 210,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0007": {
+        "name": "DriftLord",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.900",
+        "podiums": 0,
+        "points": 60,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0008": {
+        "name": "Checkmate",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:15.922",
+        "podiums": 4,
+        "points": 188,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0009": {
+        "name": "Photon_Racer",
+        "wins": 5,
+        "races_entered": 20,
+        "best_lap_time": "01:13.105",
+        "podiums": 10,
+        "points": 275,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0010": {
+        "name": "Guardian",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.451",
+        "podiums": 1,
+        "points": 95,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0011": {
+        "name": "WarpSpeed_300",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.120",
+        "podiums": 8,
+        "points": 255,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0012": {
+        "name": "Night_Hawk",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.500",
+        "podiums": 5,
+        "points": 195,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0013": {
+        "name": "Vector_V",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.555",
+        "podiums": 9,
+        "points": 268,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0014": {
+        "name": "Blue_Flash",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.040",
+        "podiums": 2,
+        "points": 122,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0015": {
+        "name": "Zero_Gravity",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.111",
+        "podiums": 1,
+        "points": 89,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0016": {
+        "name": "Iron_Grip",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:14.980",
+        "podiums": 6,
+        "points": 218,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0017": {
+        "name": "Apex_Hunter",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.230",
+        "podiums": 0,
+        "points": 55,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0018": {
+        "name": "Starlight",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.345",
+        "podiums": 4,
+        "points": 175,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0019": {
+        "name": "QuantumLeap",
+        "wins": 5,
+        "races_entered": 20,
+        "best_lap_time": "01:13.001",
+        "podiums": 12,
+        "points": 285,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0020": {
+        "name": "Maverick",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.888",
+        "podiums": 1,
+        "points": 99,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0021": {
+        "name": "Falcon_Rider",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.250",
+        "podiums": 7,
+        "points": 240,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0022": {
+        "name": "Viper_Strike",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:15.550",
+        "podiums": 5,
+        "points": 190,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0023": {
+        "name": "Blaze_It",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.777",
+        "podiums": 8,
+        "points": 260,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0024": {
+        "name": "Shadow_Fox",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.200",
+        "podiums": 3,
+        "points": 130,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0025": {
+        "name": "RoadRunner",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.500",
+        "podiums": 1,
+        "points": 80,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0026": {
+        "name": "Titan_Racer",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:14.650",
+        "podiums": 5,
+        "points": 205,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0027": {
+        "name": "Cyclone_C",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.750",
+        "podiums": 0,
+        "points": 65,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0028": {
+        "name": "Rally_King",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.101",
+        "podiums": 4,
+        "points": 182,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0029": {
+        "name": "HyperDrive",
+        "wins": 5,
+        "races_entered": 20,
+        "best_lap_time": "01:12.900",
+        "podiums": 11,
+        "points": 290,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0030": {
+        "name": "The_Professor",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.500",
+        "podiums": 1,
+        "points": 105,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0031": {
+        "name": "Zenith",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.400",
+        "podiums": 8,
+        "points": 248,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0032": {
+        "name": "Silver_Bullet",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:15.800",
+        "podiums": 6,
+        "points": 200,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0033": {
+        "name": "Redline_Racer",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.801",
+        "podiums": 8,
+        "points": 265,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0034": {
+        "name": "Joker_Card",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.500",
+        "podiums": 2,
+        "points": 125,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0035": {
+        "name": "Fast_Furious",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.250",
+        "podiums": 1,
+        "points": 75,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0036": {
+        "name": "The_Hammer",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:15.150",
+        "podiums": 6,
+        "points": 215,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0037": {
+        "name": "Velocity_Kid",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.100",
+        "podiums": 0,
+        "points": 50,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0038": {
+        "name": "Circuit_Breaker",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.400",
+        "podiums": 4,
+        "points": 178,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0039": {
+        "name": "Comet_Crash",
+        "wins": 5,
+        "races_entered": 20,
+        "best_lap_time": "01:13.200",
+        "podiums": 10,
+        "points": 280,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0040": {
+        "name": "The_Strategist",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.600",
+        "podiums": 1,
+        "points": 100,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0041": {
+        "name": "Phantom_P",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.050",
+        "podiums": 9,
+        "points": 258,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0042": {
+        "name": "Echo_Pilot",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.000",
+        "podiums": 5,
+        "points": 198,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0043": {
+        "name": "Ignition_I",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.600",
+        "podiums": 9,
+        "points": 270,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0044": {
+        "name": "Dark_Horse",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.300",
+        "podiums": 3,
+        "points": 135,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0045": {
+        "name": "Trailblazer",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.000",
+        "podiums": 1,
+        "points": 88,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0046": {
+        "name": "Fusion_R",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:14.800",
+        "podiums": 6,
+        "points": 220,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0047": {
+        "name": "Aero_Ape",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.300",
+        "podiums": 0,
+        "points": 70,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0048": {
+        "name": "Overdrive_O",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.200",
+        "podiums": 4,
+        "points": 185,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0049": {
+        "name": "Nova_N",
+        "wins": 5,
+        "races_entered": 20,
+        "best_lap_time": "01:13.300",
+        "podiums": 11,
+        "points": 295,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0050": {
+        "name": "The_Racer_50",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.700",
+        "podiums": 1,
+        "points": 98,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0051": {
+        "name": "Glitch_Mode",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.150",
+        "podiums": 7,
+        "points": 242,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0052": {
+        "name": "Quick_Silver",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:15.700",
+        "podiums": 5,
+        "points": 192,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0053": {
+        "name": "Thunder_T",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.900",
+        "podiums": 8,
+        "points": 252,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0054": {
+        "name": "Grey_Matter",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.400",
+        "podiums": 2,
+        "points": 118,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0055": {
+        "name": "Speedy_Gonz",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.300",
+        "podiums": 1,
+        "points": 92,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0056": {
+        "name": "Gold_Rush",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:14.700",
+        "podiums": 6,
+        "points": 225,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0057": {
+        "name": "Mustang_M",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.400",
+        "podiums": 0,
+        "points": 62,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0058": {
+        "name": "Sentinel_S",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.250",
+        "podiums": 4,
+        "points": 180,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0059": {
+        "name": "Hyperion_H",
+        "wins": 6,
+        "races_entered": 20,
+        "best_lap_time": "01:12.800",
+        "podiums": 13,
+        "points": 300,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0060": {
+        "name": "Circuit_C",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.900",
+        "podiums": 1,
+        "points": 102,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0061": {
+        "name": "Storm_S",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.300",
+        "podiums": 7,
+        "points": 238,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0062": {
+        "name": "Cobra_C",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:15.950",
+        "podiums": 5,
+        "points": 194,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0063": {
+        "name": "Phoenix_P",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.650",
+        "podiums": 8,
+        "points": 254,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0064": {
+        "name": "Wildfire_W",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.000",
+        "podiums": 2,
+        "points": 120,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0065": {
+        "name": "Rocket_R",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.400",
+        "podiums": 1,
+        "points": 90,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0066": {
+        "name": "Zen_Z",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:15.000",
+        "podiums": 5,
+        "points": 212,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0067": {
+        "name": "Mercury_M",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.000",
+        "podiums": 0,
+        "points": 68,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0068": {
+        "name": "Stealth_S",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.150",
+        "podiums": 4,
+        "points": 170,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0069": {
+        "name": "Supersonic_A",
+        "wins": 6,
+        "races_entered": 20,
+        "best_lap_time": "01:12.750",
+        "podiums": 12,
+        "points": 305,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0070": {
+        "name": "Ghost_Rider",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.550",
+        "podiums": 1,
+        "points": 97,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0071": {
+        "name": "Eagle_E",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.550",
+        "podiums": 7,
+        "points": 235,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0072": {
+        "name": "Blizzard_B",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:15.600",
+        "podiums": 5,
+        "points": 196,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0073": {
+        "name": "Dragon_D",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.850",
+        "podiums": 9,
+        "points": 257,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0074": {
+        "name": "Magnum_M",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.100",
+        "podiums": 3,
+        "points": 132,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0075": {
+        "name": "Fast_Lane_L",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.600",
+        "podiums": 1,
+        "points": 83,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0076": {
+        "name": "Mach_M",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:14.900",
+        "podiums": 6,
+        "points": 222,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0077": {
+        "name": "Gale_G",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.200",
+        "podiums": 0,
+        "points": 67,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0078": {
+        "name": "Piston_P",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.450",
+        "podiums": 4,
+        "points": 172,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0079": {
+        "name": "Vortex_V",
+        "wins": 7,
+        "races_entered": 20,
+        "best_lap_time": "01:12.600",
+        "podiums": 14,
+        "points": 310,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0080": {
+        "name": "Shadow_S",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.800",
+        "podiums": 1,
+        "points": 94,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0081": {
+        "name": "Warp_W",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.000",
+        "podiums": 8,
+        "points": 247,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0082": {
+        "name": "Zeta_Z",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:15.850",
+        "podiums": 5,
+        "points": 197,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0083": {
+        "name": "Hydra_H",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.700",
+        "podiums": 8,
+        "points": 263,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0084": {
+        "name": "Lancer_L",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.600",
+        "podiums": 2,
+        "points": 128,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0085": {
+        "name": "Apex_A",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.150",
+        "podiums": 1,
+        "points": 86,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0086": {
+        "name": "Crimson_C",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:14.600",
+        "podiums": 6,
+        "points": 217,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0087": {
+        "name": "Blaze_B",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.350",
+        "podiums": 0,
+        "points": 58,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0088": {
+        "name": "Meteor_M",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.300",
+        "podiums": 4,
+        "points": 177,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0089": {
+        "name": "Pulse_P",
+        "wins": 6,
+        "races_entered": 20,
+        "best_lap_time": "01:13.150",
+        "podiums": 12,
+        "points": 298,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0090": {
+        "name": "Specter_S",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.650",
+        "podiums": 1,
+        "points": 103,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0091": {
+        "name": "Titan_T",
+        "wins": 3,
+        "races_entered": 20,
+        "best_lap_time": "01:14.200",
+        "podiums": 7,
+        "points": 244,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0092": {
+        "name": "Nebula_N",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:15.500",
+        "podiums": 5,
+        "points": 191,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0093": {
+        "name": "Star_S",
+        "wins": 4,
+        "races_entered": 20,
+        "best_lap_time": "01:13.500",
+        "podiums": 9,
+        "points": 272,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0094": {
+        "name": "Vapor_V",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:17.450",
+        "podiums": 3,
+        "points": 138,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0095": {
+        "name": "Wasp_W",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:18.550",
+        "podiums": 1,
+        "points": 81,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0096": {
+        "name": "Xtreme_X",
+        "wins": 2,
+        "races_entered": 20,
+        "best_lap_time": "01:14.750",
+        "podiums": 6,
+        "points": 219,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0097": {
+        "name": "Yukon_Y",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:19.150",
+        "podiums": 0,
+        "points": 64,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0098": {
+        "name": "Zephyr_Z",
+        "wins": 1,
+        "races_entered": 20,
+        "best_lap_time": "01:16.050",
+        "podiums": 4,
+        "points": 179,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0099": {
+        "name": "Alpha_A",
+        "wins": 7,
+        "races_entered": 20,
+        "best_lap_time": "01:12.500",
+        "podiums": 15,
+        "points": 315,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID0100": {
+        "name": "Omega_O",
+        "wins": 0,
+        "races_entered": 20,
+        "best_lap_time": "01:20.000",
+        "podiums": 1,
+        "points": 96,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0009": {
+        "name": "BT09_Bot",
+        "wins": 2,
+        "races_entered": 5,
+        "best_lap_time": "01:15.229",
+        "podiums": 3,
+        "points": 46,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0012": {
+        "name": "BT12_Bot",
+        "wins": 0,
+        "races_entered": 5,
+        "best_lap_time": "01:18.865",
+        "podiums": 1,
+        "points": 18,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0011": {
+        "name": "BT11_Bot",
+        "wins": 0,
+        "races_entered": 5,
+        "best_lap_time": "01:19.068",
+        "podiums": 1,
+        "points": 32,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0016": {
+        "name": "BT16_Bot",
+        "wins": 1,
+        "races_entered": 5,
+        "best_lap_time": "01:18.729",
+        "podiums": 2,
+        "points": 40,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0010": {
+        "name": "BT10_Bot",
+        "wins": 0,
+        "races_entered": 5,
+        "best_lap_time": "01:19.446",
+        "podiums": 1,
+        "points": 23,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0007": {
+        "name": "BT07_Bot",
+        "wins": 0,
+        "races_entered": 5,
+        "best_lap_time": "01:18.476",
+        "podiums": 0,
+        "points": 20,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0005": {
+        "name": "BT05_Bot",
+        "wins": 1,
+        "races_entered": 5,
+        "best_lap_time": "01:17.884",
+        "podiums": 1,
+        "points": 27,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0015": {
+        "name": "BT15_Bot",
+        "wins": 0,
+        "races_entered": 5,
+        "best_lap_time": "01:15.918",
+        "podiums": 0,
+        "points": 15,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0002": {
+        "name": "BT02_Bot",
+        "wins": 0,
+        "races_entered": 5,
+        "best_lap_time": "01:18.423",
+        "podiums": 1,
+        "points": 21,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0014": {
+        "name": "BT14_Bot",
+        "wins": 1,
+        "races_entered": 5,
+        "best_lap_time": "01:18.646",
+        "podiums": 1,
+        "points": 25,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0013": {
+        "name": "BT13_Bot",
+        "wins": 0,
+        "races_entered": 5,
+        "best_lap_time": "01:19.412",
+        "podiums": 2,
+        "points": 27,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "169939624": {
+        "name": "ccscrapracingleague",
+        "wins": 0,
+        "races_entered": 5,
+        "best_lap_time": "01:18.486",
+        "podiums": 0,
+        "points": 20,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "BOT_UID0004": {
+        "name": "BT04_Bot",
+        "wins": 0,
+        "races_entered": 5,
+        "best_lap_time": "01:18.609",
+        "podiums": 1,
+        "points": 23,
+        "saved_bp": null,
+        "saved_colors": null
+    }
+}

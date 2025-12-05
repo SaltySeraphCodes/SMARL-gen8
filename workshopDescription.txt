@@ -1,0 +1,77 @@
+An AI Racing System that connects to any creation!
+[h1]Introduction[/h1]
+Have you ever wanted to race against your own creations but have no one to race with?
+Now you can! With this racing system, you can make any creation race around any specially designed track!
+With a relatively simple setup and no extra downloads needed, you can now race against as many ai cars as you want!
+
+[b]WARNING:[/b] This is a Beta: things might go wrong and may cause your game to lag or cars to malfunction. Please report all bugs and issues. This mod is also constantly updating, check out the change notes to see added features and fixes!
+
+[h1]Instructions[/h1]
+[b]Track Setup:[/b][olist]
+[*]Build or download SMAR compatible tracks (see video tutorial)
+[*]Place Track tile in a world.
+[*]Go to the start/finish line of the track and place down the Track Scanner. (cross hair/target should be facing the direction you want cars to go)
+[*]Make Sure track is empty and Press 'E' on scanner
+[*]Wait for scan to complete [moving outside of track walls recommended]. 
+[*]If message, "Scan Complete: Track Saved"  inspect racing line, If something looks wrong or error displayed, feel free to notify me. (Moving the scanning block may fix some errors)[/olist]
+Note: Once track is saved, it is saved to the current world permanently until overwritten. (This means you can delete block after scan completion) Cross world & scan sharing is coming soon
+
+[b]Car Setup:[/b][olist]
+[*] Place down any car  & disconnect all bearings from engine and seat
+[*] Place SMAR Driver block on creation. ENSURE SIDE WITH STEERING WHEEL IS FACING FRONT OF THE CAR AND RIGHT SIDE UP (Arrow up) 
+[*] Place SMAR Engine block on creation
+[*] Connect SMAR engine and driver blocks to respective bearings on creation. Same as driver seat & engine connections
+[*] Connect driver block to the engine block[/olist]
+
+[b]Race Setup:[/b][olist]
+[*] Place SMAR Race control anywhere in world
+[*] Connect switch logic input to Race Control
+[*] Turn switch on and racers will begin to Race![/olist]
+Note: Interact With Race control interface to open a rough UI that allows you to view race status and change various race settings before or mid race.
+Resetting the race will restart race completely. You can reset via race control interface, or turning off the switch after a race is finished.
+
+Please Report any issues in the Bug Report Discussion Forum
+[hr][/hr]
+
+[h1]Features[/h1] 
+[b]Engine Color Code:[/b]
+Black to white: slowest to fastest
+-[b]Black:[/b] Slow; same top speed as gas engine (default)
+-[b]Dark Gray:[/b]  Intermediate; slightly faster than gas engine
+-[b]Light Gray:[/b] Fast; cars begin to lose control exiting corners if not built properly (suspension/COM/steering)
+-[b]White:[/b] Very fast; Good for straight lines but likely to fishtail out of corners
+
+[b]Race Control Interface:[/b]
+Interact with race control terminal to view interface
+-[b]Drafting enabled:[/b] Whether cars speed up when directly behind another car
+-[b]Laps[/b]: Number of laps in race. Once a car wins, all cars who cross line after will finish as well.
+-[b]Handicap Multiplier:[/b] How fast cars behind leader catch up. Similar to Mario kart [0 will disable handicap] [default  recommended]
+
+[b](Beta) User Control:[/b] Connect any driving seat to the SMAR Driver block: Press 1 toggle human control!
+
+[b]SMAR Race Control Tool[/b]
+- Press 'q' to open a very crude GUI that will let you set the race flags of Red, Yellow and Green
+- Current Race status is also shown
+CURRENTLY IN BETA, may not always work
+
+[b]Race Status Logic Output [/b]
+- Connect driver block to a vanilla logic gate
+- Driver will output 1, true, on, etc. whenever the racing flag is green and 0, false, off, etc. when flag is not green
+
+[b]Extras:[/b][list]
+[*]View Debug information for a driver by pressing 'E' on the Driver block
+[*]Crouch and press E on Track scanner to toggle racing  line effects
+[*]Interact with the Race Control terminal to customize drafting, number of laps, and handicap (More coming soon)
+[*]Upon race completion, Each car now sends to chat what place and their split from the leader
+[*][b]Beta:[/b] If Drivers are lost for too long, they will get "reset" automatically either at their last known location or at the beginning of the lap. 
+[/list]
+
+[h1] Pre-built Tracks & Cars[/h1]
+In the event you do not want to create your own tracks feel free to use my own or ones that others have made.
+search "SMAR official"  or check out the SMAR Official Collection for tracks, cars, and more!
+https://steamcommunity.com/sharedfiles/filedetails/?id=2588724119
+
+[b]Upcoming Features[/b]:
+- Custom Race Checkpoints
+- Custom engine speeds via race control
+- Bug fix for multiplayer AI takeover

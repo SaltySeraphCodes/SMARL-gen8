@@ -1,0 +1,75 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+Smarl Session Display
+{% endblock %}
+{% block content %}
+<div id="sessionDisplay">
+</div>
+	
+<script src="{{ url_for('static', filename='src/session_table.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+
+
+<script>
+	console.log("Hello world");
+
+	d3.json("{{ url_for('static', filename='data/DummyLapData.json') }}")
+	.then(data => {
+		console.log('Data loading complete. Work with dataset.');
+		console.log(data);
+
+		let lineChart = new SessionTable({
+			'parentElement': '#sessionDisplay',
+			'session_id': 1,
+			'racer_id': 0, //0 all
+
+			}, data); 
+
+	})
+	.catch(error => {
+		console.error('Error loading the data',error);
+	});
+
+
+	</script>
+
+
+
+	<script> 
+		// loads,parses, and calls all chart creation
+		
+		//helpers
+		function findObjectByKey(array, key, value) {
+		  for (var i = 0; i < array.length; i++) {
+			  if (array[i][key] === value) {
+				  return array[i];
+			  }
+		  }
+		  return null;
+		}
+		function findIndexByKey(array, key, value) {
+		  for (var i = 0; i < array.length; i++) {
+			  if (array[i][key] === value) {
+				  return i;
+			  }
+		  }
+		  return null;
+		  }
+	  // SOCKET FUNCTIONS
+		var socket = io.connect('http://' + document.domain + ':' + location.port); // Since I'm too lazy, this will be the same as GetRace, just show different data
+		socket.on( 'connect', function() {
+		  	socket.emit( 'getRace', {
+			data: 'getRace'
+		  }) })
+		 
+		socket.on( 'raceData', function( data ) {
+			console.log("GOT JSON",data)
+		})
+	
+		$(document).ready(function() {
+			
+		});
+		</script>
+
+{% endblock %}
+

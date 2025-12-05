@@ -1,0 +1,28 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+    Smarl Map Display
+{% endblock %}
+{% block content %}
+    <div id="mapDisplay">
+        <svg id="mapChart"></svg>
+    </div>
+        
+    <script src="{{ url_for('static', filename='src/live_map_2_new.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
+    <script>
+        // ... (data parsing remains the same) ...
+        let all_cars_str = "{{ all_cars|safe }}"
+        let current_map_str = "{{ map_data|safe }}"
+        let valid_cars_str = all_cars_str.replace(/'/g,'"');
+        let all_cars_json = JSON.parse(valid_cars_str);
+        let valid_map_str = current_map_str.replace(/'/g,'"');
+        let current_map_json = JSON.parse(valid_map_str);
+
+        let lineChart = new LiveMap({
+        'parentElement': '#mapChart',
+        'containerHeight': 1000,
+        'containerWidth': 1000
+        }, all_cars_json,current_map_json); 
+    </script>
+{% endblock %}

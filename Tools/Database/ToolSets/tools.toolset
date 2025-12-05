@@ -1,0 +1,15 @@
+{
+   "toolList" : [
+      {
+         "name" : "SMARL Controller Tool",
+         "previewRenderable" : "$CONTENT_DATA/Tools/Base_sniper/char_spudgun_base_basic.rend",
+         "previewRotation" : [ 1, 0, 0, 0, 0, -1, 0, 1, 0 ],
+         "script" : {
+            "class" : "SmarlCamera",
+            "data" : {},
+            "file" : "$CONTENT_DATA/Scripts/CineCamera.lua"
+         },
+         "uuid" : "645fe8aa-2c33-43c9-8859-f6a03374c62a"
+      }
+   ]
+}

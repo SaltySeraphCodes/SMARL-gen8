@@ -1,0 +1,222 @@
+{
+    "UID_ZenithAI_BOT": {
+        "name": "ZenithAI_BOT",
+        "wins": 1,
+        "races_entered": 4,
+        "best_lap_time": "01:20.468",
+        "podiums": 1,
+        "points": 20,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_LogicFlow_BOT": {
+        "name": "LogicFlow_BOT",
+        "wins": 0,
+        "races_entered": 3,
+        "best_lap_time": "01:23.238",
+        "podiums": 1,
+        "points": 16,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_RaceGhost_BOT": {
+        "name": "RaceGhost_BOT",
+        "wins": 1,
+        "races_entered": 4,
+        "best_lap_time": "01:24.566",
+        "podiums": 1,
+        "points": 30,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_AlgoRhythm_BOT": {
+        "name": "AlgoRhythm_BOT",
+        "wins": 0,
+        "races_entered": 3,
+        "best_lap_time": "01:22.472",
+        "podiums": 0,
+        "points": 12,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "1106931222": {
+        "name": "olivier_shredded_wheat",
+        "wins": 1,
+        "races_entered": 3,
+        "best_lap_time": "01:24.899",
+        "podiums": 2,
+        "points": 28,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_IronMuse_BOT": {
+        "name": "IronMuse_BOT",
+        "wins": 0,
+        "races_entered": 3,
+        "best_lap_time": "01:26.210",
+        "podiums": 0,
+        "points": 19,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_StatMaster_BOT": {
+        "name": "StatMaster_BOT",
+        "wins": 0,
+        "races_entered": 4,
+        "best_lap_time": "01:26.849",
+        "podiums": 0,
+        "points": 20,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_GlitchRider_BOT": {
+        "name": "GlitchRider_BOT",
+        "wins": 0,
+        "races_entered": 3,
+        "best_lap_time": "01:25.653",
+        "podiums": 1,
+        "points": 19,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_QueryBot_BOT": {
+        "name": "QueryBot_BOT",
+        "wins": 0,
+        "races_entered": 4,
+        "best_lap_time": "01:19.525",
+        "podiums": 0,
+        "points": 5,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_EchoPrime_BOT": {
+        "name": "EchoPrime_BOT",
+        "wins": 0,
+        "races_entered": 2,
+        "best_lap_time": "01:25.823",
+        "podiums": 0,
+        "points": 4,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_TurboKat_BOT": {
+        "name": "TurboKat_BOT",
+        "wins": 0,
+        "races_entered": 3,
+        "best_lap_time": "01:26.442",
+        "podiums": 1,
+        "points": 12,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_NitroGen_BOT": {
+        "name": "NitroGen_BOT",
+        "wins": 0,
+        "races_entered": 4,
+        "best_lap_time": "01:18.560",
+        "podiums": 0,
+        "points": 15,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "169939624": {
+        "name": "ccscrapracingleague",
+        "wins": 0,
+        "races_entered": 4,
+        "best_lap_time": "01:21.448",
+        "podiums": 0,
+        "points": 15,
+        "saved_bp": "typea",
+        "saved_colors": "#800080,#FFA500,#222222"
+    },
+    "UID_DataStream_BOT": {
+        "name": "DataStream_BOT",
+        "wins": 0,
+        "races_entered": 3,
+        "best_lap_time": "01:26.283",
+        "podiums": 1,
+        "points": 14,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_ApexDrift_BOT": {
+        "name": "ApexDrift_BOT",
+        "wins": 0,
+        "races_entered": 3,
+        "best_lap_time": "01:23.204",
+        "podiums": 2,
+        "points": 23,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_VectorX_BOT": {
+        "name": "VectorX_BOT",
+        "wins": 0,
+        "races_entered": 2,
+        "best_lap_time": "01:20.411",
+        "podiums": 0,
+        "points": 2,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_PilotOne_BOT": {
+        "name": "PilotOne_BOT",
+        "wins": 0,
+        "races_entered": 1,
+        "best_lap_time": "01:27.135",
+        "podiums": 1,
+        "points": 12,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_NexusRex_BOT": {
+        "name": "NexusRex_BOT",
+        "wins": 0,
+        "races_entered": 3,
+        "best_lap_time": "01:21.587",
+        "podiums": 0,
+        "points": 9,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_ByteShift_BOT": {
+        "name": "ByteShift_BOT",
+        "wins": 0,
+        "races_entered": 2,
+        "best_lap_time": "01:25.937",
+        "podiums": 0,
+        "points": 12,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_CypherKing_BOT": {
+        "name": "CypherKing_BOT",
+        "wins": 0,
+        "races_entered": 1,
+        "best_lap_time": "01:22.167",
+        "podiums": 0,
+        "points": 1,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_DeltaWing_BOT": {
+        "name": "DeltaWing_BOT",
+        "wins": 0,
+        "races_entered": 2,
+        "best_lap_time": "01:20.038",
+        "podiums": 0,
+        "points": 5,
+        "saved_bp": null,
+        "saved_colors": null
+    },
+    "UID_CodeZero_BOT": {
+        "name": "CodeZero_BOT",
+        "wins": 1,
+        "races_entered": 3,
+        "best_lap_time": "01:26.101",
+        "podiums": 1,
+        "points": 19,
+        "saved_bp": null,
+        "saved_colors": null
+    }
+}

@@ -1,0 +1,219 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="Widget" skin="PanelEmpty" name="CreateRacePanel" position_real="0.27 0.1 0.458203 0.740278">
+        <Widget type="Widget" skin="BackgroundDarkRoundedUpperRight" position_real="0 0 1.00085 0.12758">
+            <Widget type="TextBox" name="SetupHeader" skin="TextBox" position_real="0.0868824 0.15 0.7 0.666667">
+                <Property key="Caption" value="SMAR Race Setup" />
+                <Property key="FontName" value="SM_HeaderLarge_Medium" />
+                <Property key="TextAlign" value="Left VCenter" />
+                <Property key="TextColour" value="0.9 0.9 0.9" />
+            </Widget>
+            <Widget type="ImageBox" skin="ImageBox" position_real="0.028109 0.32549 0.0357752 0.308823">
+                <Property key="ImageTexture" value="gui_mainmenu_icon_options.png" />
+                <Property key="Colour" value="1 0.780392 0.227451" />
+            </Widget>
+            <Widget type="Button" skin="SecondaryButton" name="ResetRace" position_real="0.7621638 0.304902 0.1839864 0.382353">
+                <Property key="Caption" value="Reset Race" />
+                <Property key="FontName" value="SM_ButtonSmall" />
+                <Property key="TextAlign" value="Center" />
+            </Widget>
+            
+        </Widget>
+        <Widget type="Widget" skin="BackgroundLightRoundedLowerLeft" name="OptionsHostPanel" position_real="0 0.12758 1.00085 0.810507">
+            <Widget type="Widget" skin="PanelEmpty" name="ContainerHostPanel" position_real="0.056218 0.00694444 0.942078 0.92129688524">
+                
+                <Widget type="Widget" name = "DraftPicker" skin="PanelEmpty" position_real="0 0.1 1 0.1">
+                    <Widget name="DraftText" skin="TextBox" type="TextBox" position_real="0.032 0.05 0.350877 1">
+                        <Property key="Caption" value="Draft Strength:" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Left VCenter" />
+                        <Property key="NeedMouse" value="false" />
+                    </Widget>
+
+                    <Widget type="Button" skin="SecondaryButton" name="DraftBtnAdd" position_real="0.37 0.35 0.1 0.5">
+                        <Property key="Caption" value=">>" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                     
+                     <Widget name="DraftValue" skin="TextBox" type="TextBox" position_real="0.155 0.1 0.35 1">
+                        <Property key="Caption" value="1" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                        <Property key="NeedMouse" value="false" />
+                     </Widget>
+
+                    <Widget type="Button" skin="SecondaryButton" name="DraftBtnSub" position_real="0.20 0.35 0.1 0.5">
+                        <Property key="Caption" value="<<" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                </Widget>
+
+                <Widget type="Widget" name = "LapPicker" skin="PanelEmpty" position_real="0 0.2 1 0.1">
+                    <Widget name="LapText" skin="TextBox" type="TextBox" position_real="0.138 0.05 0.350877 1">
+                        <Property key="Caption" value="Laps:" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Left VCenter" />
+                        <Property key="NeedMouse" value="false" />
+                    </Widget>
+
+                    <Widget type="Button" skin="SecondaryButton" name="LapBtnAdd" position_real="0.37 0.35 0.1 0.5">
+                        <Property key="Caption" value=">>" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                     
+                     <Widget name="LapValue" skin="TextBox" type="TextBox" position_real="0.155 0.1 0.35 1">
+                        <Property key="Caption" value="10" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                        <Property key="NeedMouse" value="false" />
+                     </Widget>
+
+                    <Widget type="Button" skin="SecondaryButton" name="LapBtnSub" position_real="0.20 0.35 0.1 0.5">
+                        <Property key="Caption" value="<<" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                </Widget>
+
+                
+                <Widget name = "HandiPicker" type="Widget" skin="PanelEmpty" position_real="0 0.3 1 0.1">
+                    <Widget name="HandiText" skin="TextBox" type="TextBox" position_real="0 0.05 0.350877 1">
+                        <Property key="Caption" value="Handicap Multiplier:" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Left VCenter" />
+                        <Property key="NeedMouse" value="false" />
+                    </Widget>
+
+                    <Widget type="Button" skin="SecondaryButton" name="HandiBtnAdd" position_real="0.37 0.35 0.1 0.5">
+                        <Property key="Caption" value=">>" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                     
+                     <Widget name="HandiValue" skin="TextBox" type="TextBox" position_real="0.155 0.1 0.35 1">
+                        <Property key="Caption" value="1" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                        <Property key="NeedMouse" value="false" />
+                     </Widget>
+
+                    <Widget type="Button" skin="SecondaryButton" name="HandiBtnSub" position_real="0.20 0.35 0.1 0.5">
+                        <Property key="Caption" value="<<" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                </Widget>
+
+                <Widget name = "RaceStatus" type="Widget" skin="PanelEmpty" position_real="0 0.5 1 0.1">
+                    <Widget name="StatusText" skin="TextBox" type="TextBox" position_real="0 0.05 0.350877 1">
+                        <Property key="Caption" value="Race Status:" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Left VCenter" />
+                        <Property key="NeedMouse" value="false" />
+                    </Widget>
+
+                    <Widget name="LapStat" type="TextBox" skin="TextBox"  position_real="0.25 0.35 0.4 0.5">
+                        <Property key="Caption" value="Lap 1 of 3" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                </Widget>
+                
+
+                <Widget type="Widget" skin="PanelEmpty" name="DraftModeExpanded" position_real="0.318421 0.07 0.525 0.16">
+                    <Property key="Visible" value="false" />
+                    <Widget type="Widget" skin="DropDownBackground" position_real="0 0 1 1">
+                        <Widget type="Widget" skin="PanelEmpty" position_real="0.0138889 0.0526316 0.965278 0.684211" />
+
+                        <Widget type="Button" skin="DropDownItem" name="DraftYes" position_real="0.012 0 0.967 0.4">
+                            <Property key="FontName" value="Default" />
+                            <Widget type="TextBox" skin="TextBox" name="DraftYesText" position_real="0.0505415 0 0.606498 1">
+                                <Property key="Caption" value="Yes" />
+                                <Property key="FontName" value="SM_ListItem" />
+                                <Property key="TextAlign" value="Left VCenter" />
+                                <Property key="NeedKey" value="false" />
+                                <Property key="NeedMouse" value="false" />
+                            </Widget>
+                        </Widget>
+                        <Widget type="Button" skin="DropDownItem" name="DraftNo" position_real="0.012 0.4 0.967 0.4">
+                            <Property key="FontName" value="Default" />
+                            <Widget type="TextBox" skin="TextBox" name="DraftNoTExt" position_real="0.0505415 0 0.606498 1">
+                                <Property key="Caption" value="No" />
+                                <Property key="FontName" value="SM_ListItem" />
+                                <Property key="TextAlign" value="Left VCenter" />
+                                <Property key="NeedKey" value="false" />
+                                <Property key="NeedMouse" value="false" />
+                            </Widget>
+                        </Widget>
+                    </Widget>
+                </Widget>
+
+                <Widget type="Widget" skin="PanelEmpty" name="DraftModeExpanded" position_real="0.318421 0 0.525 0.085386">
+                    <Property key="Visible" value="false" />
+                    <Widget type="Widget" skin="DropDownExpandBackground" position_real="0 0 1 1">
+                        <Widget type="TextBox" skin="TextBox" name="DraftValue" position_real="0.0138889 0.117647 0.888889 0.764706">
+                            <Property key="FontName" value="SM_ListItem" />
+                            <Property key="TextAlign" value="Center" />
+                            <Property key="Caption" value=" Select " />
+                            <Property key="TextColour" value="1 0.831373 0.290196" />
+                        </Widget>
+                    </Widget>
+                    <Widget type="Button" skin="PanelEmpty" name="UnitBtn" position_real="0 0 1 1" />
+                    <Widget type="Button" skin="DropDownCollapse" name="UnitBtn" position_real="0.888889 0 0.111111 1" />
+                </Widget>
+
+
+            </Widget>
+        </Widget>
+    </Widget>
+    <Widget type="Widget" skin="WhiteSkin" name="PopUpYNMainPanel" position_real="0 0 1 1">
+        <Property key="Alpha" value="0.5" />
+        <Property key="Colour" value="0 0 0" />
+    <Property key="Visible" value="false" />
+    <Widget type="Widget" skin="BackgroundPromptNarrow" position_real="0.3645835 0.2592595 0.270833 0.481481">
+        <Property key="InheritsAlpha" value="false" />
+        <Widget type="Widget" skin="PanelEmpty" position_real="0.115385 0.0615385 0.769231 0.807692">
+            <Property key="NeedKey" value="false" />
+            <Property key="InheritsAlpha" value="false" />
+            <Widget type="ImageBox" skin="ImageBox" position_real="0.4375 0.119048 0.125 0.119048">
+                <Property key="ImageTexture" value="gui_icon_popup_alert.png" />
+            </Widget>
+            <Widget type="EditBox" skin="TextBox" name="PopUpYNTitle" position_real="0 0.278571 1 0.2">
+                <Property key="Caption" value="Are you sure?" />
+                <Property key="FontName" value="SM_HeaderLarge_Medium" />
+                <Property key="TextAlign" value="Center" />
+                <Property key="WordWrap" value="true" />
+                <Property key="Static" value="true" />
+                <Property key="MultiLine" value="true" />
+            </Widget>
+            <Widget type="EditBox" skin="EditBoxEmpty" name="PopUpYNMessage" position_real="0.1 0.504762 0.8 0.297619">
+                <Property key="FontName" value="SM_Text" />
+                <Property key="Caption" value="Start Game?" />
+                <Property key="WordWrap" value="true" />
+                <Property key="TextShadow" value="false" />
+                <Property key="TextAlign" value="HCenter Top" />
+                <Property key="TextColour" value="0.564706 0.572549 0.572549" />
+                <Property key="ReadOnly" value="true" />
+                <Property key="Static" value="true" />
+            </Widget>
+            <Widget type="Button" skin="PrimaryButton" name="PopUpYNYes" position_real="0.09 0.792857 0.4 0.147619">
+                <Property key="Caption" value="#{MENU_YN_YES}" />
+                <Property key="FontName" value="SM_Button" />
+                <Property key="TextAlign" value="Center" />
+            </Widget>
+            <Widget type="Button" skin="SecondaryButton" name="PopUpYNNo" position_real="0.53 0.807143 0.37 0.119048">
+                <Property key="Caption" value="#{MENU_YN_NO}" />
+                <Property key="FontName" value="SM_Button" />
+                <Property key="TextAlign" value="Center" />
+            </Widget>
+        </Widget>
+    </Widget>
+    </Widget>
+
+
+    <CodeGeneratorSettings />
+</MyGUI>
+

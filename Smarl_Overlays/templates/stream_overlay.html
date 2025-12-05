@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Race Manager Overlay</title>
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
+
+    </head>
+
+<body>
+    <div id="now-playing-container" class="overlay-box">
+        <span id="np-prefix">NOW PLAYING:</span> 
+        <span id="song-title">Lobby Music</span> 
+        <span id="song-artist"></span>
+    </div>
+
+    <div id="race-status-panel">
+        
+        <div id="race-timer-item" class="overlay-box status-item">
+            <div id="race-countdown">WAITING FOR RACERS</div>
+        </div>
+
+        <div id="racer-count-item" class="overlay-box status-item">
+            RACERS: <span id="racer-count-value">0/16</span>
+        </div>
+
+        <div id="entries-status-item" class="overlay-box status-item">
+            <div id="entries-status">ENTRIES OPEN</div>
+        </div>
+    </div>
+
+    <div id="stats-ticker">
+        <div id="ticker-wrapper"> 
+            <div id="ticker-content">Loading Stats...</div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const DATA_FILE_PATH = "{{ url_for('get_overlay_data') }}"; 
+        const UPDATE_INTERVAL_MS = 1000;
+        const SEPARATOR_PIPE_HTML = '<span class="ticker-separator">|</span>'; 
+        const STAT_SEPARATOR = ` &nbsp;&nbsp;&nbsp; ${SEPARATOR_PIPE_HTML} &nbsp;&nbsp;&nbsp; `;
+
+        // --- DOM ELEMENTS ---
+        const titleElement = document.getElementById('song-title');
+        const artistElement = document.getElementById('song-artist');
+        const timerElement = document.getElementById('race-countdown'); 
+        const statusElement = document.getElementById('entries-status'); 
+        const countElement = document.getElementById('racer-count-value'); 
+        const tickerContent = document.getElementById('ticker-content');
+        // --- JS UPDATE: Dynamic Ticker Duration and Content ---
+        const tickerWrapper = document.getElementById('ticker-wrapper') || tickerContent; // Use wrapper if available
+        // --- STATE VARIABLES ---
+        let tickerData = [];
+        let previousDataString = "";
+
+
+        /**
+         * Reads the local JSON file and updates the overlay elements.
+         */
+        async function updateOverlay() {
+            try {
+                const response = await fetch(DATA_FILE_PATH); // Will this work since it is serveed from flask and not a local file anymore?
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                // --- 1. Update Now Playing ---
+                titleElement.textContent = data.current_song.title || "Lobby Music";
+                artistElement.textContent = data.current_song.artist ? `by ${data.current_song.artist}` : "";
+
+                // --- 2. Update Race Status Data (Guaranteed to have text) ---
+                timerElement.textContent = data.race_timer_information || "";
+                statusElement.textContent = data.entries_status || "";
+                countElement.textContent = data.racer_count || "0/16";
+
+                // --- 3. Update Stats Ticker Data ---
+                const currentDataString = JSON.stringify(data.stats_ticker);
+                tickerData = data.stats_ticker;
+
+                // 1. Create a single, non-repeated string 
+                let singleText = tickerData.join(STAT_SEPARATOR);
+
+                // 2. Temporarily set the content to the single string to measure its true width
+                tickerContent.textContent = singleText;
+                const singleTextWidth = tickerContent.offsetWidth; // This is the distance to scroll for one loop
+
+                // 3. Create the long, repeated string (5 repeats is usually safe)
+                const REPEAT_COUNT = 5;
+                let scrollingText = (singleText + STAT_SEPARATOR).repeat(REPEAT_COUNT);
+                tickerContent.innerHTML = scrollingText;
+                // 4. Calculate Duration: Duration = Distance of ONE copy / Speed
+                const SPEED_PX_PER_SEC = 30; 
+                const loopDuration = singleTextWidth / SPEED_PX_PER_SEC;
+
+                // 5. Apply the correct values to the CSS variables/properties
+                tickerContent.style.setProperty('--scroll-dist', `-${singleTextWidth}px`);
+                tickerWrapper.style.animationDuration = `${loopDuration}s`; 
+
+                previousDataString = currentDataString;
+                //console.log(`Setting duration to ${loopDuration.toFixed(2)}s for a scroll distance of ${singleTextWidth}px`);
+            } catch (error) {
+                console.error("Error fetching or updating overlay:", error);
+                // Optional: Display a loading/error message on the overlay
+                // timerElement.textContent = "Data Error";
+            }
+        }
+
+        // Start the continuous data fetching loop
+        setInterval(updateOverlay, UPDATE_INTERVAL_MS);
+
+        // Run once immediately on load
+        updateOverlay();
+    </script>
+</body>
+</html>

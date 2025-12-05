@@ -1,0 +1,576 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+Smarl Racer Focused Display
+{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
+<div id="focusDisplay">
+</div>
+    <script src="{{ url_for('static', filename='src/smarl_utils.js') }}"></script>
+    <script>
+    var boardCreated = false;   
+    let lastKnown;
+
+    // Global chart element vars
+    var yScale;
+    var xScale;
+    var chart_area;
+    var interactive_chart;
+    var chartSettings;
+    
+    // Visible elements
+    var racerBG; 
+    var posRects;
+    var all_elements = [];
+
+    // --- D3 Functions ---
+    function reloadChart(){
+        d3.select("#focusDisplay").selectAll("svg").remove();
+        reloadGraphic();
+    }
+
+    function reloadGraphic(data){
+        drawData(data);
+    }
+    
+    // Helper to determine overall best lap time
+    function getOverallBestLapTime(data) {
+        let bestTime = null;
+        for (const d of data) {
+            const timeStr = d.bestLap;
+            if (!timeStr) continue;
+            const minutes = parseInt(timeStr.substring(0, 2));
+            const seconds = parseInt(timeStr.substring(3, 5));
+            const milliseconds = parseInt(timeStr.substring(6, 9));
+            const totalMs = (minutes * 60 * 1000) + (seconds * 1000) + milliseconds;
+
+            if (bestTime === null || totalMs < bestTime) {
+                bestTime = totalMs;
+            }
+        }
+        return bestTime;
+    }
+
+    // Function to convert "MM:SS.mmm" to milliseconds
+    const timeToMs = (timeStr) => {
+        if (!timeStr) return Infinity;
+        const minutes = parseInt(timeStr.substring(0, 2));
+        const seconds = parseInt(timeStr.substring(3, 5));
+        const milliseconds = parseInt(timeStr.substring(6, 9));
+        return (minutes * 60 * 1000) + (seconds * 1000) + milliseconds;
+    };
+
+
+    function createBoard(data) {
+        boardCreated = true;
+        // Setting fixed dimensions for the single focus car display
+        chartSettings = { width: 650, height: 100, margin: {left: 20, right:20, top: 20, bottom:20}}
+        
+        // Scales are largely irrelevant for a single element but defined for consistency
+        xScale = d3.scaleLinear()
+            .domain([0, 1])
+            .range([0, chartSettings.width]);
+
+        yScale = d3.scaleLinear()
+            .domain([0, 1])
+            .range([chartSettings.margin.top, chartSettings.height - chartSettings.margin.bottom]);
+
+        chart_area = d3.select("#focusDisplay").append("svg")
+            .attr('width', chartSettings.width)
+            .attr('height',chartSettings.height)
+        interactive_chart = chart_area.append('g')
+        
+        // Background box
+        var bgRect = interactive_chart.append('rect')
+        .attr("x",1)
+        .attr('y',1)
+        .attr("rx",15)
+        .attr('ry',15)
+        .attr('width',chartSettings.width - 2)
+        .attr('height',0)
+        .attr('opacity',0)
+        .attr('fill','var(--brand-dark)')
+        .transition()
+        .attr('height',chartSettings.height - 2)
+        .attr("opacity",0.98)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        
+        // Separator line (Separates Speed from Lap Times/Name)
+        var sepLine = interactive_chart.append("line")
+        .attr('class', 'sepLine')
+        .attr("x1", 450) // New X position to separate speed
+        .attr("y1", 0)
+        .attr("x2", 450)
+        .attr("y2", chartSettings.height)
+        .attr('stroke-width',3)
+        .attr("stroke",'var(--brand-main)')
+        .attr("opacity",0)
+        .transition()
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .delay(1000)
+        
+        // Secondary Separator (Separates Position/Color from Name/Times)
+        var sepLine2 = interactive_chart.append("line")
+        .attr('class', 'sepLine')
+        .attr("x1", 100) // New X position 
+        .attr("y1", 0)
+        .attr("x2", 100)
+        .attr("y2", chartSettings.height)
+        .attr('stroke-width',3)
+        .attr("stroke",'var(--brand-main-faint)') // Use faint accent for less dominant separator
+        .attr("opacity",0)
+        .transition()
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .delay(1000)
+        
+        drawData(data)
+    }
+
+    function drawData(data){
+        
+        if (data.length === 0) return;
+        
+        const overallBestLapMs = getOverallBestLapTime(data); 
+
+        // --- 1. Position Rect (posRects) ---
+        posRects = interactive_chart.selectAll(".posRect")
+        .data(data, d => d.uid)
+        
+        const posRectSize = 75; // Square size
+        const posRectX = 12;
+
+        posRects.enter()
+        .append("rect")
+        .attr("class","posRect racerEl")
+        .attr("rx", 9)
+        .attr("ry", 9)
+        .attr("x", posRectX)
+        .attr('y', (100 - posRectSize) / 2) // Center vertically
+        .attr("width",posRectSize)
+        .attr("height",posRectSize)
+        .attr("fill",'var(--brand-text)')
+        .attr('stroke','var(--brand-dark)')
+        .attr("opacity",0)
+        .transition()
+        .attr("x",posRectX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+        
+        posRects.transition()
+        .attr("x",posRectX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+    
+        posRects.exit()
+        .transition()
+        .attr("x",-100)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .remove();
+
+
+        // --- 2. Racer Position Text (posText) ---
+        posText = interactive_chart.selectAll(".posText")
+        .data(data, d => d.uid)
+        
+        const posTextX = posRectX + posRectSize / 2;
+        const posTextY = 50; // Center vertically
+
+        posText.enter()
+        .append('text')
+        .attr('class','posText racerEl')
+        .attr("x", -100)
+        .attr('y',posTextY) 
+        .attr('dx',".1em")
+        .attr('font-family',"var(--brand-font-header)")
+        .attr('font-size','45px') // Slightly larger font
+        .attr('fill','var(--brand-text-dark)')
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("opacity",0)
+        .transition()
+        .attr("x",posTextX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        posText.transition()
+        .attr("x",posTextX)
+        .attr('y',posTextY) 
+        .attr("opacity",1)
+        .text(function(d){
+            const pos = Number(d.pos);
+            const suffix = (pos % 10 === 1 && pos % 100 !== 11) ? 'st' :
+                           (pos % 10 === 2 && pos % 100 !== 12) ? 'nd' :
+                           (pos % 10 === 3 && pos % 100 !== 13) ? 'rd' : 'th';
+            return pos.toString() + suffix;
+        })
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+        
+        posText.exit()
+        .transition()
+        .attr("x", -100)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .remove();
+
+        
+        // --- 3. Racer Name Text (nameText) ---
+        nameText = interactive_chart.selectAll(".nameText")
+        .data(data, d => d.uid)
+        
+        const nameTextX = 110;
+        const nameTextY = 10;
+
+        nameText.enter()
+        .append('text')
+        .attr('class','nameText racerEl headerText') // Using headerText class for font
+        .attr("x", 500)
+        .attr("opacity",0)
+        .attr('y',nameTextY)
+        .attr('dx',".1em")
+        .attr('font-size','45px') // Much larger
+        .attr('text-anchor', 'start')
+        .attr('alignment-baseline', 'hanging')
+        .transition()
+        .attr("x",nameTextX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        nameText.transition()
+        .attr('y',nameTextY)
+        .attr("x",nameTextX)
+        .attr('fill','var(--brand-text)')
+        .attr("opacity",1)
+        .text(function(d){ return d.name})
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        nameText.exit()
+        .transition()
+        .attr("x",500 )
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .remove();
+
+
+        // --- 4. Owner text (ownerText) ---
+        ownerText = interactive_chart.selectAll(".ownerText")
+        .data(data, d => d.uid)
+        
+        const ownerTextY = 55;
+
+        ownerText.enter()
+        .append('text')
+        .attr('class','ownerText racerEl labelText') // Using labelText class for font
+        .attr("x", 500)
+        .attr("opacity",0)
+        .attr('y',ownerTextY)
+        .attr('dx',".1em")
+        .attr('font-size','18px') // Standard size
+        .attr('text-anchor', 'start')
+        .attr('alignment-baseline', 'hanging')
+        .transition()
+        .attr("x",nameTextX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+        
+
+        ownerText.transition()
+        .attr('y',ownerTextY) 
+        .attr("x",nameTextX)
+        .attr('fill','var(--brand-text)')
+        .attr("opacity",1)
+        .text(function(d){ return  "Owner: " + d.owner})
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+
+        ownerText.exit()
+        .transition()
+        .attr("x",500 )
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .remove();
+        
+        
+        // --- 5. Lap Times Container (Time Block - Grouping Last/Best) ---
+        
+        // --- 5a. Last Lap Time (lastLapText) ---
+        lastLapText = interactive_chart.selectAll(".lastLapText")
+        .data(data, d => d.uid)
+        
+        const lastLapX = 350; // Aligned right side of the main block
+        const lastLapY = 20;
+
+        lastLapText.enter()
+        .append('text')
+        .attr('class','lastLapText racerEl labelText')
+        .attr("x", lastLapX + 150)
+        .attr('y',lastLapY)
+        .attr("opacity",0)
+        .attr('font-size','21px')
+        .attr('text-anchor', 'end')
+        .attr('alignment-baseline', 'hanging')
+        .transition()
+        .attr("x", lastLapX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        lastLapText.transition()
+        .attr('y',lastLapY) 
+        .attr("x", lastLapX)
+        .attr("opacity",1)
+        .text(function(d){ return "Last: " + d.lastLap})
+        .attr('fill',function(d){
+            // Color blue if lastLap equals bestLap
+            return d.lastLap === d.bestLap ? 'var(--brand-sub-accent)' : 'var(--brand-text)'
+        })
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        lastLapText.exit()
+        .transition()
+        .attr("x", lastLapX + 150)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+
+        // --- 5b. Best Lap Time (bestLapText) ---
+        bestLapText = interactive_chart.selectAll(".bestLapText")
+        .data(data, d => d.uid)
+        
+        const bestLapY = 55;
+
+        bestLapText.enter()
+        .append('text')
+        .attr('class','bestLapText racerEl labelText')
+        .attr("x", lastLapX + 150)
+        .attr('y',bestLapY)
+        .attr("opacity",0)
+        .attr('font-size','21px')
+        .attr('text-anchor', 'end')
+        .attr('alignment-baseline', 'hanging')
+        .transition()
+        .attr("x", lastLapX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+        
+        bestLapText.transition()
+        .attr('y',bestLapY) 
+        .attr("x", lastLapX)
+        .attr("opacity",1)
+        .text(function(d){ return "Best: " + d.bestLap})
+        .attr('fill',function(d){
+            // Color purple/cyan if it is the overall best lap time of the race
+            const racerTimeMs = timeToMs(d.bestLap);
+            return racerTimeMs === overallBestLapMs ? 'var(--brand-accent)' : 'var(--brand-text)'
+        })
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        bestLapText.exit()
+        .transition()
+        .attr("x", lastLapX + 150)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+        
+        
+        // --- 6. CurrentSpeed (speedText) ---
+        speedText = interactive_chart.selectAll(".speedText")
+        .data(data, d => d.uid)
+        
+        const speedTextX = 550; // Center of the rightmost block
+        const speedTextY = 20;
+
+        speedText.enter()
+        .append('text')
+        .attr('class','speedText racerEl headerText') // Use header font
+        .attr("x", 880)
+        .attr('y',speedTextY)
+        .attr("opacity",0)
+        .attr('font-size','37px')
+        .attr('font-weight',"bold")
+        .attr('fill','var(--brand-accent)')
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'hanging')
+        .transition()
+        .attr("x", speedTextX)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        speedText.transition()
+        .attr("x", speedTextX)
+        .attr('y',speedTextY)
+        .text(function(d){ 
+            let floatNum = parseFloat(d.speed)
+            floatNum = floatNum * 4 // Assuming the x4 multiplier is required
+            floatStr = Math.round(floatNum).toString()
+            return floatStr +" mph"})
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        speedText.exit()
+        .transition()
+        .attr("x", 880)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .remove();
+
+        
+        // --- 7. Racer Color Bar (colRect) ---
+        colRect = interactive_chart.selectAll(".colRect")
+        .data(data, d => d.uid)
+        
+        const colRectX = 105;
+        const colRectWidth = 5;
+        const colRectHeight = 80;
+        const colRectY = 10;
+
+        colRect.enter()
+        .append('rect')
+        .attr("class","colRect racerEl")
+        .attr("x",-100)
+        .attr("opacity",0)
+        .attr('y',colRectY)
+        .attr("width",colRectWidth)
+        .attr("height",colRectHeight)
+        .transition()
+        .attr("x",colRectX )
+        .attr("opacity",1)  
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        colRect.transition()
+        .attr("x",colRectX )
+        .attr("opacity",1)
+        .attr('y',colRectY) 
+        .attr("fill",function(d){
+            return "#"+d.primary_color
+        })
+        .attr('stroke',function(d){
+            return "#"+d.tertiary_color
+        })
+        .attr('stroke-width', 2)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        colRect.exit()
+        .transition()
+        .attr("x",-100)
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .remove();
+
+        
+        // --- 8. Secondary color Triangle (secondary) ---
+        var lineGenerator = d3.line()
+                    .x(function(d) { return d[0]})
+                    .y(function(d) { return d[1] });
+        
+        function triangleGenerator(d){
+            // Creates a triangle in the top right corner of the primary color bar (colRect)
+            const baseX = colRectX; 
+            const posY = colRectY;       
+            const height = 15;     
+            const width = colRectWidth;      
+            
+            return [ 
+                [baseX, posY],             
+                [baseX + width, posY],     
+                [baseX + width, posY + height]    
+            ];
+        }
+        
+        secondary = interactive_chart.selectAll(".secondary")
+        .data(data, d => d.uid)
+        
+        secondary.enter()
+        .append("path")
+        .attr("class","secondary racerEl")
+        .attr("d", function(d) { return lineGenerator(triangleGenerator(d));})
+        .attr("fill",function(d){ return "#"+d.secondary_color })
+        .attr('stroke','var(--brand-text-dark)')
+        .attr('stroke-width',1)
+        .attr("opacity",0)
+        .transition()
+        .attr("opacity",1)  
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+        
+        secondary.transition()
+        .attr("d", function(d) { return lineGenerator(triangleGenerator(d));})
+        .attr("fill",function(d){ return "#"+d.secondary_color })
+        .attr("opacity",1)  
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT);
+
+        secondary.exit()
+        .transition()
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .remove();
+    }
+
+    </script>
+    <script> 
+    // ... (Socket functions omitted for brevity, assumed to be the same as the last overhaul)
+    var smarl_data  = [] 
+    // Helper functions (reused)
+    function findObjectByKey(array, key, value) {
+      for (var i = 0; i < array.length; i++) {
+          if (array[i][key] === value) {
+              return array[i];
+          }
+      }
+      return null;
+    }
+    function findIndexByKey(array, key, value) {
+      for (var i = 0; i < array.length; i++) {
+          if (array[i][key] === value) {
+              return i;
+          }
+      }
+      return null;
+    }
+  // SOCKET FUNCTIONS
+    var socket = io.connect('http://' + document.domain + ':' + location.port);
+    socket.on( 'connect', function() {
+      socket.emit( 'getRace', {
+        data: 'getRace'
+      } )
+    })
+     
+    socket.on( 'raceData', function( data ) {
+        data = data.realtime_data
+        // Filter for EITHER the Camera Focus OR the Chat Spotlight
+        smarl_data = data.filter(function(d){
+            // Ensure you check for string "true" or boolean true, depending on Python JSON serialization
+            const isFocused = d.isFocused === 'true' || d.isFocused === true; 
+            const isSpotlighted = d.isSpotlighted === 'true' || d.isSpotlighted === true;
+            return (isFocused || isSpotlighted) && Number(d.pos) !== 0; 
+    });
+
+      if (smarl_data.length > 0 && !boardCreated){
+        initialize(smarl_data)
+      } else if(smarl_data.length > 0 && boardCreated){
+            if (smarl_data[0].id !== lastKnown){
+                lastKnown = smarl_data[0].id
+            }
+            updateGraphic(smarl_data)
+      }else{
+          if (boardCreated) {
+              d3.select("#focusDisplay").selectAll("svg").remove();
+              boardCreated = false; 
+          }
+      }
+    })
+    function initialize(data){
+        createBoard(data);
+    }
+    function updateGraphic(data){
+        reloadGraphic(data);
+    }
+    
+
+    $(document).ready(function() {
+        
+    });
+    </script>
+
+{% endblock %}

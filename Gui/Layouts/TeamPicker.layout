@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="Widget" skin="PanelEmpty" name="CreateGamePanel" position_real="0.25 0.1 0.5 0.7">
+        <Widget type="Widget" skin="BackgroundDarkRoundedUpperRight" position_real="0 0 1.00085 0.12758">
+            <Widget type="TextBox" name="HeaderText" skin="TextBox" position_real="0.0868824 0.15 0.7 0.666667">
+                <Property key="Caption" value="Pick A Team" />
+                <Property key="FontName" value="SM_HeaderLarge_Medium" />
+                <Property key="TextAlign" value="Left VCenter" />
+                <Property key="TextColour" value="0.9 0.9 0.9" />
+            </Widget>
+            <Widget type="ImageBox" skin="ImageBox" position_real="0.028109 0.32549 0.0357752 0.308823">
+                <Property key="ImageTexture" value="gui_mainmenu_icon_options.png" />
+                <Property key="Colour" value="1 0.780392 0.227451" />
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="BackgroundLightRoundedLowerLeft" name="OptionsHostPanel" position_real="0 0.12758 1.00085 0.810507">
+            <Widget type="Widget" skin="PanelEmpty" name="ContainerHostPanel" position_real="0.056218 0.00694444 0.942078 0.92129688524">
+                
+                <Widget type="Widget" skin="PanelEmpty" position_real="0 0 1 0.1">
+                    
+                </Widget>
+
+                <Widget type="Widget" name = "TeamBtns" skin="PanelEmpty" position_real="0 0.001 0.9 0.2">
+                    <Widget type="Button" skin="PrimaryButton" name="RedBtn" position_real="0.05 0 0.3 0.7">
+                        <Property key="Caption" value="Red Team" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                     <Widget type="Button" skin="PrimaryButton" name="BlueBtn" position_real="0.65 0 0.3 0.7">
+                        <Property key="Caption" value="Blue Team" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                        <Property key="TextAlign" value="Center" />
+                    </Widget>
+                </Widget>
+
+                <Widget type="Widget" name = "TeamDisplay" skin="PanelEmpty" position_real="0 0.2 1 1">
+                    <Widget type="TextBox" skin="TextBox" name="RedDisplay" position_real="0 0 0.5 0.9">
+                        <Property key="Static" value="false" />
+                        <Property key="WordWrap" value="false" />
+                        <Property key="TextShadowColour" value="0 0 0" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                    </Widget> 
+                    <Widget type="TextBox" skin="TextBox" name="BlueDisplay" position_real="0.5 0 0.5 0.9">
+                        <Property key="Static" value="false" />
+                        <Property key="WordWrap" value="false" />
+                        <Property key="TextShadowColour" value="0 0 0" />
+                        <Property key="FontName" value="SM_TextLabel" />
+                    </Widget> 
+                   
+                </Widget>
+
+            </Widget>
+        </Widget>
+    
+    </Widget>
+
+
+    <CodeGeneratorSettings />
+</MyGUI>

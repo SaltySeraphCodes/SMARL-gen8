@@ -1,0 +1,50 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+Smarl Session Display
+{% endblock %}
+{% block content %}
+<div id="sessionDisplay">
+</div>
+	
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+
+
+<div id="tuningForm">
+	<label for="gearLength" class="form-label">Gear Length</label>
+	<input type="range" class="form-range"  min="1" max="10" id="gearLength">
+	
+	<label for="aeroAngle" class="form-label">Aero Angle</label>
+	<input type="range" class="form-range"  min="0" max="10" id="aeroAngle">
+
+	<label for="fuelLevel" class="form-label">Fuel Level</label>
+	<input type="range" class="form-range"  min="0" max="100" id="fuelLevel">
+
+	<label for="tireChoice" class="form-label">Tire Type</label>
+	<div class="form-check form-check-inline" id="tireChoice">
+		<input class="form-check-input" type="radio" name="inlineRadioOptions" id="softTireRadio" value="option1">
+		<label class="form-check-label" for="inlineRadio1">Soft</label>
+	  </div>
+	  <div class="form-check form-check-inline">
+		<input class="form-check-input" type="radio" name="inlineRadioOptions" id="mediumTireRadio" value="option2">
+		<label class="form-check-label" for="inlineRadio2">Medium</label>
+	  </div>
+	  <div class="form-check form-check-inline">
+		<input class="form-check-input" type="radio" name="inlineRadioOptions" id="hardTireRadio" value="option3">
+		<label class="form-check-label" for="inlineRadio3">Hard</label>
+	  </div>
+</div>
+
+<script>
+	
+
+</script>
+
+
+
+<script> 
+	
+</script>
+
+{% endblock %}
+

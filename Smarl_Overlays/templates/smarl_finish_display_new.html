@@ -1,0 +1,826 @@
+{% extends 'overlay_base.html' %}
+{% block title %}
+Smarl Finish Display
+{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
+<div id="lapDisplay">
+</div>
+   <script src="{{ url_for('static', filename='src/smarl_utils.js') }}"></script>
+   <script>  
+     // THis displays the starting grid based racers in racerData TWITCH INTEGRATION SPECIFIC
+     // NOTE: 'WINS' COLUMN HAS BEEN REPLACED BY 'POINTS' (PTS) FOR SEASON RELEVANCE.
+     // NOTE: 'Best Lap' column added for enhanced data display.
+
+   function reloadChart(data){
+     d3.select("#lapDisplay").selectAll("svg").remove();
+     reloadGraphic(data);
+   }
+
+   function readStats(data){
+     // Function remains unused, but kept for structure
+   }
+
+   function reloadGraphic(data){
+       drawData(data);
+   }
+   // Global chart element vars
+   // data helpers
+   var yScale;
+   var xScale;
+   var chart_area;
+   var interactive_chart;
+   var chartSettings;
+
+   var minTime = Infinity;
+   
+   // --- NEW: Column positioning settings for precise alignment ---
+   const CHART_LEFT_MARGIN = 380; // magic number to center chart
+   const CHART_RIGHT_MARGIN = 1;
+   const COLUMN_GAP = 10;
+   
+   // *** MODIFIED: New column setup for [P, Name, Gap, Best Time, Points] ***
+   const columnSettings = {
+     'Color':  { index: 0, width: 120, xStart: CHART_LEFT_MARGIN },
+     'P':    { index: 1, width: 80,  xStart: CHART_LEFT_MARGIN + 120 + COLUMN_GAP },
+     'Name':   { index: 2, width: 420, xStart: CHART_LEFT_MARGIN + 120 + COLUMN_GAP + 80 + COLUMN_GAP },
+     'Gap':   { index: 3, width: 160, xStart: CHART_LEFT_MARGIN + 120 + COLUMN_GAP + 80 + COLUMN_GAP + 420 + COLUMN_GAP },
+     'Best Lap':{ index: 4, width: 200, xStart: CHART_LEFT_MARGIN + 120 + COLUMN_GAP + 80 + COLUMN_GAP + 420 + COLUMN_GAP + 160 + COLUMN_GAP },
+     'Points':  { index: 5, width: 150, xStart: CHART_LEFT_MARGIN + 120 + COLUMN_GAP + 80 + COLUMN_GAP + 420 + COLUMN_GAP + 160 + COLUMN_GAP + 200 + COLUMN_GAP }
+   };
+   // ------------------------------------------------------------------
+   //Width of chart data
+   // *** MODIFIED: Uses the last new column for total width ***
+   const TOTAL_WIDTH = columnSettings['Points'].xStart + columnSettings['Points'].width - CHART_LEFT_MARGIN ;
+    //width of columns
+   const MID_CHART = (TOTAL_WIDTH/2) + CHART_LEFT_MARGIN //Mid coord of chart
+   // Visible elements
+   var racerBG; // The background squares that contain the data
+   var posRects;
+   var all_elements = []
+   var twitch_stats = {}; // All twitch stats
+   
+   // --- Flag to control transition flow ---
+   let initialDrawComplete = false; 
+
+   // Define helper function for color logic (used by colRect)
+   const getColorAttrs = (d) => {
+     const primary = d['primary_color'];
+     const tertiary = d['tertiary_color'];
+     return {
+       fill: (primary.charAt(0) === '#') ? primary : "#" + primary,
+       stroke: (tertiary.charAt(0) === '#') ? tertiary : "#" + tertiary
+     };
+   };
+   
+   // Define helper function for secondary color (used by secondary path)
+   const getSecondaryFill = (d) => {
+     let color = d['secondary_color'];
+     return (color.charAt(0) === '#') ? color : "#" + color;
+   }
+
+
+
+    const pointList = [15, 12, 10, 8, 7, 6, 5, 4, 3, 2, 1, 1, 1, 1, 1, 1,1,1,1,1,1]; 
+    const getPointsText = (d) => {
+        const pos = Number(d['pos']);
+        return (pos > 0 && pos <= pointList.length) ? pointList[pos - 1] : "0"; 
+    }
+
+   // *** NEW HELPER: Get P (Place/Position) Text ***
+   const getPosText = (d) => {
+     // 'pos' is the actual position, 'id' may be a unique car identifier. Assuming 'pos' is correct for 'P'.
+     return d['pos'] || "-"; 
+   };
+
+    
+    // Helper function to format gap/delta time (prefixed with + or -)
+    function formatGap(gapSeconds) { // rdundant found in smarl_utils.js
+        if (gapSeconds === null || isNaN(gapSeconds) || Math.abs(gapSeconds) < 0.001) {
+            return (gapSeconds === 0) ? "0.000" : "--.---";
+        }
+        
+        const sign = gapSeconds >= 0 ? "+" : "";
+        const absSeconds = Math.abs(gapSeconds);
+        
+        // Format to 3 decimal places
+        return `${sign}${absSeconds.toFixed(3)}`;
+    }
+
+   const getGapText = (d) => { 
+        if (Number(d.pos) === 1) return "0.000";
+        return formatGap(d.split); //formatGap in smarl_utils.js
+   }
+    const getMinTime = (d) => {
+        let minMs = Number.MAX_SAFE_INTEGER;
+        data.forEach(d => {
+            // --- OPTIMIZATION: Use imported timeToMs ---
+            const currentMs = timeToMs(d.bestLap); 
+            if (currentMs < minMs) {
+                minMs = currentMs;
+            }
+        });
+        return minMs
+    }
+
+   const bestLapFill = function(d,i){ // this function will not work. how can I calculate the minimum time and pass it in?
+            // NOTE: Using timeToMs from smarl_utils.js
+            const currentMs = timeToMs(d.bestLap);
+            const darkBg = 'var(--brand-dark-faint)'; 
+            console.log("checking min time",minTime,currentMs)
+
+            // Highlight row if it holds the Best Lap of the Race (minTime)
+            if (currentMs === minTime || Math.abs(currentMs - minTime) < 1) { 
+                return 'var(--status-podium)'; // Use a subtle gold/yellow for Best Lap row
+            }
+            // Alternate colors for readability
+            return i % 2 === 0 ? darkBg : 'var(--brand-dark)';
+    };
+
+   // *** MODIFIED HELPER: getBestLapText now used for Best Time ***
+   const getBestLapText = (d) => {
+     return d['bestLap'] || "-"; 
+   };
+
+
+    function createBoard(data) {
+        boardCreated = true;
+        totalCars = 16 //data.length
+        carSize = 50 * totalCars
+
+        // *** MODIFIED: New label list order: [P, Name, Gap, Best Time, Points] ***
+        var labelList = ['Color', 'P', 'Name', 'Gap', 'Best Lap', 'Points'] 
+
+        // Updated chartSettings with new margin
+        chartSettings = { width: 1920, height: 1080, margin: {left: CHART_LEFT_MARGIN, right:CHART_RIGHT_MARGIN, top: 100, bottom:45}}
+
+        //Scales
+        xScale = d3.scaleLinear()
+        .domain([0,chartSettings.width])
+        .range([chartSettings.margin.left,chartSettings.width - chartSettings.margin.right]);
+
+        // labelScale is no longer needed but was removed in previous steps, confirming its absence.
+
+        yScale = d3.scaleLinear()
+        .domain([0,totalCars +1])// Total cars racing
+        .range([chartSettings.margin.top + 100,chartSettings.height - chartSettings.margin.bottom]); 
+
+        chart_area = d3.select("#lapDisplay").append("svg")
+        .attr('width', chartSettings.width)
+        .attr('height',chartSettings.height)
+        interactive_chart = chart_area.append('g')
+
+        var bgRect = interactive_chart.append('rect')
+        .attr("x",chartSettings.margin.left)
+        .attr('y',chartSettings.margin.top)
+        .attr("rx", SMARL_SETTINGS.BORDER_RADIUS_DEFAULT || 5)
+        .attr('ry', SMARL_SETTINGS.BORDER_RADIUS_DEFAULT || 5)
+        .attr('width',TOTAL_WIDTH)
+        .attr('height',0)
+        .attr('opacity',0)
+        .attr('fill','var(--brand-dark)') // Background box fill
+        .transition()
+        .attr('height',chartSettings.height - chartSettings.margin.bottom)
+        .attr("opacity",0.99)
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+
+        //Header
+        var header = interactive_chart.append("text")
+        .attr('class','headerText') // <-- USING CSS CLASS
+        .attr("x", MID_CHART)
+        .attr("y", chartSettings.margin.top + 30 )
+        .attr("opacity",0)
+        .text("Starting Grid")
+        .text("Race Results")
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .transition()
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+
+        // SubHeader
+        var SubHeader = interactive_chart.append("text")
+        .attr('class','subHeaderText labelText') // <-- USING CSS CLASS
+        .attr("x", chartSettings.width/2)
+        .attr("y", chartSettings.margin.top + 70 )
+        .attr("opacity",0)
+        .text("{{raceData.location}}")
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .transition()
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+
+        // Label BGs
+        labelRects = interactive_chart.selectAll(".labelRect")
+        .data(labelList)
+
+        labelRects.enter()
+        .append("rect")
+        .attr("class","labelRect titleEl")
+        .attr("rx", 7)
+        .attr("ry", 7)
+        .attr("x", function(d){
+        // *** REVISED X LOGIC ***
+        return columnSettings[d].xStart;
+        })
+        .attr("y", chartSettings.margin.top-20)
+        .attr("width",function(d){
+        // *** REVISED WIDTH LOGIC ***
+        return columnSettings[d].width;
+        })
+        .attr("height",40)
+        .attr("fill",'var(--brand-main)') 
+        .attr('stroke','var(--brand-text)') 
+        .attr("opacity",0)
+        .transition()
+        .attr("y", chartSettings.margin.top +90)
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+
+        labelRects.transition()
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+
+
+        labelRects.exit()
+        .transition()
+        .attr("y",yScale(-100))
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove()
+
+        // Title labels
+        var labels= interactive_chart.selectAll(".labelText.headerText")
+        .data(labelList)
+
+        labels.enter()
+        .append('text')
+        .attr('class', 'labelText headerText')
+        .attr("x", function(d){
+        // *** REVISED X POSITION (Start + Half Width) ***
+        const settings = columnSettings[d];
+        return settings.xStart + (settings.width / 2);
+        })
+        .attr("y",chartSettings.margin.top-20)
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("opacity",0)
+        .text(function(d){
+        return d
+        })
+        .attr('font-size','20px')
+        .attr('font-weight',"bold")
+        .attr('fill','var(--brand-dark)') 
+        .transition()
+        .attr("y", chartSettings.margin.top + 110) 
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+
+        // Separator line
+        var sepLine = interactive_chart.append("line")
+        .attr("x1", columnSettings['Color'].xStart) // Start at Color column
+        // *** MODIFIED: Use the last new column for x2 position ***
+        .attr("x2", columnSettings['Points'].xStart + columnSettings['Points'].width)
+        .attr("y1", chartSettings.margin.top +135)
+        .attr("y2", chartSettings.margin.top +135)
+        .attr('stroke-width',3)
+        .attr("stroke",'var(--brand-main)') 
+        .transition()
+        .attr("opacity",1)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        drawData(data)
+   }
+   
+   // START: REVISED drawData FUNCTION
+   function drawData(data){
+        minTime = data.reduce((min, d) => {
+            const lapMs = timeToMs(d.bestLap); // timeToMs is assumed to be in smarl_utils.js
+            if (lapMs > 0 && lapMs < min) { // Only consider valid, positive lap times
+                return lapMs;
+            }
+            return min;
+        }, Infinity);
+       
+        totalCars = data.length
+        yScale.domain([0,totalCars +1])
+        .range([chartSettings.margin.top + 100,chartSettings.height - chartSettings.margin.bottom]);
+     
+        // Calculate the full width of the table
+        const tableStart = columnSettings['Color'].xStart;
+        // *** MODIFIED: Use the last new column for table end ***
+        const tableEnd = columnSettings['Points'].xStart + columnSettings['Points'].width;
+        const tableWidth = tableEnd - tableStart;
+
+        // ----------------- Racer Background Rects -----------------
+        racerBG = interactive_chart.selectAll(".bgRect.racerData")
+        .data(data, function(d) { return d.uid; }) 
+        
+        // 1. EXIT Selection
+        racerBG.exit()
+        .transition()
+        .attr("x",xScale(3000))
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .remove();
+
+        // 2. ENTER Selection (Defines start position and starts the long entry transition)
+        const racerBGEnter = racerBG.enter()
+        .append("rect")
+        .attr("class","bgRect racerData racerEl")
+        .attr('rx',3)
+        .attr('ry',3)
+        .attr("width",tableWidth) // Uses calculated width
+        .attr("height",50)
+        .attr("x",tableStart) 
+        .attr("y",function (d,i){
+        return yScale(i + 1) + 300 // Start position (off-screen for animation)
+        })
+        .attr("opacity",0);
+        
+        // Apply the entry transition to NEW elements only
+        racerBGEnter.transition()
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .attr("x",tableStart)
+        .attr("y",function (d,i){
+            return yScale(i + 1)
+        })
+        .attr("opacity",0.85);
+
+        // 3. MERGE Selection 
+        const racerBGMerge = racerBGEnter.merge(racerBG)
+        .attr("fill", bestLapFill)
+        .transition().duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("x",tableStart)
+        .attr("y",function (d,i){
+            return yScale(i + 1)
+        })
+        //.attr('stroke-color',bestLapFill) // idk f i jst want the border or the whole thing
+        .attr("opacity",0.85);
+
+        all_elements.push(racerBGMerge) // can probably remove all of these.
+
+        // posrect
+        // 4. Position Rects (posRects) - P Column 
+        posRects = interactive_chart.selectAll(".posRect")
+        .data(data, function(d) { return d.uid; }) 
+        
+        const posCol = columnSettings['P'];
+        const posRectWidth = 60;
+        const posRectHeight = (yScale(1) - yScale(0))  * 0.9;
+        const posRectYOffset = (yScale(1) - posRectHeight) / 2;
+        // *** REVISED X: Center in P column ***
+        const posRectX = posCol.xStart + (posCol.width / 2) - (posRectWidth / 2);
+
+        // EXIT
+        posRects.exit().transition().attr("x", -100).attr("opacity",0).duration(SMARL_SETTINGS.TRANSITION_SHORT).remove();
+
+        // ENTER
+        const posRectsEnter = posRects.enter()
+        .append("rect")
+        .attr("class","posRect racerEl")
+        .attr("rx", 5).attr("ry", 5)
+        .attr("width",posRectWidth)
+        .attr("height",posRectHeight)
+        .attr("fill",'var(--brand-text)') 
+        .attr('stroke','var(--brand-dark)') 
+        .attr("x", posRectX) 
+        .attr("y", (d,i) => yScale(i-1) + posRectYOffset + 100)
+        .attr("opacity",0);
+
+        // MERGE (Update & Transition)
+        posRectsEnter.merge(posRects)
+        .transition()
+        .duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("x", posRectX)
+        .attr("y", (d,i) => yScale(i-1) + posRectYOffset)
+        .attr("opacity",1);
+        
+
+
+        // ----------------- P (Place) Text (NEW) -----------------
+        posText = interactive_chart.selectAll(".posText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // 1. EXIT Selection
+        posText.exit()
+        .transition()
+        .attr("x",xScale(230) )
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // 2. ENTER Selection
+        const posTextEnter = posText.enter()
+        .append('text')
+        .attr('class','posText racerEl')
+        .attr('dx',"0em") 
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','24px') // Slightly larger for position
+        .attr('fill','var(--brand-text)')
+        .attr('font-weight',"bold") // Bold for position
+        .attr('text-anchor', 'middle') 
+        .attr('alignment-baseline', 'central') 
+        .attr("x", xScale(1900))
+        .attr('y',function(d,i){ return yScale(i + 1) + 25; }) 
+        .attr("opacity",0)
+        .text(getPosText);
+        
+        // Apply the entry transition to NEW elements only
+        posTextEnter.transition()
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x", posCol.xStart + (posCol.width / 2)) // Centered
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+
+        // 3. MERGE Selection 
+        const posTextMerge = posTextEnter.merge(posText)
+        .text(getPosText)
+        .transition().duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("x", posCol.xStart + (posCol.width / 2))
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+        
+        all_elements.push(posTextMerge)
+        
+        // ----------------- Racer name text (MODIFIED X-POS) -----------------
+        const nameCol = columnSettings['Name'];
+        nameText = interactive_chart.selectAll(".nameText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // 1. EXIT Selection
+        nameText.exit()
+        .transition()
+        .attr("x",xScale(230) )
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // 2. ENTER Selection
+        const nameTextEnter = nameText.enter()
+        .append('text')
+        .attr('class','nameText racerEl labelText')
+        //.attr('dx',"0em") 
+        //.attr('font-family',"var(--brand-font-primary)")
+        //.attr('font-size','24px')
+        //.attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'middle') 
+        .attr('alignment-baseline', 'central') 
+        .attr("x", xScale(1900))
+        .attr('y',function(d,i){ return yScale(i + 1) + 25; }) 
+        .attr("opacity",0)
+        .text(function(d){ return d['name']});
+        
+        // Apply the entry transition to NEW elements only
+        nameTextEnter.transition()
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x", nameCol.xStart + (nameCol.width / 2)) // Centered
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+
+        // 3. MERGE Selection 
+        const nameTextMerge = nameTextEnter.merge(nameText)
+        .text(function(d){ return d['name']})
+        .transition().duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("x", nameCol.xStart + (nameCol.width / 2))
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+        
+        all_elements.push(nameTextMerge)
+        
+        // ----------------- Racer Primary color rect -----------------
+        const colorCol = columnSettings['Color'];
+        colRect = interactive_chart.selectAll(".colRect")
+        .data(data, function(d) { return d.uid; }) 
+
+        // 1. EXIT Selection
+        colRect.exit()
+        .transition()
+        .attr("x",xScale(1900))
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // 2. ENTER Selection
+        const colRectEnter = colRect.enter()
+        .append('rect')
+        .attr("class","colRect racerEl")
+        .attr("width",100)
+        .attr("height",30)
+        .attr('stroke-width',2)
+        .attr("fill", d => getColorAttrs(d).fill)
+        .attr('stroke', d => getColorAttrs(d).stroke)
+        .attr("x", colorCol.xStart + 10) // Small offset within column
+        .attr('y',function(d,i){
+        return yScale(i + 1) + 100
+        })
+        .attr("opacity",0);
+        
+        // Apply the entry transition to NEW elements only
+        colRectEnter.transition()
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x", colorCol.xStart + 10) 
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 10
+        }) 
+        .attr("opacity",1); 
+
+        // 3. MERGE Selection 
+        const colRectMerge = colRectEnter.merge(colRect)
+        .attr("fill", d => getColorAttrs(d).fill)
+        .attr('stroke', d => getColorAttrs(d).stroke)
+        .transition().duration(SMARL_SETTINGS.TRANSITION_SHORT) 
+        .attr("x", colorCol.xStart + 10)
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 10
+        }) 
+        .attr("opacity",1); 
+
+        all_elements.push(colRectMerge)
+
+        // ----------------- Racer secondary color path -----------------
+        var lineGenerator = d3.line()
+            // Adjust X: relative to the starting position of the color column
+            .x(function(d) { return columnSettings['Color'].xStart + d[0] + 50 }) 
+            .y(function(d) { return d[1] });
+        
+        function triangleGenerator(posY,width,height){
+        return [ [0,posY], [width,posY], [width,posY + height]]
+        }
+        
+        secondary = interactive_chart.selectAll(".secondary")
+        .data(data, function(d) { return d.uid; }) 
+
+        // 1. EXIT Selection
+        secondary.exit()
+        .transition()
+        .attr("x",xScale(1900))
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // 2. ENTER Selection
+        const secondaryEnter = secondary.enter()
+        .append("path")
+        .attr("class","secondary racerEl")
+        .attr('stroke','var(--brand-dark)') 
+        .attr('stroke-width',1)
+        .attr("opacity",0)
+        .attr("fill", getSecondaryFill)
+        .attr("d", function(d,i) {
+        // Initial position (off-screen or retracted)
+        var triangleP = triangleGenerator(yScale(i + 1) + 100,60,30)
+            return lineGenerator(triangleP);
+        });
+        
+        // Apply the entry transition to NEW elements only
+        secondaryEnter.transition()
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("d", function(d,i) {
+            // Final position
+            var triangleP = triangleGenerator(yScale(i + 1) + 10,60,30)
+            return lineGenerator(triangleP);
+        })
+        .attr("opacity",1);
+
+        // 3. MERGE Selection 
+        const secondaryMerge = secondaryEnter.merge(secondary)
+        .attr("fill", getSecondaryFill)
+        .transition().duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("d", function(d,i) {
+            var triangleP = triangleGenerator(yScale(i + 1) + 10,60,30)
+            return lineGenerator(triangleP);
+        })
+        .attr("opacity",1);
+
+        all_elements.push(secondaryMerge)
+        
+        // ----------------- Gap Text (NEW) -----------------
+        const gapCol = columnSettings['Gap'];
+        gapText = interactive_chart.selectAll(".gapText")
+        .data(data, function(d) { return d.uid; }) 
+        
+        // 1. EXIT Selection
+        gapText.exit()
+        .transition()
+        .attr("x", xScale(2000))
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // 2. ENTER Selection
+        const gapTextEnter = gapText.enter()
+        .append('text')
+        .attr('class','gapText racerEl')
+        .attr('dx',"0em")
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','22px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("x", xScale(2000))
+        .attr('y',function(d,i){ return yScale(i + 1) + 25; })
+        .attr("opacity",0)
+        .text(getGapText);
+        
+        // Apply the entry transition to NEW elements only
+        gapTextEnter.transition()
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(500)
+        .attr("x", gapCol.xStart + (gapCol.width / 2)) // Centered
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+
+        // 3. MERGE Selection 
+        const gapTextMerge = gapTextEnter.merge(gapText)
+        .text(getGapText)
+        .transition().duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("x", gapCol.xStart + (gapCol.width / 2))
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+        
+        all_elements.push(gapTextMerge); // same here for removal?
+        
+        // ----------------- Best Time Text (MODIFIED X-POS) -----------------
+        const bestLapCol = columnSettings['Best Lap'];
+        // Renaming selector to bestLapText to match the label for clarity
+        bestLapText = interactive_chart.selectAll(".bestLapText") 
+        .data(data, function(d) { return d.uid; }) 
+
+        // 1. EXIT Selection
+        bestLapText.exit()
+        .transition()
+        .attr("x", xScale(2000))
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // 2. ENTER Selection
+        const bestLapTextEnter = bestLapText.enter()
+        .append('text')
+        .attr('class','bestLapText racerEl')
+        .attr('dx',"0em")
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','23px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("x", xScale(2000))
+        .attr('y',function(d,i){ return yScale(i + 1) + 25; })
+        .attr("opacity",0)
+        .text(getBestLapText); // Using the existing helper for Best Lap/Time
+        
+        // Apply the entry transition to NEW elements only
+        bestLapTextEnter.transition()
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x", bestLapCol.xStart + (bestLapCol.width / 2)) // Centered
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+
+        // 3. MERGE Selection 
+        const bestLapTextMerge = bestLapTextEnter.merge(bestLapText)
+        .text(getBestLapText)
+        .transition().duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("x", bestLapCol.xStart + (bestLapCol.width / 2))
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+
+        all_elements.push(bestLapTextMerge);
+        
+        // ----------------- Points Text (MODIFIED X-POS) -----------------
+        const ptsCol = columnSettings['Points'];
+        ptsText = interactive_chart.selectAll(".ptsText")
+        .data(data, function(d) { return d.uid; }) 
+
+        // 1. EXIT Selection
+        ptsText.exit()
+        .transition()
+        .attr("x", xScale(2000))
+        .attr("opacity",0)
+        .duration(SMARL_SETTINGS.TRANSITION_LONG)
+        .remove();
+
+        // 2. ENTER Selection
+        const ptsTextEnter = ptsText.enter()
+        .append('text')
+        .attr('class','ptsText racerEl')
+        .attr('dx',"0em")
+        .attr('font-family',"var(--brand-font-primary)")
+        .attr('font-size','23px')
+        .attr('fill','var(--brand-text)')
+        .attr('text-anchor', 'middle')
+        .attr('alignment-baseline', 'central')
+        .attr("x", xScale(2000))
+        .attr('y',function(d,i){ return yScale(i + 1) + 25; })
+        .attr("opacity",0)
+        .text(getPointsText);
+        
+        // Apply the entry transition to NEW elements only
+        ptsTextEnter.transition()
+        .duration(SMARL_SETTINGS.TRANSITION_LONGER)
+        .delay(1000)
+        .attr("x", ptsCol.xStart + (ptsCol.width / 2)) // Centered
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+
+        // 3. MERGE Selection 
+        const ptsTextMerge = ptsTextEnter.merge(ptsText)
+        .text(getPointsText)
+        .transition().duration(SMARL_SETTINGS.TRANSITION_SHORT)
+        .attr("x", ptsCol.xStart + (ptsCol.width / 2))
+        .attr('y',function(d,i){
+            return yScale(i + 1) + 25
+        }) 
+        .attr("opacity",1);
+
+        all_elements.push(ptsTextMerge);
+    }
+   // END: REVISED drawData FUNCTION
+
+   </script>
+   <script> 
+     // loads,parses, and calls all chart creation
+     var boardCreated = false; 
+     var smarl_data = [] 
+   // SOCKET FUNCTIONS
+     var socket = io.connect('http://' + document.domain + ':' + location.port); 
+     socket.on('connect', function() { 
+       socket.emit( 'getTwitchStats', {
+       data: 'getStats'
+      }) })
+      
+     socket.on('raceData', function( data ) {
+       smarl_data = data['finish_data']
+       let filtered_data = setupData(smarl_data)
+
+       // --- REVISED SOCKET HANDLER LOGIC FOR TRANSITION SAFETY ---
+       if (filtered_data.length > 0 && !boardCreated){
+         initialize(filtered_data)
+         // Set a timeout to mark the end of the entry animation period
+         setTimeout(() => {
+           initialDrawComplete = true;
+         }, SMARL_SETTINGS.TRANSITION_LONGER + 1500); // Increased buffer to 1500ms for safety
+       } else {
+         if (boardCreated){
+           if (initialDrawComplete) {
+             updateGraphic(filtered_data)
+           } 
+         }
+       }
+       // --- END REVISED SOCKET HANDLER LOGIC ---
+     })
+
+     function setupData(data){
+       // 1. Convert Object to Array (and add UID as a property)
+       let racerArray = Object.keys(data).map(uid => ({
+         uid: uid,
+         ...data[uid]
+       }));
+       racerArray = racerArray.filter(function(d,i){return (Number(d.pos) <= 16 && Number(d.pos) != 0)} )
+       racerArray.sort((a, b) => {
+                 if (b.pos !== a.pos) {
+                   return a.pos - b.pos; 
+                 }
+                 return a.uid - b.uid;
+               });
+       return racerArray
+     }
+     
+     socket.on('twitchStats', function( data ) {
+       let data2 = JSON.parse(data)
+       twitch_stats = data2;
+     })
+
+     function initialize(data){
+       createBoard(data);
+     }
+    function updateGraphic(data){
+        // update minTime
+        reloadGraphic(data);
+    }
+     // if dataload fails need fallback?
+   </script>
+
+{% endblock %}
