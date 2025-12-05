@@ -1,7 +1,4 @@
 -- UIManager.lua
--- Handles the in-game GUI for Race Control.
--- Decouples UI logic from the main logic classes.
-
 UIManager = class(nil)
 
 local GUI_LAYOUT = "$CONTENT_DATA/Gui/Layouts/RaceControl.layout"
@@ -10,38 +7,28 @@ function UIManager:init(raceControl)
     self.RC = raceControl
     self.gui = nil
     self.isOpen = false
-    self.confirmAction = nil -- Stores the action waiting for confirmation
+    self.confirmAction = nil 
 end
 
 function UIManager:create()
     if self.gui then return end
     self.gui = sm.gui.createGuiFromLayout(GUI_LAYOUT, false, { isHud = false, isInteractive = true, needsCursor = true })
-    
-    -- Bind Buttons
     self.gui:setButtonCallback("BtnStart", "cl_onBtnStart")
     self.gui:setButtonCallback("BtnStop", "cl_onBtnStop")
     self.gui:setButtonCallback("BtnCaution", "cl_onBtnCaution")
     self.gui:setButtonCallback("BtnFormation", "cl_onBtnFormation")
-    
     self.gui:setButtonCallback("BtnEntries", "cl_onBtnEntries")
     self.gui:setButtonCallback("BtnReset", "cl_onBtnReset")
-    
-    -- Settings +/-
     self.gui:setButtonCallback("BtnLapsAdd", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnLapsSub", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnHandiAdd", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnHandiSub", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnDraftAdd", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnDraftSub", "cl_onSettingsChange")
-    
-    -- Toggles
     self.gui:setButtonCallback("BtnTireWear", "cl_onToggleSetting")
     self.gui:setButtonCallback("BtnQualifying", "cl_onToggleSetting")
-    
-    -- Popup
     self.gui:setButtonCallback("PopUpYes", "cl_onPopUpResponse")
     self.gui:setButtonCallback("PopUpNo", "cl_onPopUpResponse")
-    
     self.gui:setOnCloseCallback("cl_onClose")
 end
 
@@ -67,45 +54,60 @@ function UIManager:destroy()
     end
 end
 
--- --- UPDATE LOOP (Refreshes GUI Text) ---
 function UIManager:onFixedUpdate()
     if not self.isOpen or not self.gui then return end
     
-    -- 1. Update Status Header
+    -- 1. Update Status Header using networked metadata
     local statusNames = { [0]="STOPPED", [1]="RACING", [2]="CAUTION", [3]="FORMATION" }
-    local statusColors = { [0]="#ff2222", [1]="#22ff22", [2]="#ffff22", [3]="#22ffff" }
+    -- Check raceMetaData first (client sync), fallback to 0
+    local meta = self.RC.raceMetaData or {}
+    local status = meta.status or 0
     
-    local status = self.RC.RaceManager and self.RC.RaceManager.state or 0
     local text = "STATUS: " .. (statusNames[status] or "UNKNOWN")
     self.gui:setText("StatusHeader", text)
-    -- Note: TextColour set dynamically isn't supported via Lua directly easily in all versions, usually static.
     
     -- 2. Update Lap Counter
-    local laps = self.RC.RaceManager and self.RC.RaceManager.targetLaps or 0
-    local curLap = self.RC.RaceManager and self.RC.RaceManager.currentLap or 0
-    self.gui:setText("LapCounter", "Lap: " .. curLap .. " / " .. laps)
+    local laps = self.RC.targetLaps or 0 -- Client-side variable
+    local curLap = self.RC.currentLap or 0 -- Client-side variable
+    -- If using metaData:
+    -- local laps = meta.lapsTotal or 0
+    -- local curLap = meta.lapsCurrent or 0
     
-    -- 3. Update Values
-    local handi = self.RC.RaceManager and self.RC.RaceManager.handicapMultiplier or 0.0
-    local draft = self.RC.RaceManager and self.RC.RaceManager.draftStrength or 0.0
+    -- Fallback to reading RC properties directly if they are synced via network elsewhere
+    if self.RC.raceMetaData then
+         -- Assuming raceMetaData structure from RaceControlGen8:
+         -- { status, lapsLeft, qualifying }
+         -- We might need to reconstruct current lap if only lapsLeft is sent
+         -- For now, use RC properties assuming they are synced.
+    end
+
+    self.gui:setText("LapCounter", "Lap: " .. curLap .. " / " .. laps)
+
+    -- 3. Update Values (Handicap/Draft)
+    -- These need to be synced variables on the client side of RaceControl
+    local handi = self.RC.handiCapMultiplier or 0.0
+    local draft = self.RC.draftStrength or 0.0
     
     self.gui:setText("ValLaps", tostring(laps))
     self.gui:setText("ValHandi", string.format("%.1f", handi))
     self.gui:setText("ValDraft", string.format("%.1f", draft))
     
-    -- 4. Update Toggles Text
-    local tires = self.RC.RaceManager and self.RC.RaceManager.tireWearEnabled
-    local quali = self.RC.RaceManager and self.RC.RaceManager.qualifying
+    -- 4. Update Toggles
+    local tires = self.RC.tireWearEnabled
+    local quali = self.RC.qualifying -- Assuming this is synced
+    
+    -- If qualifying is in metadata string "true"/"false"
+    if meta.qualifying == "true" then quali = true end
     
     self.gui:setText("BtnTireWear", "Tires: " .. (tires and "ON" or "OFF"))
     self.gui:setText("BtnQualifying", "Quali: " .. (quali and "ON" or "OFF"))
     
     -- 5. Update Entries Button
-    local entries = self.RC.TwitchManager and self.RC.TwitchManager.entriesOpen
+    -- Entries state is likely managed by TwitchManager logic but needs client visibility
+    -- If not synced, default to unknown or check RC flag
+    local entries = self.RC.entriesOpen
     self.gui:setText("BtnEntries", "Entries: " .. (entries and "OPEN" or "CLOSED"))
 end
-
--- --- CALLBACKS ---
 
 function UIManager:cl_onBtnStart() self.RC.network:sendToServer("sv_set_race", 1) end
 function UIManager:cl_onBtnStop() self.RC.network:sendToServer("sv_set_race", 0) end
@@ -113,7 +115,6 @@ function UIManager:cl_onBtnCaution() self.RC.network:sendToServer("sv_set_race",
 function UIManager:cl_onBtnFormation() self.RC.network:sendToServer("sv_set_race", 3) end
 
 function UIManager:cl_onBtnReset()
-    -- Show Confirmation Popup
     self.gui:setVisible("PopUpPanel", true)
     self.confirmAction = "reset"
 end

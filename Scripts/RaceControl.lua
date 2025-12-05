@@ -18,11 +18,11 @@ RaceControl.colorNormal = sm.color.new(0xffc0cbff)
 RaceControl.colorHighlight = sm.color.new(0xffb6c1ff)
 
 -- Constants for Data Output
-local OUTPUT_DATA = "$CONTENT_DATA/JsonData/RaceOutput/raceData.json"
-local MAP_DATA_PATH = "$CONTENT_DATA/JsonData/TrackData/current_map.json"
+local OUTPUT_DATA = "$CONTENT_DATA/SMARL_Manager/JsonData/RaceOutput/raceData.json"
+local MAP_DATA_PATH = "$CONTENT_DATA/SMARL_Manager/JsonData/TrackData/current_map.json"
 local TRACK_STORAGE_CHANNEL = "SM_AutoRacers_TrackData" 
-local RACER_DATA_PATH = "$CONTENT_DATA/JsonData/RacerData/"
-local TWITCH_BLUEPRINTS_PATH = "$CONTENT_DATA/TwitchPlays/Blueprints/"
+local RACER_DATA_PATH = "$CONTENT_DATA/SMARL_Manager/JsonData/RacerData/"
+local TWITCH_BLUEPRINTS_PATH = "$CONTENT_DATA/SMARL_Manager/TwitchPlays/Blueprints/"
 local SPAWN_PADDING_NODES = 3 
 
 function RaceControl.server_onCreate(self)

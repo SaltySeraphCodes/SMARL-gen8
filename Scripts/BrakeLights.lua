@@ -1,10 +1,4 @@
--- Copyright (c) 2019 Seraph --
---dofile "../Libs/GameImprovements/interactable.lua"
--- read in maps
-if  sm.isHost then -- Just avoid anythign that isnt the host for now
-	dofile "globals.lua"
-end
--- Reverse Lights
+dofile "globals.lua"
 -- Turns on when car starts braking
 BrakeLights = class( nil )
 BrakeLights.maxChildCount = -1
