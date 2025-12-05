@@ -222,6 +222,9 @@ function PerceptionModule.calculateNavigationInputs(self,navigation_data)
         nav.lookaheadTargetLeft = lookaheadTarget
         nav.lookaheadTargetRight = lookaheadTarget
     end
+    
+    --  - Visualizing how closest point maps to navigation inputs
+    
     return nav
 end
 
@@ -241,10 +244,15 @@ function PerceptionModule.build_navigation_data(self)
         navigationData.longCurvatureRadius = self:calculateCurvatureRadius(pA, pC, pD)
         navigationData.roadCurvatureRadius = self:calculateCurvatureRadius(pA, pB, pC)
         navigationData.longCurveDirection = getSign(crossZ_long) 
+        
+        -- NEW: Calculate Score for Leaderboard
+        -- id + percentage of progress to next node
+        navigationData.continuousPositionScore = baseNode.id + tOnSegment
     else
         navigationData.roadCurvatureRadius = MAX_CURVATURE_RADIUS
         navigationData.longCurvatureRadius = MAX_CURVATURE_RADIUS
         navigationData.longCurveDirection = 0
+        navigationData.continuousPositionScore = 0
     end
     
     local navInputData = self:calculateNavigationInputs(navigationData) 
