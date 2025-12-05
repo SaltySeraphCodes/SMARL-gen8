@@ -1,4 +1,4 @@
-# Refined LogParser.py
+# Refined LogParser.py to only be a file watcher
 
 import os, json, time
 import threading

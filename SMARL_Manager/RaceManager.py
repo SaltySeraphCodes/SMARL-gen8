@@ -14,7 +14,7 @@ from obswebsocket import obsws, requests as obs_requests
 #Twitch Chat Scopes: 'channel:bot channel:manage:ads channel:read:ads channel:edit:commercial channel:read:polls channel:manage:polls channel:read:predictions channel:manage:predictions channel:read:redemptions channel:manage:redemptions user:bot user:write:chat'
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
-main_path = os.path.join(dir_path,os.pardir)
+main_path = dir_path
 realtime_path = os.path.join(main_path,"JsonData/RaceOutput/raceData.json")
 twitch_path =  os.path.join(main_path, "TwitchPlays")
 Twitch_json = os.path.join(twitch_path, "Json_Data")

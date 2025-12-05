@@ -36,10 +36,10 @@ _RacerData = []
 SMARL_API_URL = "http://seraphhosts.ddns.net:8080/api" # No longer works due to host migration :(
 SMARL_LOCAL_URL = "http://192.168.1.250:8080/api"
 SMARL_DEV_URL =  "http://192.168.1.69:8080/api"
-SMARL_API_INSTRUCTIONS = "../JsonData/apiInstructs.json"
-SMARL_COMMAND_QUEUE = "../JsonData/commands_to_lua.json"
-SMARL_COMMAND_ACK = "../JsonData/lua_ack.json"
-SMARL_TUNING_DATA = "../JsonData/tuningData.json"
+SMARL_API_INSTRUCTIONS = "JsonData/apiInstructs.json"
+SMARL_COMMAND_QUEUE = "JsonData/commands_to_lua.json"
+SMARL_COMMAND_ACK = "JsonData/lua_ack.json"
+SMARL_TUNING_DATA = "JsonData/tuningData.json"
 
 IS_LOCAL = True # Remember to change this when using the dev database, Maybe automate this??
 DRY_RUN = True

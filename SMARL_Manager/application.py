@@ -9,7 +9,7 @@ import logging
 import helpers # Import from sharedData?
 from RaceManager import RaceManager
 from ConfigManager import ConfigManager
-from LogParser import RaceDataPoller
+from FileWatcher import RaceDataPoller
 
 ALLOWED_EXTENSIONS = set(['txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'])
 app = Flask(__name__)
@@ -57,7 +57,7 @@ _Racer_Data = []
 
 # Filepaths 
 dir_path = os.path.dirname(os.path.realpath(__file__))
-main_path = os.path.join(dir_path,os.pardir)
+main_path = dir_path
 realtime_path = os.path.join(main_path,"JsonData/RaceOutput/raceData.json")
 twitch_path =  os.path.join(main_path, "TwitchPlays")
 Twitch_json = os.path.join(twitch_path, "Json_Data")
@@ -84,19 +84,6 @@ def get_car_data(racerID): # gets the individual data vars, just separated out b
     owner = racerData['display_name'] #TODO: make difference between owner, sponsor, and logo
     return tag,name,primary,secondary,tertiary,owner
 
-
-def get_time_from_seconds(seconds):
-    minutes = "{:02.0f}".format(math.floor(seconds/60))
-    seconds = "{:06.3f}".format(seconds%60)
-    timeStr  = minutes + ":" +seconds
-    return timeStr
-
-def get_seconds_from_time(time):
-    minutes = time[0:2]
-    seconds = time[3:5]
-    milis = time[7:11]
-    newTime = (int(minutes)*60) + int(seconds) + (int(milis)/1000)
-    return newTime
 
 # Various Form classes
 

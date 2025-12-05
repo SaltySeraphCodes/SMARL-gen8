@@ -29,10 +29,9 @@ from bot_secrets import my_secrets #Todo: use configmanager.py
 debug = False
 # dir_path is the current directory
 dir_path = os.path.dirname(os.path.realpath(__file__))
-main_path = os.path.join(dir_path,os.pardir)
-realtime_path = os.path.join(main_path,"JsonData/RaceOutput/raceData.json")
-# commonly use sm folder locations
-json_data = os.path.join(dir_path, "Json_Data")
+main_path = os.path.join(dir_path, os.pardir)
+realtime_path = os.path.join(main_path, "JsonData", "RaceOutput", "raceData.json")# commonly use sm folder locations
+json_data = os.path.join(dir_path, "BotData")
 blueprint_base = os.path.join(dir_path, "Blueprints") #location for stored blueprints
 chatter_data = os.path.join(json_data, 'chatdata.json')
 sim_settings = os.path.join(json_data, 'settings.json')

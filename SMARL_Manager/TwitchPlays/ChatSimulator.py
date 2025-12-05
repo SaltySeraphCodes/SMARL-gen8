@@ -6,12 +6,12 @@ import random
 from typing import Dict, Any, List
 
 # --- IMPORTANT ---
-# Assume readStream.py is in the same directory.
-import readStream 
-from readStream import ChatCommandProcessor, SETTINGS, checkEntered, ALL_BPS, ALL_COLORS
+import SMARL_Manager.TwitchPlays.TwitchBot as TwitchBot 
+from TwitchBot import ChatCommandProcessor, SETTINGS, checkEntered, ALL_BPS, ALL_COLORS
+
 ALL_USERNAMES = ["ccscrapracingleague","BillyGoesRacing","JJDoneDirty","AngyViewer293","projectburnout","PippingMyPie","opensourceloser",
                  "artschoolreject","bushdidwhat","chinaownstwitch","bezosdidmushroom","engineoncrack","rocketman282","pinkiepusher",
-                 "imrunningoutofnames","saltyseraoh26","scrapmannot","kanxkosmo","imurbiggestfan","codingishard"]
+                 "imrunningoutofnames","saltyseraph26","scrapmannot","kanxkosmo","imurbiggestfan","codingishard"]
 # --- DUMMY CHAT DATA ---
 def generate_chat_item(message: str, username: str, userid: str, is_sponsor: bool = False, amount: float = 0.0) -> Dict[str, Any]:
     """
@@ -122,7 +122,6 @@ def run_simulation(processor: ChatCommandProcessor, total_racers_to_test: int):
 if __name__ == '__main__':
     # --- Configuration ---
     # Note: This is now just a starting point for the capacity setting.
-    # The actual capacity is read from SETTINGS in readStream.py.
     MAX_ALLOWED_RACERS = 20
 
     # ---------------------
@@ -148,7 +147,7 @@ if __name__ == '__main__':
                         processor.SETTINGS['capacity'] = override_count
                         print(f"Using command line override: {override_count} racers.")
                     except ValueError:
-                        print("Invalid integer provided for max racers. Using capacity from readStream.py's SETTINGS.")
+                        print("Invalid integer provided for max racers. Using capacity from TwitchBot.py's SETTINGS.")
                         
                 # Start the simulation, using the capacity set in the processor's SETTINGS
                 run_simulation(processor, MAX_RACERS_TO_SIMULATE) 

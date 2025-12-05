@@ -1,4 +1,0 @@
-Powershell C:\Users\Canthony\Documents\PyhonEnvs\LogReader313\Scripts\activate.ps1 & C:\Users\Canthony\Documents\PyhonEnvs\LogReader313\Scripts\python.exe stream_injector.py
-
-
-
