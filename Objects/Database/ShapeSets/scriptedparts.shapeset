@@ -104,7 +104,7 @@
             "z" : 1
          },
          "color" : "fefefeff",
-         "name" : "smar_track_generator",
+         "name" : "smar_track_scanner",
          "physicsMaterial" : "Mechanical",
          "renderable" : {
             "lodList" : [
@@ -144,7 +144,7 @@
             "filename" : "$MOD_DATA/Scripts/TrackScanner.lua"
          },
          "sticky" : "-Z",
-         "uuid" : "5d8f2445-31bb-4079-94ab-dc1df1e6e3ed"
+         "uuid" : "4af0f758-21b4-446b-9196-afeefbbe5adb"
       },
       {
          "box" : {
@@ -193,7 +193,7 @@
             "filename" : "$MOD_DATA/Scripts/raceLineLoader.lua"
          },
          "sticky" : "-Z",
-         "uuid" : "9f5ce20a-b774-4df9-9b6a-d1993c705138"
+         "uuid" : "7cb34732-7938-4e50-9db3-bdb57e3ab2b7"
       },
       {
          "box" : {
@@ -242,7 +242,7 @@
             "filename" : "$MOD_DATA/Scripts/downforceblock.lua"
          },
          "sticky" : "-Z",
-         "uuid" : "ab524867-122b-4f98-990b-67ff6d2e9c5c"
+         "uuid" : "1e3b7ff3-d066-4b8b-9cb1-fa4a6ad8cc7c"
       },
       {
          "box" : {
@@ -300,7 +300,7 @@
             "filename" : "$MOD_DATA/Scripts/RaceControl.lua"
          },
          "sticky" : "-Y+X-X-Z+Z",
-         "uuid" : "011818d5-aead-49d8-aca6-50a33cb88e96"
+         "uuid" : "5703a73b-206c-420f-b75d-03ad028ebe6d"
       },
       {
          "box" : {
@@ -349,7 +349,7 @@
             "filename" : "$MOD_DATA/Scripts/CheckPoint.lua"
          },
          "sticky" : "-Y+X-X-Z+Z",
-         "uuid" : "e80d963c-3af2-47aa-99d8-365e1569a568"
+         "uuid" : "54cea7fe-d26f-4660-b882-0a25cf4db710"
       },
       {
          "box" : {
@@ -398,7 +398,7 @@
             "filename" : "$MOD_DATA/Scripts/RaceCamera.lua"
          },
          "sticky" : "-Z",
-         "uuid" : "04caa519-f127-4235-a792-7a83a79afd21"
+         "uuid" : "895664c9-dec0-43eb-9c57-6315c907c6cf"
       },
       {
          "box" : {
@@ -447,7 +447,7 @@
             "filename" : "$MOD_DATA/Scripts/BrakeLights.lua"
          },
          "sticky" : "-Z",
-         "uuid" : "b20d3826-3235-459c-a4c9-ef1438caaed9"
+         "uuid" : "90137355-8dda-404c-b19b-80a10b75729c"
       },
       {
          "box" : {
@@ -496,7 +496,7 @@
             "filename" : "$MOD_DATA/Scripts/PitPoint.lua"
          },
          "sticky" : "-Y+X-X-Z+Z",
-         "uuid" : "bd16db06-b593-443f-8680-94b01842d067"
+         "uuid" : "9c327ca3-5dbe-46ad-9910-7b362964377d"
       },
       {
          "box" : {
@@ -517,8 +517,8 @@
                         "material" : "PoseAnimDifAsgNor",
                         "textureList" : [
                            "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif_asg.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif_nor.tga"
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_nor.tga"
                         ]
                      },
                      {
@@ -531,8 +531,8 @@
                         "material" : "UVAnimDifAsgNor",
                         "textureList" : [
                            "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif_asg.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_dif_nor.tga"
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_asg.tga",
+                           "$MOD_DATA/Objects/Textures/smar_textures/smar_pit_box_nor.tga"
                         ]
                      }
                   ]
@@ -545,7 +545,7 @@
             "filename" : "$MOD_DATA/Scripts/PitBox.lua"
          },
          "sticky" : "-Y+X-X-Z+Z",
-         "uuid" : "f3105b84-0577-4d34-93b3-10fa62531f5c"
+         "uuid" : "b27a43d6-a8f1-4973-b5df-c39e5c4cdeb8"
       }
    ]
 }
