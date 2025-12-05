@@ -38,6 +38,11 @@ function PitManager.server_init(self,rc)
     self.pitBoxes = nil
     self.run = false 
     self.started = CLOCK()
+    
+    -- Sync IDs
+    self.entryNodeID = -1
+    self.exitMergeID = -1
+    
     print("PitManager Server Init")
 end
 
@@ -67,9 +72,8 @@ function PitManager.linkPitTrack(self)
     local mainEntryNode = self:findClosestNode(self.raceControl.trackNodeChain, pitStart.location)
     
     if mainEntryNode then
-        -- 2. Tag the Main Node so drivers know to switch here
-        mainEntryNode.isPitEntry = true
-        mainEntryNode.pitConnectIndex = 1 
+        -- Store ID for Sync checks
+        self.entryNodeID = mainEntryNode.id
         print("PitManager: LINKED ENTRY at Node " .. mainEntryNode.id)
     end
     
@@ -78,10 +82,16 @@ function PitManager.linkPitTrack(self)
     local mainExitNode = self:findClosestNode(self.raceControl.trackNodeChain, pitEnd.location)
     
     if mainExitNode then
-        -- 4. Tag the Pit End Node so drivers merge back safely
+        -- Tag the Pit End Node locally (drivers read this from pitChain)
         pitEnd.mergeTargetIndex = mainExitNode.id
+        self.exitMergeID = mainExitNode.id
         print("PitManager: LINKED EXIT merging at Node " .. mainExitNode.id)
     end
+end
+
+-- Helper for Drivers to check entry without relying on local node flags
+function PitManager.isPitEntryNode(self, nodeID)
+    return nodeID == self.entryNodeID
 end
 
 function PitManager.findClosestNode(self, chain, pos)

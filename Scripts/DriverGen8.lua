@@ -166,7 +166,18 @@ function DriverGen8.updatePitBehavior(self, dt)
 
     -- STATE 1: Requesting / Searching for Entry
     if self.pitState == 1 then
-        if currentNode.isPitEntry then
+        -- CHECK 1: Local Flag (Legacy/Scanner support)
+        local isEntry = currentNode.isPitEntry 
+        
+        -- CHECK 2: Global Manager (Robustness)
+        if not isEntry then
+            local rc = getRaceControl()
+            if rc and rc.PitManager then
+                isEntry = rc.PitManager:isPitEntryNode(currentNode.id)
+            end
+        end
+
+        if isEntry then
             print(self.id, "ENTERING PIT LANE")
             self.activeChain = self.pitChain
             self.pitState = 2 -- In Lane
@@ -217,6 +228,10 @@ function DriverGen8.updatePitBehavior(self, dt)
             -- Snap to merge node
             local mergeNode = self.nodeChain[currentNode.mergeTargetIndex]
             if mergeNode then self.Perception.currentNode = mergeNode end
+            
+            -- FORCE LAP CHECK (If pit lane skipped start line)
+            -- We assume pitting constitutes a lap if successful
+            self:handleLapCross() 
         end
     end
 end
@@ -490,6 +505,7 @@ end
 
 function DriverGen8.checkLapCross(self)
     -- Disable lap crossing while in pits to prevent double counting
+    -- EXCEPT if we are manually forcing it in updatePitBehavior
     if self.pitState > 0 then return end
 
     if not self.nodeChain or #self.nodeChain == 0 or not self.perceptionData then return end

@@ -228,7 +228,8 @@ function RaceControl.sv_output_data(self)
             gapToLeader = driver.raceSplit or 0.0,
             gapToNext = gapToNext,
             locX = 0, locY = 0, speed = 0,
-            pitState = driver.pitState or 0,
+            pitState = driver.pitState or 0, -- 0:Race, 1:Req, 2:InLane, 3:ApprBox, 4:Stopped, 5:ExitBox, 6:ExitLane
+            pitTimer = driver.pitTimer or 0, -- Remaining time in stop
             th = driver.Tire_Health or 1.0,
             fl = driver.Fuel_Level or 1.0,
             tt = driver.Tire_Type or 2,     
