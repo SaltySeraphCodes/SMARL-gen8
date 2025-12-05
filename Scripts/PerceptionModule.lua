@@ -1,5 +1,5 @@
 -- PerceptionModule.lua
-dofile("../globals.lua") 
+dofile("globals.lua") 
 PerceptionModule = class(nil)
 
 local Z_TOLERANCE_SQ = 25        
@@ -108,7 +108,7 @@ function PerceptionModule.get_artificial_downforce(self)
     local parents = self.Driver.interactable:getParents() 
     if #parents > 0 then
         for k=1, #parents do local v=parents[k]
-            if tostring(v:getShape():getShapeUuid()) == "ab524867-122b-4f98-990b-67ff6d2e9c5c" then 
+            if tostring(v:getShape():getShapeUuid()) == DOWNFORCE_BLOCK_UUID then 
                 totalDownforce = v:getPower()
             end
         end 

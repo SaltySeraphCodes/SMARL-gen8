@@ -30,7 +30,6 @@ function RaceCamera.client_init( self )
 
 end
 
-
 function RaceCamera.server_init( self ) 
 	-- store location and nearest node with nearest node search
 	-- load self.nodechain
@@ -39,7 +38,8 @@ function RaceCamera.server_init( self )
 	self.cameraIndex = #ALL_CAMERAS + 1 -- index at 1
 	self.location = self.shape:getWorldPosition() + sm.vec3.new(0,0,1) -- move camera slightly above block
 	self.active = false
-	self:sv_loadData(TRACK_DATA) -- sets self.nodechain & self.nodeMap
+	-- FIXED: Use TRACK_DATA_CHANNEL instead of nil variable TRACK_DATA
+	self:sv_loadData(TRACK_DATA_CHANNEL) 
 	if self.nodeChain then
 		self.nearestNode = self:find_nearest_node(self.nodeChain,self.location)
 	end

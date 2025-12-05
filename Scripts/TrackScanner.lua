@@ -1,5 +1,4 @@
--- TrackScanner.lua: A robust, automated tool for generating racing lines.
--- Features: 3D Surface Tracking, Banking Detection, Jump Logic, Crossover Support, and JSON/World Saving.
+-- TrackScanner.lua
 dofile("globals.lua")
 
 TrackScanner = class(nil)
@@ -13,13 +12,14 @@ local MARGIN_SAFETY = 4.0
 local LOOP_Z_TOLERANCE = 6.0 
 local JUMP_SEARCH_LIMIT = 20 
 
--- Save Channels
-local STORAGE_CHANNEL_TRACK = "SM_AutoRacers_TrackData"
-local JSON_FILENAME = "$CONTENT_DATA/TrackData/track_export.json"
+local SCAN_MODE_RACE = 1
+local SCAN_MODE_PIT = 2
 
 function TrackScanner.server_init(self)
     self.rawNodes = {}
     self.nodeChain = {} 
+    self.pitChain = {} 
+    self.scanMode = SCAN_MODE_RACE 
     self.isScanning = false
     self.debugEffects = {}
 end
@@ -33,16 +33,9 @@ function TrackScanner.client_init(self)
     self.debugEffects = {}
     self.scanning = false
     self.debug = false
-    
-    self.useText = sm.gui.getKeyBinding( "Use", true )
-    self.tinkerText = sm.gui.getKeyBinding( "Tinker", true )
-    self.leftClickText = sm.gui.getKeyBinding("Create",true)
-    self.rightClickText = sm.gui.getKeyBinding("Attack",true)
 end
 
--- --- PHASE 1: THE CRAWLER (Advanced 3D) ---
--- (Scanning logic omitted for brevity - same as previous version)
--- ... (Assume findFloorPoint, findWallPoint, scanTrackLoop exist here) ...
+-- --- CORE SCANNING UTILS ---
 
 function TrackScanner.findFloorPoint(self, origin, upVector)
     local scanStart = origin + (upVector * 3.0)
@@ -67,6 +60,8 @@ function TrackScanner.findWallPoint(self, origin, direction, upVector)
     return nil
 end
 
+-- --- RACK TRACK SCAN (LOOP) ---
+
 function TrackScanner.scanTrackLoop(self, startPos, startDir)
     self.rawNodes = {}
     local currentPos = startPos
@@ -77,7 +72,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     local loopClosed = false
     local jumpCounter = 0
 
-    print("TrackScanner: Starting 3D Scan...")
+    print("TrackScanner: Starting 3D Race Scan...")
 
     while not loopClosed and iterations < maxIterations do
         local floorPos, floorNormal = self:findFloorPoint(currentPos, currentUp)
@@ -117,7 +112,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             outVector = currentDir,
             upVector = bankUp, 
             isJump = isJump,
-            sectorID = 1 -- Default to 1
+            sectorID = 1 
         })
 
         if iterations > 0 and #self.rawNodes > 1 then
@@ -145,64 +140,158 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     return self.rawNodes
 end
 
--- --- PHASE 2: OPTIMIZER & SECTOR ASSIGNMENT ---
+-- --- PIT LANE SCAN (ANCHOR BASED) ---
 
-function TrackScanner.optimizeRacingLine(self, iterations)
-    local nodes = self.rawNodes
+function TrackScanner.scanPitLaneFromAnchors(self)
+    print("TrackScanner: Starting Anchor-Based Pit Scan...")
+    
+    if not PIT_ANCHORS.start or not PIT_ANCHORS.endPoint then
+        print("Error: Missing Pit Start (Green) or Pit End (Red) anchors!")
+        self.network:sendToClients("cl_showAlert", "Missing Start/End Anchors!")
+        return
+    end
+
+    self.rawNodes = {}
+    local nodes = {}
+    
+    -- 1. Gather Key Points in Order
+    local keyPoints = {}
+    table.insert(keyPoints, PIT_ANCHORS.start)
+    if PIT_ANCHORS.entry then table.insert(keyPoints, PIT_ANCHORS.entry) end
+    
+    -- Sort Pit Boxes by distance from Start
+    local startLoc = PIT_ANCHORS.start.shape:getWorldPosition()
+    local sortedBoxes = {}
+    for _, box in ipairs(PIT_ANCHORS.boxes) do table.insert(sortedBoxes, box) end
+    table.sort(sortedBoxes, function(a,b) 
+        return (a.shape:getWorldPosition() - startLoc):length() < (b.shape:getWorldPosition() - startLoc):length() 
+    end)
+    for _, box in ipairs(sortedBoxes) do table.insert(keyPoints, box) end
+
+    if PIT_ANCHORS.exit then table.insert(keyPoints, PIT_ANCHORS.exit) end
+    table.insert(keyPoints, PIT_ANCHORS.endPoint)
+
+    -- 2. Scan Segments
+    local nodeIdCounter = 1
+    
+    for i = 1, #keyPoints - 1 do
+        local startObj = keyPoints[i]
+        local endObj = keyPoints[i+1]
+        
+        local startPos = startObj.shape:getWorldPosition()
+        local endPos = endObj.shape:getWorldPosition()
+        
+        local segmentDir = (endPos - startPos):normalize()
+        local segmentDist = (endPos - startPos):length()
+        local steps = math.floor(segmentDist / SCAN_STEP_SIZE)
+        
+        -- Add Start Anchor Node
+        self:addPitNode(nodes, nodeIdCounter, startPos, segmentDir, startObj)
+        nodeIdCounter = nodeIdCounter + 1
+        
+        -- Add Intermediate Nodes
+        for s = 1, steps do
+            local currentPos = startPos + (segmentDir * (s * SCAN_STEP_SIZE))
+            
+            -- Raycast to stick to floor
+            local hit, res = sm.physics.raycast(currentPos + sm.vec3.new(0,0,5), currentPos - sm.vec3.new(0,0,5))
+            if hit then currentPos = res.pointWorld end
+            
+            self:addPitNode(nodes, nodeIdCounter, currentPos, segmentDir, nil)
+            nodeIdCounter = nodeIdCounter + 1
+        end
+    end
+    
+    -- Add Final Node
+    self:addPitNode(nodes, nodeIdCounter, PIT_ANCHORS.endPoint.shape:getWorldPosition(), PIT_ANCHORS.endPoint.shape:getAt(), PIT_ANCHORS.endPoint)
+
+    self.pitChain = nodes
+    print("TrackScanner: Pit Scan Complete. Nodes: " .. #nodes)
+end
+
+function TrackScanner.addPitNode(self, nodeList, id, pos, dir, sourceObj)
+    local pType = 0
+    if sourceObj then
+        if sourceObj.pointType then pType = sourceObj.pointType end 
+        if sourceObj.boxDimensions then pType = 5 end -- PitBox
+    end
+
+    local node = {
+        id = id,
+        location = pos,
+        mid = pos, 
+        width = 15.0, 
+        outVector = dir,
+        perp = dir:cross(sm.vec3.new(0,0,1)):normalize(),
+        bank = 0,
+        incline = 0,
+        sectorID = 4, 
+        pointType = pType
+    }
+    table.insert(nodeList, node)
+end
+
+-- --- OPTIMIZER ---
+
+function TrackScanner.optimizeRacingLine(self, iterations, isPit)
+    local nodes = isPit and self.pitChain or self.rawNodes
     local count = #nodes
     if count < 3 then return end
 
-    print("TrackScanner: Optimizing Racing Line...")
+    if not isPit then
+        print("TrackScanner: Optimizing Race Line...")
+        for iter = 1, iterations do
+            for i = 1, count do
+                local node = nodes[i]
+                if not node.isJump then 
+                    local prevIdx = (i - 2) % count + 1
+                    local nextIdx = (i % count) + 1
+                    local prevNode = nodes[prevIdx]
+                    local nextNode = nodes[nextIdx]
 
-    -- Optimization Loop
-    for iter = 1, iterations do
-        for i = 1, count do
-            local node = nodes[i]
-            if not node.isJump then 
-                local prevIdx = (i - 2) % count + 1
-                local nextIdx = (i % count) + 1
-                local prevNode = nodes[prevIdx]
-                local nextNode = nodes[nextIdx]
-
-                local idealPos = (prevNode.location + nextNode.location) * 0.5
-                local wallVec = node.rightWall - node.leftWall
-                local trackWidth = wallVec:length()
-                local wallDir = wallVec:normalize()
-                
-                local relativePos = idealPos - node.leftWall
-                local projectionDist = relativePos:dot(wallDir)
-                local clampedDist = math.max(MARGIN_SAFETY, math.min(trackWidth - MARGIN_SAFETY, projectionDist))
-                
-                node.location = node.leftWall + (wallDir * clampedDist)
+                    local idealPos = (prevNode.location + nextNode.location) * 0.5
+                    local wallVec = node.rightWall - node.leftWall
+                    local trackWidth = wallVec:length()
+                    local wallDir = wallVec:normalize()
+                    
+                    local relativePos = idealPos - node.leftWall
+                    local projectionDist = relativePos:dot(wallDir)
+                    local clampedDist = math.max(MARGIN_SAFETY, math.min(trackWidth - MARGIN_SAFETY, projectionDist))
+                    
+                    node.location = node.leftWall + (wallDir * clampedDist)
+                end
+            end
+        end
+        self:assignSectors(nodes)
+        self.nodeChain = nodes
+    else
+        -- Pit Chain Optimization (Gentle Smoothing)
+        -- We mostly trust the anchors, but smooth the intermediate nodes
+        for iter = 1, 5 do
+            for i = 2, count - 1 do
+                local node = nodes[i]
+                -- Only smooth if NOT an anchor point
+                if node.pointType == 0 then
+                    local prevNode = nodes[i-1]
+                    local nextNode = nodes[i+1]
+                    node.location = (prevNode.location + nextNode.location) * 0.5
+                end
             end
         end
     end
     
     self:recalculateNodeProperties(nodes)
-    
-    -- NEW: Assign Sectors
-    self:assignSectors(nodes)
-    
-    self.nodeChain = nodes
 end
 
 function TrackScanner.assignSectors(self, nodes)
     local count = #nodes
     if count == 0 then return end
-    
-    -- Split track into 3 roughly equal segments
     local sectorSize = math.floor(count / 3)
-    
     for i = 1, count do
-        if i <= sectorSize then
-            nodes[i].sectorID = 1
-        elseif i <= sectorSize * 2 then
-            nodes[i].sectorID = 2
-        else
-            nodes[i].sectorID = 3
-        end
+        if i <= sectorSize then nodes[i].sectorID = 1
+        elseif i <= sectorSize * 2 then nodes[i].sectorID = 2
+        else nodes[i].sectorID = 3 end
     end
-    print("TrackScanner: Sectors assigned (Split at " .. sectorSize .. " nodes)")
 end
 
 function TrackScanner.recalculateNodeProperties(self, nodes)
@@ -210,16 +299,21 @@ function TrackScanner.recalculateNodeProperties(self, nodes)
     for i = 1, count do
         local node = nodes[i]
         local nextNode = nodes[(i % count) + 1]
+        -- Handle end of linear chain
+        if i == count and nodes == self.pitChain then 
+             nextNode = nodes[i] -- Point to self or handle merge vector
+        end
+        
         node.outVector = (nextNode.location - node.location):normalize()
+        -- Fallback for last node in linear chain
+        if node.outVector:length() == 0 then node.outVector = nodes[i-1].outVector end
+        
         local nodeUp = node.upVector or sm.vec3.new(0,0,1)
         node.perp = node.outVector:cross(nodeUp):normalize() 
-        local heightDiff = (node.leftWall - node.rightWall):dot(sm.vec3.new(0,0,1))
-        node.bank = heightDiff / node.width 
-        node.incline = node.outVector.z
     end
 end
 
--- --- DATA SERIALIZATION ---
+-- --- SAVE ---
 
 function TrackScanner.vecToTable(self, vec)
     if not vec then return {x=0, y=0, z=0} end
@@ -227,58 +321,81 @@ function TrackScanner.vecToTable(self, vec)
 end
 
 function TrackScanner.serializeTrackData(self)
-    local serializedNodes = {}
-    for i, node in ipairs(self.nodeChain) do
-        local dataNode = {
-            id = node.id,
-            pos = self:vecToTable(node.location),
-            width = node.width,
-            bank = node.bank,
-            incline = node.incline,
-            out = self:vecToTable(node.outVector),
-            perp = self:vecToTable(node.perp),
-            isJump = node.isJump,
-            sectorID = node.sectorID -- Now included in save
-        }
-        table.insert(serializedNodes, dataNode)
+    local raceNodes = {}
+    local pitNodes = {}
+    
+    local function serializeChain(chain, targetTable)
+        for i, node in ipairs(chain) do
+            local dataNode = {
+                id = node.id,
+                pos = self:vecToTable(node.location),
+                width = node.width,
+                bank = node.bank,
+                incline = node.incline,
+                out = self:vecToTable(node.outVector),
+                perp = self:vecToTable(node.perp),
+                isJump = node.isJump,
+                sectorID = node.sectorID,
+                pointType = node.pointType 
+            }
+            table.insert(targetTable, dataNode)
+        end
     end
-    return { timestamp = os.time(), nodeCount = #serializedNodes, nodes = serializedNodes }
+
+    serializeChain(self.nodeChain, raceNodes)
+    serializeChain(self.pitChain, pitNodes)
+
+    return { 
+        timestamp = os.time(), 
+        raceChain = raceNodes, 
+        pitChain = pitNodes 
+    }
 end
 
 function TrackScanner.sv_saveToStorage(self)
-    if #self.nodeChain == 0 then return end
     print("TrackScanner: Saving to World Storage...")
     local data = self:serializeTrackData()
-    sm.storage.save(STORAGE_CHANNEL_TRACK, data)
-    self.network:sendToClients("cl_onSaveComplete", true)
+    sm.storage.save(TRACK_DATA_CHANNEL, data)
+    self.network:sendToClients("cl_showAlert", "Track Saved!")
 end
 
-function TrackScanner.sv_exportToJson(self)
-    if #self.nodeChain == 0 then return end
-    print("TrackScanner: Exporting to JSON...")
-    local data = self:serializeTrackData()
-    sm.json.save(data, JSON_FILENAME)
-    self.network:sendToClients("cl_onSaveComplete", true)
+-- --- INTERACTION ---
+
+function TrackScanner.client_canInteract(self, character) return true end
+function TrackScanner.client_onInteract(self, character, state)
+    if state then
+        if character:isCrouching() then
+            self.network:sendToServer("sv_toggleScanMode")
+        else
+            self.network:sendToServer("sv_startScan")
+        end
+    end
 end
 
--- --- INTERFACE ---
+function TrackScanner.sv_toggleScanMode(self)
+    if self.scanMode == SCAN_MODE_RACE then
+        self.scanMode = SCAN_MODE_PIT
+        self.network:sendToClients("cl_showAlert", "Mode: PIT LANE SCAN")
+    else
+        self.scanMode = SCAN_MODE_RACE
+        self.network:sendToClients("cl_showAlert", "Mode: RACE TRACK SCAN")
+    end
+end
 
-function TrackScanner.generateTrack(self)
+function TrackScanner.sv_startScan(self)
     local startPos = sm.shape.getWorldPosition(self.shape)
     local startDir = sm.shape.getAt(self.shape)
-    local rawNodes = self:scanTrackLoop(startPos, startDir)
     
-    if #rawNodes > 0 then
-        self:optimizeRacingLine(OPTIMIZATION_PASSES)
-        self:visualizeNodes()
-        self.network:sendToServer("sv_saveToStorage")
-        self.network:sendToServer("sv_exportToJson")
-        print("TrackScanner: Generation Complete.")
-        self.scanning = false
+    if self.scanMode == SCAN_MODE_RACE then
+        self:scanTrackLoop(startPos, startDir)
+        self:optimizeRacingLine(50, false)
     else
-        print("TrackScanner: Generation Failed.")
-        self.scanning = false
+        self:scanPitLaneFromAnchors()
+        self:optimizeRacingLine(5, true)
     end
+    
+    self:visualizeNodes()
+    self:sv_saveToStorage()
 end
 
 function TrackScanner.visualizeNodes(self)
@@ -286,39 +403,28 @@ function TrackScanner.visualizeNodes(self)
         if effect and sm.exists(effect) then effect:destroy() end 
     end
     self.debugEffects = {}
-    for _, node in ipairs(self.nodeChain) do
-        local effect = sm.effect.createEffect("Loot - GlowItem")
-        effect:setPosition(node.location)
-        effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-        
-        -- Color code by sector
-        if node.sectorID == 1 then effect:setParameter("Color", sm.color.new("00ff00")) 
-        elseif node.sectorID == 2 then effect:setParameter("Color", sm.color.new("ffff00")) 
-        else effect:setParameter("Color", sm.color.new("ff0000")) end
-
-        effect:start()
-        table.insert(self.debugEffects, effect)
-    end
-end
-
-function TrackScanner.cl_onSaveComplete(self, success)
-    if success then sm.gui.displayAlertText("Track Saved & Exported!") end
-end
-
--- Interaction
-function TrackScanner.client_canInteract(self, character) return true end
-function TrackScanner.client_onInteract(self, character, state)
-    if state then
-        if character:isCrouching() then
-            self.debug = not self.debug
-            if self.debug then self:visualizeNodes() end
-        elseif not self.scanning then
-            self.scanning = true
-            sm.gui.displayAlertText("Scanning Started...")
-            self:generateTrack()
+    
+    local function drawChain(chain, color)
+        for _, node in ipairs(chain) do
+            local effect = sm.effect.createEffect("Loot - GlowItem")
+            effect:setPosition(node.location)
+            effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+            
+            local c = color
+            if node.pointType == 2 then c = sm.color.new("ffff00") -- Entry
+            elseif node.pointType == 5 then c = sm.color.new("0000ff") -- Box
+            end
+            
+            effect:setParameter("Color", c)
+            effect:start()
+            table.insert(self.debugEffects, effect)
         end
     end
+    
+    drawChain(self.nodeChain, sm.color.new("00ff00"))
+    drawChain(self.pitChain, sm.color.new("ff00ff"))
 end
-function TrackScanner.client_canTinker(self) return true end
-function TrackScanner.client_onTinker(self, character, state) end
-function TrackScanner.sv_changeWallSensitivity(self, amount) end
+
+function TrackScanner.cl_showAlert(self, msg)
+    sm.gui.displayAlertText(msg, 3)
+end

@@ -2,10 +2,16 @@
 -- Imported as a class in Race control and is ran from onfixed and etc. 
 -- Goals: Handles automated Camera switching and focusing on cars. acts as an automated race director
 
-dofile("globalsGen8.lua")
+dofile("globals.lua")
 dofile "Timer.lua" 
 CameraManager = class( nil )
 local clock = os.clock --global clock
+
+-- Helper function to sort cameras
+function sortCamerasByDistance(cameraList)
+    table.sort(cameraList, function(a, b) return a.distance < b.distance end)
+    return cameraList
+end
 
 function CameraManager.client_onCreate( self ) 
 	self:client_init()
@@ -397,7 +403,8 @@ function CameraManager.cl_updateDroneCamRotation(self, dt) -- might need to get 
             return
         end
         -- 2. Create the Goal Quaternion from the Look Vector
-        -- sm.quat.lookRotation() converts a direction vector into a quaternion rotation.
+        -- sm.quat.lookRotation() converts a direction vector into a quaternion rotation. Documentation says depreciated
+        -- may need to avg these like in position calcs to smooth frames
         local goalQuat = sm.quat.lookRotation(lookVector, self.WorldUpVector)
         local currentQuat = sm.camera.getRotation()
         local smoothedQuat = sm.quat.slerp(currentQuat, goalQuat, self.droneTrackingRate)
@@ -448,7 +455,11 @@ end
 function CameraManager.cl_resetOnboardArrays(self)
     self.onboardCameraPosArr = {} -- Clear the history!
     self.onboardCameraDirArr = {} -- Also clear the direction history -- Transfer this to hood Direction too
+    
+    -- FIXED: Define currentRacerId from the current racer object
+    local currentRacerId = self.trackedRacer and self.trackedRacer.id
     self.currentTrackedRacerId = currentRacerId
+    
     -- Fill the array with the starting position to prevent lag/jump
     if self.trackedRacer then
         local startLocation = self:cl_calculateHoodPos(self.trackedRacer)
@@ -712,7 +723,8 @@ function CameraManager.cl_decideCameraAndFocus(self) -- Runs onfixed after camer
         local mode = self:getRandomCamMode({CAMERA_MODES.DRONE_CAM,CAMERA_MODES.RACE_CAM,CAMERA_MODES.ONBOARD_CAM}) -- gets random cam mode until better event detection
         if mode == CAMERA_MODES.RACE_CAM then -- Double check that works, if not then go Drone
             local result = self:cl_assignBestCam()
-            if not result then -- fallback to drrone camera
+            if not result then -- fallback to drone camera
+                self:cl_resetDroneArrays()
                 self:setCameraMode(CAMERA_MODES.DRONE_CAM)
                 self.cameraHoldTimer:start(5)
                 return

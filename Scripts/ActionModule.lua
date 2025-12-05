@@ -1,5 +1,5 @@
 -- ActionModule.lua
-dofile("../globals.lua")
+dofile("globals.lua")
 ActionModule = class(nil)
 
 local MAX_WHEEL_ANGLE_RAD = 0.8 

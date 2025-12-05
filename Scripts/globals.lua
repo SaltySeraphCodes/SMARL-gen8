@@ -3,27 +3,6 @@
 
 CLOCK = os.clock
 
--- Base Class Definition
-class = function(base)
-    local c = {}
-    if base then
-        setmetatable(c, {__index = base})
-    end
-    c.__index = c
-    c.static = {}
-    function c.new(...)
-        local self = setmetatable({}, c)
-        if self.init then
-            self:init(...)
-        end
-        return self
-    end
-    function c.static:new(...)
-        return c.new(...)
-    end
-    return c
-end
-
 -- --- CONSTANTS ---
 SMAR_VERSION = "2.0.0 (Gen 8)"
 MOD_FOLDER = "$CONTENT_DATA/"
@@ -32,13 +11,13 @@ MOD_FOLDER = "$CONTENT_DATA/"
 DRIVER_UUID = "fbc31377-6081-426d-b518-f676840c407c"
 DRIVER_GEN8_UUID = "31256788-71fb-4003-a9ca-9e6164a8faa3"
 ENGINE_GEN8_UUID = "74bfdcd7-cfb2-4791-9611-602154eb90dd"
+DOWNFORCE_BLOCK_UUID = "ab524867-122b-4f98-990b-67ff6d2e9c5c"
 
 -- Paths
 TWITCH_DATA = MOD_FOLDER .. "TwitchPlays/"
 TWITCH_BLUEPRINTS_PATH = TWITCH_DATA .. "Blueprints/"
 RACER_DATA_PATH = MOD_FOLDER .. "JsonData/RacerData/"
 TRACK_DATA_CHANNEL = "SM_AutoRacers_TrackData"
-PIT_DATA = 2
 
 -- Physics Defaults
 DEFAULT_GRAVITY = 10
@@ -54,7 +33,41 @@ RACE_CONTROL = nil
 TWITCH_CONNECTIONS = {}
 sm.SMARGlobals = { LOAD_CAMERA = true, SMAR_CAM = -1 }
 
+-- NEW: Pit Anchors Registry for Scanning
+PIT_ANCHORS = {
+    start = nil,    -- Type 1 (Pit Begin)
+    entry = nil,    -- Type 2 (Pit Entrance)
+    exit = nil,     -- Type 3 (Pit Exit)
+    endPoint = nil, -- Type 4 (Pit End)
+    boxes = {}      -- List of PitBox objects
+}
+
 -- --- ENUMS / TYPES ---
+
+PIT_CHAIN_CONFIG = {
+    editing = 0,
+    boxEdit = 0,
+    hasChange = false,
+    wallPad = 6,
+    tension = 0.8,
+    nodes = 7,
+    spacing = 2, 
+    pos_arr = {}, 
+    shape_arr = {}, 
+    pbox_arr = {}, 
+    boxDim_arr = {} 
+}
+
+CHECK_POINT_CONFIG = { 
+    editing = 0,
+    hasChange = false,
+    wallPad = 7,
+    tension = 0.4,
+    nodes = 10,
+    spacing = 2, 
+    pos_arr = {}, 
+    shape_arr = {}, 
+}
 
 CAMERA_MODES = { RACE_CAM = 0, DRONE_CAM = 1, FREE_CAM = 2, ONBOARD_CAM = 3, FINISH_CAM = 4 }
 ZOOM_METHODS = { IN = 0, OUT = 1, STAY = 2 }
@@ -121,7 +134,7 @@ function angleDiff(vector1, vector2)
     return directionalCross.z * FORCE_SENSITIVIY
 end
 
-function getRotationIndexFromVector(vector,precision) -- Precision fraction 0-1
+function getRotationIndexFromVector(vector,precision) 
 	if vector.y >precision then return 3 end
 	if vector.x > precision then return 2 end
 	if vector.y < -precision then return 1 end
@@ -181,7 +194,6 @@ end
 function getNextItem(chain, currentId, offset)
     if not chain or #chain == 0 then return nil end
     offset = offset or 1
-    -- Optimization: Assume ID matches Index
     local currentIndex = currentId 
     if chain[currentIndex] == nil or chain[currentIndex].id ~= currentId then
          for i, node in ipairs(chain) do
@@ -230,9 +242,16 @@ function getKeyValue(table,key,value)
     return false
 end
 
+function getIndexKeyValue(table, key, value)
+    for i = 1, #table do
+        if table[i] and table[i][key] == value then
+            return i
+        end
+    end
+    return nil
+end
+
 function getDirectionOffset(shapeList,direction,origin)
-    -- (Keep your existing finding logic or simplify)
-    -- Placeholder for the complex shape scan logic you had:
     local furthest = nil
     local dir = {"x",1}
     if direction.x == 0 then dir = {"y",direction.y}
@@ -272,5 +291,15 @@ function EngineStats.init(self,stats)
     self.REV_LIMIT = self.MAX_SPEED / #self.GEARING
     return self
 end 
+
+-- --- CLIENT UTILITIES ---
+
+function cl_checkHover(shape)
+    local valid, result = sm.localPlayer.getRaycast(2.0) 
+    if valid and result.type == "Shape" and result.shape == shape then
+        return true
+    end
+    return false
+end
 
 print("Globals Loaded (Gen 8)")

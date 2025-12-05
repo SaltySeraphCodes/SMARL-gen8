@@ -1,7 +1,7 @@
 -- SMARL CAR AI V4 (Gen 8) Engine
 -- Handles engine simulation (RPM, Torque, Gearing) and audio effects.
 
-dofile("globalsGen8.lua")
+dofile("globals.lua")
 
 Engine = class(nil)
 Engine.maxChildCount = 100

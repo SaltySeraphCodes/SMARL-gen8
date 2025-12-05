@@ -6,55 +6,6 @@
             "y" : 1,
             "z" : 1
          },
-         "color" : "0e8031ff",
-         "name" : "smar_driver_controller",
-         "physicsMaterial" : "Mechanical",
-         "renderable" : {
-            "lodList" : [
-               {
-                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_driver_controller.fbx",
-                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_driver_controller.fbx",
-                  "subMeshList" : [
-                     {
-                        "material" : "PoseAnimDifAsgNor",
-                        "textureList" : [
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_dif.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_asg.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_nor.tga"
-                        ]
-                     },
-                     {
-                        "custom" : {
-                           "uv0" : {
-                              "u" : 0.166666670,
-                              "v" : 0.16450
-                           }
-                        },
-                        "material" : "UVAnimDifAsgNor",
-                        "textureList" : [
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_dif.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_asg.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_driver_controller_nor.tga"
-                        ]
-                     }
-                  ]
-               }
-            ]
-         },
-         "rotationSet" : "PropZ",
-         "scripted" : {
-            "classname" : "Driver",
-            "filename" : "$MOD_DATA/Scripts/gen7Driver.lua"
-         },
-         "sticky" : "-Y+X-X-Z+Z",
-         "uuid" : "fbc31377-6081-426d-b518-f676840c407c"
-      },
-      {
-         "box" : {
-            "x" : 1,
-            "y" : 1,
-            "z" : 1
-         },
          "color" : "aa80aaff",
          "name" : "smar_driver_controller",
          "physicsMaterial" : "Mechanical",
@@ -92,8 +43,8 @@
          },
          "rotationSet" : "PropZ",
          "scripted" : {
-            "classname" : "Driver",
-            "filename" : "$MOD_DATA/Scripts/Gen8/DriverGen8.lua"
+            "classname" : "DriverGen8",
+            "filename" : "$MOD_DATA/Scripts/DriverGen8.lua"
          },
          "sticky" : "-Y+X-X-Z+Z",
          "uuid" : "31256788-71fb-4003-a9ca-9e6164a8faa3"
@@ -142,55 +93,7 @@
          "rotationSet" : "PropFull",
          "scripted" : {
             "classname" : "Engine",
-            "filename" : "$MOD_DATA/Scripts/gen7Engine.lua"
-         },
-         "uuid" : "42dd8836-3cbb-495c-86b4-44fb9c9916b3"
-      },
-      {
-         "box" : {
-            "x" : 1,
-            "y" : 1,
-            "z" : 1
-         },
-         "color" : "222222ff",
-         "name" : "smar_engine_controller",
-         "physicsMaterial" : "Mechanical",
-         "renderable" : {
-            "lodList" : [
-               {
-                  "mesh" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
-                  "pose0" : "$MOD_DATA/Objects/Mesh/smar_mesh/smar_engine_controller.fbx",
-                  "subMeshList" : [
-                     {
-                        "material" : "PoseAnimDifAsgNor",
-                        "textureList" : [
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_dif.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
-                        ]
-                     },
-                     {
-                        "custom" : {
-                           "uv0" : {
-                              "u" : 0.166666670,
-                              "v" : 0.16450
-                           }
-                        },
-                        "material" : "UVAnimDifAsgNor",
-                        "textureList" : [
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_dif.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_asg.tga",
-                           "$MOD_DATA/Objects/Textures/smar_textures/smar_engine_controller_nor.tga"
-                        ]
-                     }
-                  ]
-               }
-            ]
-         },
-         "rotationSet" : "PropFull",
-         "scripted" : {
-            "classname" : "Engine",
-            "filename" : "$MOD_DATA/Scripts/Gen8/EngineGen8.lua"
+            "filename" : "$MOD_DATA/Scripts/EngineGen8.lua"
          },
          "uuid" : "74bfdcd7-cfb2-4791-9611-602154eb90dd"
       },
@@ -237,8 +140,8 @@
          },
          "rotationSet" : "PropZ",
          "scripted" : {
-            "classname" : "Generator",
-            "filename" : "$MOD_DATA/Scripts/raceLineGenerator.lua"
+            "classname" : "TrackScanner",
+            "filename" : "$MOD_DATA/Scripts/TrackScanner.lua"
          },
          "sticky" : "-Z",
          "uuid" : "5d8f2445-31bb-4079-94ab-dc1df1e6e3ed"
@@ -287,7 +190,7 @@
          "rotationSet" : "PropZ",
          "scripted" : {
             "classname" : "Loader",
-            "filename" : "$CONTENT_DATA/Scripts/raceLineLoader.lua"
+            "filename" : "$MOD_DATA/Scripts/raceLineLoader.lua"
          },
          "sticky" : "-Z",
          "uuid" : "9f5ce20a-b774-4df9-9b6a-d1993c705138"
@@ -336,7 +239,7 @@
          "rotationSet" : "PropZ",
          "scripted" : {
             "classname" : "DownforceBlock",
-            "filename" : "$CONTENT_DATA/Scripts/downforceblock.lua"
+            "filename" : "$MOD_DATA/Scripts/downforceblock.lua"
          },
          "sticky" : "-Z",
          "uuid" : "ab524867-122b-4f98-990b-67ff6d2e9c5c"
@@ -492,7 +395,7 @@
          "rotationSet" : "PropZ",
          "scripted" : {
             "classname" : "RaceCamera",
-            "filename" : "$CONTENT_DATA/Scripts/RaceCamera.lua"
+            "filename" : "$MOD_DATA/Scripts/RaceCamera.lua"
          },
          "sticky" : "-Z",
          "uuid" : "04caa519-f127-4235-a792-7a83a79afd21"
@@ -541,7 +444,7 @@
          "rotationSet" : "PropZ",
          "scripted" : {
             "classname" : "BrakeLights",
-            "filename" : "$CONTENT_DATA/Scripts/BrakeLights.lua"
+            "filename" : "$MOD_DATA/Scripts/BrakeLights.lua"
          },
          "sticky" : "-Z",
          "uuid" : "b20d3826-3235-459c-a4c9-ef1438caaed9"
@@ -595,7 +498,7 @@
          "sticky" : "-Y+X-X-Z+Z",
          "uuid" : "bd16db06-b593-443f-8680-94b01842d067"
       },
-        {
+      {
          "box" : {
             "x" : 1,
             "y" : 1,

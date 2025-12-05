@@ -17,7 +17,14 @@ function RaceManager.server_init(self, raceControl)
     self.qualifyingResults = {}
     self.handiCapEnabled = true
     self.draftingEnabled = true
+    
+    -- Tire Settings
     self.tireWearEnabled = true
+    self.tireWearMultiplier = 1.0 -- Added missing multiplier
+    
+    -- Fuel Settings
+    self.fuelUsageEnabled = true
+    self.fuelUsageMultiplier = 1.0 
 end
 
 function RaceManager.server_onFixedUpdate(self, dt)

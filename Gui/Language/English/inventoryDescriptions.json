@@ -1,58 +1,46 @@
 {
-   "011818d5-aead-49d8-aca6-50a33cb88e96" : {
-      "description" : "Connect any logic input to this block to start and stop the racers remotely. \n Press 'E' (interact) on object to view various race settings",
-      "title" : "SMAR Race Control"
-   },
-   "04caa519-f127-4235-a792-7a83a79afd21" : {
-      "description" : "Static camera. Currently not usable without Stream Deck and python",
-      "title" : "SMAR Camera"
-   },
-   "42dd8836-3cbb-495c-86b4-44fb9c9916b3" : {
-      "description" : "SMAR Engine - Connect Driver to this block and connect this block to wheel bearings. Can be placed anywhere. \n Paint Black, grey, light grey, or white To change engine speeds from slowest to fastest.",
-      "title" : "SMAR Engine"
-   },
-   "5d8f2445-31bb-4079-94ab-dc1df1e6e3ed" : {
-      "description" : "Scans and attempts to generate a racing line for Auto Racers. Place at start/finish line with target/screen facing the desired circut direciton \n Aim and interact to toggle Race Line Enhancement \n You can now edit nodes with your hammer by hovering over them and holding down right click ",
-      "title" : "SMAR Track Scanner"
-   },
-   "645fe8aa-2c33-43c9-8859-f6a03374c62a" : {
-      "description" : "BETA: \n  Press 'Q' While holding to open up Race Control UI. \n Press 'E' or 'ESC' to exit (Race Control must be placed down)",
-      "title" : "SMAR Race Controller Tool"
-   },
-   "9f5ce20a-b774-4df9-9b6a-d1993c705138" : {
-      "description" : "Saves Track as a blueprint for later use. \n Place down on memorable spot (like back corner of start/finish line). Make sure you place it down on a separate block so it can become a floating obj. \n Press 'E' To save the track to the block and blueprint. Save block on lift.  ",
-      "title" : "SMAR Track Loader"
-   },
-   "ab524867-122b-4f98-990b-67ff6d2e9c5c" : {
-      "description" : "Place on car to apply constant local downforce. \n Press 'E' To increase force, Crouch and press 'E' to decrease",
-      "title" : "SMAR Downforce Updater"
-   },
-   "b20d3826-3235-459c-a4c9-ef1438caaed9" : {
-      "description" : "Connect Driver block to this and then connect this to brake lights (only braking)",
-      "title" : "Brake Light Control Unit"
-   },
-   "e80d963c-3af2-47aa-99d8-365e1569a568" : {
-      "description" : "BETA: \n Place these down after placeing the track scanner at your start/finish line. A spline will be automatically build between nodes and will auto complete when close to the finish line \n Shoot one with a spud gun to remove all known nodes, Press 'E' on the track scanner to generate a custom node track scan.",
-      "title" : "SMAR CheckPoint"
-   },
-   "fbc31377-6081-426d-b518-f676840c407c" : {
-      "description" : "Car AI Driver, connect to steering bearings and SMAR Engine. Place anywhere on car with steering wheel (smooth face) facing the front. \n MUST BE PLACED WHILE CAR IS ON LIFT IN ORDER FOR CAR TO BE SCANNED CORRECTLY.",
-      "title" : "SMAR Driver"
-   },
-   "bd16db06-b593-443f-8680-94b01842d067" : {
-      "description" : "Set this down and color appropriately to define a pit lane path. \n Colors: \n red, dark red, green, light green, black",
-      "title" : "SMAR Pit Point"
-   },
-   "f3105b84-0577-4d34-93b3-10fa62531f5c" : {
-      "description" : "Place these where you want the cars to stop for pits, try to place at least 10-12, can be resized",
-      "title" : "SMAR Pit Box"
-   },
    "31256788-71fb-4003-a9ca-9e6164a8faa3" : {
-      "description" : "Gen 8 Driver [BETA]",
-      "title" : "Gen 8 Driver [BETA]"
+      "title" : "SMAR Driver (Gen 8)",
+      "description" : "The brain of the race car. Connects to the SMAR Engine and steering bearings. Handles perception, decision making, and actions. Must be placed on a lift to initialize car dimensions correctly."
    },
    "74bfdcd7-cfb2-4791-9611-602154eb90dd" : {
-      "description" : "Gen 8 Engine [BETA], More Customizable",
-      "title" : "Gen 8 Engine [BETA]"
+      "title" : "SMAR Engine (Gen 8)",
+      "description" : "The heart of the car. Connects to the Driver and wheel bearings. Simulates RPM, torque, and gears. Features custom audio and tuning support."
+   },
+   "5d8f2445-31bb-4079-94ab-dc1df1e6e3ed" : {
+      "title" : "SMAR Track Scanner",
+      "description" : "Generates racing lines. Place at the start/finish line facing the track direction. Interact to scan or toggle visibility. Use the hammer to edit nodes manually."
+   },
+   "9f5ce20a-b774-4df9-9b6a-d1993c705138" : {
+      "title" : "SMAR Track Loader",
+      "description" : "Saves and loads track data. Place near the start line to save the generated track to the world or blueprint. Essential for persisting track layouts."
+   },
+   "ab524867-122b-4f98-990b-67ff6d2e9c5c" : {
+      "title" : "SMAR Downforce Unit",
+      "description" : "Applies aerodynamic downforce to the vehicle. Adjust force by interacting ('E' to increase, Crouch+'E' to decrease). Improves cornering grip."
+   },
+   "011818d5-aead-49d8-aca6-50a33cb88e96" : {
+      "title" : "SMAR Race Control",
+      "description" : "Manages the race state (Practice, Qualifying, Race). Connect logic inputs to start/stop. Interacting opens the race settings menu."
+   },
+   "e80d963c-3af2-47aa-99d8-365e1569a568" : {
+      "title" : "SMAR Checkpoint",
+      "description" : "Defines track segments and splits. Place sequentially around the track after scanning. Auto-connects splines. Shoot to clear nodes."
+   },
+   "04caa519-f127-4235-a792-7a83a79afd21" : {
+      "title" : "SMAR Camera",
+      "description" : "Static trackside camera. Used for broadcasting angles. Requires external scripts for full functionality."
+   },
+   "b20d3826-3235-459c-a4c9-ef1438caaed9" : {
+      "title" : "Brake Light Controller",
+      "description" : "Visual feedback for braking. Connect the Driver to this, and this to the brake lights. Lights up when the AI applies brakes."
+   },
+   "bd16db06-b593-443f-8680-94b01842d067" : {
+      "title" : "SMAR Pit Point",
+      "description" : "Defines the pit lane path. Use specific colors to designate the path type (entry, lane, exit)."
+   },
+   "f3105b84-0577-4d34-93b3-10fa62531f5c" : {
+      "title" : "SMAR Pit Box",
+      "description" : "Designates the stopping area for pit stops. Place in the pit lane where cars should service. Resizable."
    }
 }

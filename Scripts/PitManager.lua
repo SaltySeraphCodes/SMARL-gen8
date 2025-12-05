@@ -1,6 +1,5 @@
 -- SMARL PIT MANAGER -- Handles pit assignments and what not
--- TODO: Store and set/load multi camera positions (save in bp?)
-dofile("globalsGen8.lua")
+dofile("globals.lua")
 dofile "Timer.lua" 
 PitManager = class( nil )
 PitManager.maxChildCount = -1
@@ -9,8 +8,7 @@ PitManager.connectionInput = sm.interactable.connectionType.logic
 PitManager.connectionOutput = sm.interactable.connectionType.logic
 PitManager.colorNormal = sm.color.new( 0xffc0cbff )
 PitManager.colorHighlight = sm.color.new( 0xffb6c1ff )
-local clock = os.clock --global clock to benchmark various functional speeds ( for fun)
-
+local clock = os.clock 
 
 function PitManager.client_onCreate( self ) 
 	self:client_init()
@@ -20,41 +18,27 @@ function PitManager.server_onCreate( self )
 	self:server_init()
 end
 
-function PitManager.client_onDestroy(self)
-    
-end
+function PitManager.client_onDestroy(self) end
 
 function PitManager.server_onDestroy(self)
-    --print("Pit manager clearing boxes")
     self:clear_pitBoxes()
-    --print("post clear",self.pitBoxes)
 end
 
 function PitManager.client_init( self,rc ) 
-    if rc == nil then
-        print("cl Pit manager has no rc",nil)
-    end
+    if rc == nil then return end
     self.raceControl = rc
     self.pitChain = nil 
     self.pitBoxes = nil 
-
 end
 
 function PitManager.server_init(self,rc)
-    if rc == nil then
-        print("sv Pit manager has no rc",nil)
-    end
+    if rc == nil then return end
     self.raceControl = rc
     self.pitChain = nil
-    if self.pitBoxes  == nil then 
-        self.pitBoxes = nil
-    else
-        --print("reloading pitboxes",self.pitBoxes)
-    end
-
-    self.run = false -- whether to run pitManager orn ot
+    self.pitBoxes = nil
+    self.run = false 
     self.started = CLOCK()
-    print("pit box server init")
+    print("PitManager Server Init")
 end
 
 function PitManager.client_onRefresh( self )
@@ -67,333 +51,185 @@ function PitManager.server_onRefresh( self )
 	self:server_init(self.raceControl)
 end
 
-
-
-function sleep(n)  -- n: seconds freezes game?
-  local t0 = clock()
-  while clock() - t0 <= n do end
-end
-
-function PitManager.asyncSleep(self,func,timeout)
-    --print("weait",self.globalTimer,self.gotTick,timeout)
-    if timeout == 0 or (self.gotTick and self.globalTimer % timeout == 0 )then 
-        --print("timeout",self.globalTimer,self.gotTick,timeout)
-        local fin = func(self) -- run function
-        return fin
+-- NEW: Link Pit Chain to Main Chain
+function PitManager.linkPitTrack(self)
+    if not self.pitChain or #self.pitChain == 0 then 
+        print("PitManager: No Pit Chain to link.")
+        return 
     end
-end
-
-function PitManager.requestPitData(self)
-    print("requesting pitbox data")
-    local result = self.raceControl:sv_loadPitData()
-    if result == true then
-        return true
-    else
-        print('error with pitbox req')
-    end
-end
-
-
-function PitManager.sv_loadPitData(self,pitChain,pitBoxes)
-    print('loading pit data')
-    if pitChain == nil or pitBoxes == nil then
-        print("Missing pitData PC, PB: ",pitChain ,pitBoxes )
+    if not self.raceControl.trackNodeChain or #self.raceControl.trackNodeChain == 0 then
+        print("PitManager: No Main Track Chain to link.")
         return
     end
-    self.pitChain = pitChain
-    self.pitBoxes = pitBoxes
 
-    if self.pitChain == nil or #self.pitChain == 0 then 
-        sm.log.warning("NO PIT LANE DATA FOUND")
-    end
-
-    if self.pitBoxes == nil or #self.pitBoxes == 0 then 
-        sm.log.warning("NO PIT BOX DATA FOUND")
-    else
-        --print('pbox loaded',self.pitBoxes)
+    -- 1. Find Main Track Node closest to Pit Start (Node 1)
+    local pitStart = self.pitChain[1]
+    local mainEntryNode = self:findClosestNode(self.raceControl.trackNodeChain, pitStart.location)
+    
+    if mainEntryNode then
+        -- 2. Tag the Main Node so drivers know to switch here
+        mainEntryNode.isPitEntry = true
+        mainEntryNode.pitConnectIndex = 1 
+        print("PitManager: LINKED ENTRY at Node " .. mainEntryNode.id)
     end
     
-    if self.raceControl.pitsEnabled then
-        print("Pit Manager Loaded",#self.pitBoxes)
+    -- 3. Find Main Track Node closest to Pit End (Last Node)
+    local pitEnd = self.pitChain[#self.pitChain]
+    local mainExitNode = self:findClosestNode(self.raceControl.trackNodeChain, pitEnd.location)
+    
+    if mainExitNode then
+        -- 4. Tag the Pit End Node so drivers merge back safely
+        pitEnd.mergeTargetIndex = mainExitNode.id
+        print("PitManager: LINKED EXIT merging at Node " .. mainExitNode.id)
+    end
+end
+
+function PitManager.findClosestNode(self, chain, pos)
+    local bestNode = nil
+    local minDst = math.huge
+    for _, node in ipairs(chain) do
+        local dist = (node.location - pos):length()
+        if dist < minDst then
+            minDst = dist
+            bestNode = node
+        end
+    end
+    return bestNode
+end
+
+function PitManager.sv_loadPitData(self, pitChain, pitBoxes)
+    print('PitManager: Loading Data...')
+    self.pitChain = pitChain
+    
+    -- Populate live boxes from global anchors if manual list is empty
+    if not pitBoxes or #pitBoxes == 0 then
+        self.pitBoxes = {}
+        for _, box in ipairs(PIT_ANCHORS.boxes) do
+            table.insert(self.pitBoxes, {
+                id = box.shape.id,
+                location = box.shape:getWorldPosition(),
+                rotation = box.shape:getAt(),
+                assigned = 0,
+                remaining = 0,
+                nextDriver = 0
+            })
+        end
+    else
+        self.pitBoxes = pitBoxes
+    end
+
+    if self.pitChain and #self.pitChain > 0 then
         self.run = true
+        self:linkPitTrack()
+    else
+        print("PitManager: Pit Chain empty or nil.")
     end
 end
 
-
-function PitManager.sv_sendCommand(self,command) -- sends a command to Driver Command Structure: {Car [id or -1/0? for all], type [racestatus..etc], value [0,1]}
-    -- parse recipients
-    local recipients = command.car
-    if recipients[1] == -1 then -- send all
-        local allDrivers = getAllDrivers()
-        for k=1, #allDrivers do local v=allDrivers[k]
-            v:sv_recieveCommand(command)
-        end
-    else -- send to just one
-        local drivers = getDriversFromIdList(command.car)
-        for k=1, #drivers do local v=drivers[k]
-            v:sv_recieveCommand(command)
-        end
+function PitManager.getOpenPitBox(self) 
+    if not self.pitBoxes then return nil end
+    for _, box in ipairs(self.pitBoxes) do
+        if box.assigned == 0 then return box end
     end
+    return nil
 end
 
-
-function PitManager.getOpenPitBox(self) -- returns first open pitbox with no assignments
-    --print("get open pit box")
-    --print(#self.pitBoxes)
-    if self.pitBoxes == nil then 
-        print("No pit boxes - NIL")
-        return end
-    if #self.pitBoxes == 0 then
-        print(" 0 pit boxes")
-        return end
-    local openBox = getKeyValue(self.pitBoxes,"assigned",0) -- search for open box
-
-    if openBox == false then -- no open box
-        return  -- do a secondary check here?
-    end
-    return openBox
-end
-
-function PitManager.getClosestOpenBox(self) -- returns box with the smallest 'remaining' value
-    local min = nil
-    local item = nil
-    local i
-    if self.pitBoxes == nil then return end
-    for i=1,#self.pitBoxes do
-        local box = self.pitBoxes[i]
-        if box['nextDriver'] ~= 0 then
-            local remaining =  box['remaining']
-            if min == nil then 
-                min = remaining
-            else
-                if remaining == nil then
-                    print("nil compare")
-                end
-                if remaining < min then
-                    min = remaining
-                end
+function PitManager.getClosestOpenBox(self) 
+    if not self.pitBoxes then return nil end
+    local bestBox = nil
+    local minRemain = math.huge
+    
+    for _, box in ipairs(self.pitBoxes) do
+        if box.assigned ~= 0 then
+            if box.remaining < minRemain and box.nextDriver == 0 then
+                minRemain = box.remaining
+                bestBox = box
             end
         else
-            return box -- empty next in line -- possibly use the one furthest from entrance?
+            return box -- Found empty
         end
     end
-    if box == nil then
-        print("Pits completely full",self.pitBoxes)
-    end
-    return box
+    return bestBox
 end
 
-function PitManager.sv_pit_racer(self,pit_data) -- sets pit 
-    --print("Pit manager pitting car",pit_data)
-    --send command to car to pit
+function PitManager.sv_pit_racer(self, pit_data) 
     local racer_id = pit_data['racer_id']
     local racer = getDriverFromMetaId(racer_id)
-    if racer == nil then
-        print("PitManager: driver not in race",pit_data)
-        return -- cancels stop
-    end
-    print(racer.tagText, "Pitting")
+    if racer == nil then return false end
+    
+    print(racer.tagText, "Requesting Pit Stop...")
+    
     local pitBox = self:getOpenPitBox() 
     if pitBox == nil then
-        print("Pit boxes full, getting least time ")
-        pitBox = self:getClosestOpenBox() -- returns pit box with shortest repair time remaining
-        if pitBox == nil then
-            if self.pitBoxes == nil then
-                print("something went wrong - pitboxes Null")
-                -- Requesting bitboxdata one more time
-                self:requestPitData()
-            elseif #self.pitBoxes == 0 then
-                print("something went wrong, no pitboxes found ")
-            end
-
-        end
+        pitBox = self:getClosestOpenBox() 
     end
 
     if pitBox == nil then
-        sm.log.error("Could not assign pitbox to car")
+        print("PitManager: PITS FULL. Denied.")
         return false
     end
-    --print("Assigning pit box to car",pitBox)
-    self:assignPitBox(racer,pitBox,pit_data)
+    
+    self:assignPitBox(racer, pitBox, pit_data)
     return true
 end
 
-function PitManager.sv_managePitBoxes(self) -- monitors cars in pits, runs timers and unassigns and moves pit boxes along
-    if self.pitBoxes == nil then 
-        if self.pitBoxError == false then
-            print("Pit boxes not found")
-            local result = self:requestPitData()
-            if result == false then
-                self.pitBoxError = true
-                return
-            end
-        else
-            return 
-        end
-    end
-    for i=1,#self.pitBoxes do
-        local box = self.pitBoxes[i]
-        if box['assigned'] ~= 0 then -- if car is assigned
-            local driver = getDriverFromId(box['assigned']) -- racer might directly be assigned to prevent the search
+function PitManager.sv_managePitBoxes(self) 
+    if not self.pitBoxes then return end
+    
+    for i, box in ipairs(self.pitBoxes) do
+        if box.assigned ~= 0 then
+            local driver = getDriverFromId(box.assigned)
             if driver then
-                if driver.pitState == 0 or driver.assignedBox.id ~= box.id then
-                    --print("mismanaged pit box... clearing",driver.pitState,driver.assignedBox.id, box.id)
-                    self:clear_pitBox(box)
-                else
-                    local remaining =  box['remaining']
-                    if remaining <= 0 then 
-                        --print(driver.tagText, "PitManager: Car finished pit") -- change this too
-                        self:finishPitStop(driver,box)
-                    end
+                -- Check if driver has finished stop
+                if driver.pitState == 5 then -- Pit Out
+                     self:finishPitStop(driver, box)
+                elseif driver.pitState == 4 then -- Stopped
+                     -- Decrement timer? Handled by driver for now
                 end
+            else
+                -- Driver lost? Clear box
+                self:clear_pitBox(box)
             end
         end
-
     end
-
-    -- TODO: CHeck for "duplicate" assignments of cars and clear them out
-
 end
 
 function PitManager.server_onFixedUpdate(self)
-    self:tickClock()
-    self:ms_tick() -- 1 tick is 1 tick
-    if self.run == false then return end -- run stuff ast this point
-    self:sv_managePitBoxes()
-
+    if self.run then self:sv_managePitBoxes() end
 end
 
-function PitManager.client_onFixedUpdate(self) -- key press readings and what not clientside
-    
-end
-
-function PitManager.client_onUpdate(self,dt)
-    
-end
-
--- Pit managment (In Lane+ box)
-function PitManager.calculatePitTime(self,pit_data)
-    local totalTime = 0
-    if pit_data['Tire_Change'] > 0 then
-        totalTime = totalTime + PIT_TIMING['TIRE_CHANGE']
-    end
-
-    totalTime = totalTime + (pit_data['Fuel_Fill'] * PIT_TIMING['FUEL_FILL'])
-    --print("calculating pit time",pit_data,"=",totalTime)
+function PitManager.calculatePitTime(self, pit_data)
+    local totalTime = 5.0 -- Base stop time
+    if pit_data['Tire_Change'] > 0 then totalTime = totalTime + 4.0 end
+    totalTime = totalTime + (pit_data['Fuel_Fill'] * 0.1)
     return totalTime
 end
 
-
-function PitManager.finishPitStop(self,racer,pitBox) -- unassigns pit box from car
-    pitBox['assigned'] = 0
-    pitBox['remaining'] = 0
-    racer.assigneBox = nil
-    racer.pitState = 5 -- send command instead??
-    if pitBox['nextDriver'] ~= 0 then -- moves next queue forward
-        pitBox['assigned'] = pitBox['nextDriver']
-        pitBox['remaining'] = pitBox['nextRemaining']
-        pitBox['nextDriver'] = 0
-        pitBox['nextRemaining'] = 0
-    end
+function PitManager.finishPitStop(self, racer, pitBox) 
+    self:clear_pitBox(pitBox)
+    racer.assignedBox = nil
+    -- If there was a queue, move next driver up?
 end
 
-function PitManager.assignPitBox(self,racer,pitBox,pit_data) -- calculates pit time and assigns racer to box
+function PitManager.assignPitBox(self, racer, pitBox, pit_data) 
     local pitTime = self:calculatePitTime(pit_data)
-    if pitBox['assigned'] ~= 0 then
-        if pitBox['nextDriver'] ~= 0 then
-            print("Error pit box full",pitBox)
-            return
-        else
-            pitBox['nextDriver'] = racer.id
-            pitBox['nextRemaining'] = pitTime
-        end
-    else
-        pitBox['assigned'] = racer.id -- or assign racer?? so theres no need to search??
-        pitBox['remaining'] = pitTime
-    end
+    pitBox.assigned = racer.id
+    pitBox.remaining = pitTime
+    
     racer.assignedBox = pitBox
+    racer.pitTotalTime = pitTime
+    
+    -- Send command to driver to prepare for pit
+    racer:sv_setup_pit(pit_data)
 end
 
-function PitManager.clear_pitBox(self,pitBox)
-    pitBox['assigned'] = 0
-    pitBox['remaining'] = 0
-    pitBox['nextDriver'] = 0
-    pitBox['nextRemaining'] = 0
+function PitManager.clear_pitBox(self, pitBox)
+    pitBox.assigned = 0
+    pitBox.remaining = 0
+    pitBox.nextDriver = 0
 end
 
-
-function PitManager.clear_pitBoxes(self) -- sets all pit boxes to be cleared
-    if self.pitBoxes == nil then 
-        print("cant clear nil pitboxes")
-        return end
-    for i=1,#self.pitBoxes do
-        local pitBox = self.pitBoxes[i]
-        pitBox['assigned'] = 0
-        pitBox['remaining'] = 0
-        pitBox['nextDriver'] = 0
-        pitBox['nextRemaining'] = 0
-    end
-    print("cleared pitboxes",#self.pitBoxes)
+function PitManager.clear_pitBoxes(self) 
+    if not self.pitBoxes then return end
+    for _, box in ipairs(self.pitBoxes) do self:clear_pitBox(box) end
 end
--- networking
-function PitManager.sv_ping(self,ping) -- get ing
-    print("rc got sv ping",ping)
-end
-
-function PitManager.cl_ping(self,ping) -- get ing
-    print("rc got cl ping",ping)
-    self.network:sendToServer("sv_ping",ping)
-end
-
-function PitManager.client_showMessage( self, params )
-	sm.gui.chatMessage( params )
-end
-
-function PitManager.cl_onChatCommand( self, params )
-
-end
-
-function PitManager.sv_n_onChatCommand( self, params, player )
-
-end
-
-function PitManager.sv_sendAlert(self,msg) -- sends alert message to all clients (individual clients not recognized yet)
-    --self.network:sendToClients("cl_showAlert",msg) --TODO maybe have pcall here for aborting versus stopping
-end
-
-function PitManager.cl_showAlert(self,msg) -- client recieves alert
-    print("Displaying",msg)
-    sm.gui.displayAlertText(msg,3) --TODO: Uncomment this before pushing to production
-end
-
-
-function PitManager.ms_tick(self) -- frame tick
-    self:sv_performTimedFuncts()
-end
-
-function PitManager.tickClock(self) -- second tick
-    local floorCheck = math.floor(clock() - self.started) 
-        --print(floorCheck,self.globalTimer)
-    if self.globalTimer ~= floorCheck then
-        self.gotTick = true
-        self.globalTimer = floorCheck
-        --self.dataOutputTimer:tick()
-        
-    else
-        self.gotTick = false
-        self.globalTimer = floorCheck
-    end
-            
-end
-
-function PitManager.sv_performTimedFuncts(self)
-
-end
-
-
-
-function PitManager.sv_execute_instruction(self,instruction)
-
-
-end
-

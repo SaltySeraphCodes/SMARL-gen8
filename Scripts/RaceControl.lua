@@ -1,7 +1,7 @@
 -- SMARL Race Control V2.0 (Refactored)
 -- Orchestrates race management, scoring, UI, Pit Lane, Camera, and External API.
 
-dofile("globalsGen8.lua")
+dofile("globals.lua")
 dofile("RaceManager.lua")
 dofile("Leaderboard.lua")
 dofile("TwitchManager.lua")
@@ -20,7 +20,6 @@ RaceControl.colorHighlight = sm.color.new(0xffb6c1ff)
 -- Constants for Data Output
 local OUTPUT_DATA = "$CONTENT_DATA/SMARL_Manager/JsonData/RaceOutput/raceData.json"
 local MAP_DATA_PATH = "$CONTENT_DATA/SMARL_Manager/JsonData/TrackData/current_map.json"
-local TRACK_STORAGE_CHANNEL = "SM_AutoRacers_TrackData" 
 local RACER_DATA_PATH = "$CONTENT_DATA/SMARL_Manager/JsonData/RacerData/"
 local TWITCH_BLUEPRINTS_PATH = "$CONTENT_DATA/SMARL_Manager/TwitchPlays/Blueprints/"
 local SPAWN_PADDING_NODES = 3 
@@ -250,7 +249,6 @@ function RaceControl.sv_output_data(self)
     local metaData = {
         status = self.RaceManager and self.RaceManager.state or 0,
         lapsLeft = self.RaceManager and (self.RaceManager.targetLaps - self.RaceManager.currentLap) or 0,
-        -- FIX: Export actual Boolean for Python compatibility!
         qualifying = self.RaceManager and self.RaceManager.qualifying or false 
     }
 
@@ -277,16 +275,36 @@ end
 -- --- MAP EXPORT & TRACK LOADING ---
 
 function RaceControl.sv_init_track_data(self)
-    local pitData = sm.storage.load(PIT_DATA)
-    if pitData and self.PitManager then
-        self.PitManager:sv_loadPitData(pitData['pitChain'], pitData['pitBoxes'])
-    end
+    -- 1. Load the Unified Track Data (contains both chains now)
+    local trackData = sm.storage.load(TRACK_DATA_CHANNEL)
     
-    local trackData = sm.storage.load(TRACK_STORAGE_CHANNEL)
     if trackData then
-        if trackData['raceChain'] then self.trackNodeChain = trackData['raceChain']
-        elseif trackData.nodes then self.trackNodeChain = trackData.nodes
-        else self.trackNodeChain = trackData end
+        -- Load Main Race Chain
+        if trackData.raceChain then 
+            self.trackNodeChain = trackData.raceChain
+        elseif trackData.nodes then 
+            self.trackNodeChain = trackData.nodes
+        else 
+            self.trackNodeChain = trackData 
+        end
+        
+        -- Load Pit Chain and Send to PitManager
+        -- Note: trackData.pitChain comes from scanner. pitBoxes comes from manual placement logic.
+        if self.PitManager then
+            local pitChain = trackData.pitChain
+            
+            -- We still need the manual pit box locations (anchors) if not embedded
+            -- But the scanner embeds basic box info in the nodes (pointType 5)
+            -- For logic, PitManager uses PIT_ANCHORS global for live objects, 
+            -- but needs the chain for navigation.
+            
+            local manualPitData = sm.storage.load(PIT_DATA) or {}
+            local pitBoxes = manualPitData.pitBoxes or {} -- Legacy support
+            
+            self.PitManager:sv_loadPitData(pitChain, pitBoxes)
+        end
+    else
+        print("RaceControl: No Track Data Found!")
     end
 end
 

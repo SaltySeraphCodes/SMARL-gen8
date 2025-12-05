@@ -15,6 +15,10 @@ DriverGen8.colorHighlight = sm.color.new(0x8f2268ff)
 local TUNING_DATA_PATH = "$CONTENT_DATA/JsonData/tuningData.json"
 local TRACK_DATA_CHANNEL = "SM_AutoRacers_TrackData" 
 
+-- Fuel Constants
+local FUEL_CONSUMPTION_RATE = 0.00005 
+local DRAG_CONSUMPTION_FACTOR = 0.00002 
+
 function DriverGen8.server_onCreate(self) self:server_init() end
 function DriverGen8.client_onCreate(self) self:client_init() end
 function DriverGen8.server_onRefresh(self) self:server_init() end
@@ -36,21 +40,37 @@ function DriverGen8.server_init(self)
     self.liftPlaced = false
     self.resetPosTimeout = 0.0
     self.trackLoaded = false
+    
+    -- Car Attributes
     self.Tire_Type = 2
     self.Tire_Health = 1.0
     self.Fuel_Level = 1.0
     self.Gear_Length = 0.5
     self.Spoiler_Angle = 0.5
-    self.tireLimp = false
     self.carAggression = 0.75
     self.formationSide = 1 
+    
+    -- Race State
     self.currentLap = 0
     self.bestLap = 0
     self.lastLap = 0
     self.lapStarted = 0
-    self.newLap = false
+    self.newLap = false 
+    self.readyToLap = false 
     self.currentSector = 1
     self.lastSectorID = 0
+    
+    -- Pit State
+    self.pitState = 0 -- 0:Race, 1:Req, 2:InLane, 3:ApprBox, 4:Stopped, 5:ExitBox, 6:ExitLane
+    self.assignedBox = nil
+    self.pitTotalTime = 0
+    self.pitTimer = 0
+    self.pitStrategy = {}
+    
+    -- Status Flags
+    self.tireLimp = false
+    self.fuelLimp = false
+
     self.metaData = self.storage:load() or {}
     self.twitchData = {}
     self.twitchCar = false 
@@ -83,8 +103,13 @@ function DriverGen8.server_onFixedUpdate(self, dt)
     local raceActive = (self.isRacing or self.racing)
     if self.interactable.isActive ~= raceActive then self.interactable:setActive(raceActive) end
 
+    -- 1. PERCEPTION
     local perceptionData = nil
     if self.Perception then
+        -- DYNAMIC CHAIN SELECTION
+        -- Update the perception module to use the correct chain (Main or Pit)
+        self.Perception.chain = self.activeChain or self.nodeChain
+        
         perceptionData = self.Perception:server_onFixedUpdate(dt)
         self.perceptionData = perceptionData 
         if perceptionData.Telemetry and perceptionData.Telemetry.dimensions then
@@ -92,13 +117,29 @@ function DriverGen8.server_onFixedUpdate(self, dt)
         end
     end
 
+    -- 2. LOGIC (PIT & RACE)
+    -- Handle Pit State Machine overrides
+    if self.pitState > 0 then
+        self:updatePitBehavior(dt)
+    end
+
+    -- 3. DECISION
     local decisionData = nil
     if self.Decision and perceptionData then
+        -- Pass pit state to decision module for speed limits
+        self.Decision.pitState = self.pitState
         decisionData = self.Decision:server_onFixedUpdate(perceptionData, dt)
         self.decisionData = decisionData
     end
 
+    -- 4. ACTION
     if self.Action and decisionData then
+        -- Override controls if stopped in pit
+        if self.pitState == 4 then
+            decisionData.throttle = 0
+            decisionData.brake = 1.0
+            decisionData.steer = 0
+        end
         self.Action:server_onFixedUpdate(decisionData)
         if decisionData.resetCar then self:resetCar() end
     end
@@ -106,7 +147,81 @@ function DriverGen8.server_onFixedUpdate(self, dt)
     self:checkSectorCross()
     self:checkLapCross()
     self:handleTireWear(dt)
+    self:handleFuelUsage(dt)
 end
+
+function DriverGen8.sv_setup_pit(self, strategy)
+    if self.pitState == 0 then
+        print(self.id, "Pit Stop Requested")
+        self.pitState = 1 -- Requesting Entry
+        self.pitStrategy = strategy
+    end
+end
+
+function DriverGen8.updatePitBehavior(self, dt)
+    local nav = self.perceptionData and self.perceptionData.Navigation
+    local currentNode = nav and nav.closestPointData and nav.closestPointData.baseNode
+    
+    if not currentNode then return end
+
+    -- STATE 1: Requesting / Searching for Entry
+    if self.pitState == 1 then
+        if currentNode.isPitEntry then
+            print(self.id, "ENTERING PIT LANE")
+            self.activeChain = self.pitChain
+            self.pitState = 2 -- In Lane
+            -- Snap Perception to new chain immediately?
+            self.Perception.chain = self.pitChain
+            self.Perception.currentNode = self.pitChain[1]
+        end
+        
+    -- STATE 2: In Pit Lane / Approach Box
+    elseif self.pitState == 2 then
+        if self.assignedBox then
+            local dist = (self.perceptionData.Telemetry.location - self.assignedBox.location):length()
+            if dist < 10.0 then
+                self.pitState = 3 -- Final Approach
+            end
+        end
+        
+    -- STATE 3: Final Approach (Slow & Precision)
+    elseif self.pitState == 3 then
+        local dist = (self.perceptionData.Telemetry.location - self.assignedBox.location):length()
+        if dist < 1.5 and self.perceptionData.Telemetry.speed < 2.0 then
+            print(self.id, "STOPPED IN BOX")
+            self.pitState = 4
+            self.pitTimer = self.pitTotalTime or 5.0
+        end
+        
+    -- STATE 4: Servicing
+    elseif self.pitState == 4 then
+        self.pitTimer = self.pitTimer - dt
+        if self.pitTimer <= 0 then
+            print(self.id, "SERVICE COMPLETE")
+            -- Refuel / Tire Change
+            if self.pitStrategy.Fuel_Fill then self.Fuel_Level = 100 end
+            if self.pitStrategy.Tire_Change then self.Tire_Health = 100 end
+            
+            self.pitState = 5 -- Exit Box
+        end
+        
+    -- STATE 5: Exiting Box / Merging
+    elseif self.pitState == 5 then
+        -- Check if we reached end of pit chain
+        if currentNode.mergeTargetIndex then
+            print(self.id, "MERGING TO TRACK")
+            self.activeChain = self.nodeChain
+            self.pitState = 0
+            self.assignedBox = nil
+            self.Perception.chain = self.nodeChain
+            -- Snap to merge node
+            local mergeNode = self.nodeChain[currentNode.mergeTargetIndex]
+            if mergeNode then self.Perception.currentNode = mergeNode end
+        end
+    end
+end
+
+-- ... [Existing Reset/Tire/Fuel/Load functions from previous version] ...
 
 function DriverGen8.resetCar(self, force)
     local isOnLift = self.perceptionData and self.perceptionData.Telemetry and self.perceptionData.Telemetry.isOnLift
@@ -153,26 +268,35 @@ function DriverGen8.resetCar(self, force)
 end
 
 function DriverGen8.handleTireWear(self, dt)
-    if getRaceControl() == nil or (getRaceControl() and getRaceControl().tireWearEnabled == false) then return end
+    local rc = getRaceControl()
+    if rc == nil or (rc.RaceManager and rc.RaceManager.tireWearEnabled == false) then return end
+    
     local telemetry = self.perceptionData and self.perceptionData.Telemetry
     local decision = self.decisionData
     if not self.Tire_Type or not telemetry or not decision or telemetry.speed <= 15 then return end
+    
     local profile = TIRE_TYPES[self.Tire_Type] or {DECAY=0.2, MAX_SLIP_FACTOR=1.0}
     local tireDecayRate = profile.DECAY or 0.2
     local slipFactor = profile.MAX_SLIP_FACTOR or 1.0
     local speed = telemetry.speed
+    
     local baseWear = tireDecayRate * dt * 0.0001
     local longWear = (math.abs(decision.throttle) + math.abs(decision.brake)) * (speed / 100) * 0.00005 
+    
     local yawRate = 0
     if telemetry.angularVelocity and telemetry.rotations then
         yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
     end
     local lateralWear = (yawRate * yawRate) * (speed / 50) * slipFactor * 0.00008 
-    local totalDecreaseRate = (baseWear + longWear + lateralWear) * getRaceControl().tireWearMultiplier
+    
+    local multiplier = (rc.RaceManager and rc.RaceManager.tireWearMultiplier) or 1.0
+    local totalDecreaseRate = (baseWear + longWear + lateralWear) * multiplier
+    
     self.Tire_Health = self.Tire_Health - totalDecreaseRate
+    
     if self.Tire_Health <= 0.05 then
         if not self.tireLimp then 
-            print("Tires DEAD - LIMP MODE ACTIVATED")
+            print(self.id, "Tires DEAD - LIMP MODE ACTIVATED")
             self.tireLimp = true
             self.Decision:calculateCarPerformance() 
         end
@@ -181,6 +305,50 @@ function DriverGen8.handleTireWear(self, dt)
         if self.tireLimp then
             self.tireLimp = false
             self.Decision:calculateCarPerformance() 
+        end
+    end
+end
+
+function DriverGen8.handleFuelUsage(self, dt) 
+    local rc = getRaceControl()
+    if rc == nil or (rc.RaceManager and rc.RaceManager.fuelUsageEnabled == false) then return end
+    if self.engine == nil or self.perceptionData == nil then return end
+
+    local telemetry = self.perceptionData.Telemetry
+    if not telemetry or telemetry.speed < 5 then return end
+
+    local multiplier = (rc.RaceManager and rc.RaceManager.fuelUsageMultiplier) or 1.0
+    
+    -- 1. Base Consumption (RPM based)
+    local rpmFactor = math.abs(self.engine.curRPM) / 90000
+    local baseConsumption = rpmFactor * FUEL_CONSUMPTION_RATE * dt
+
+    -- 2. Drag Consumption (Speed & Spoiler based)
+    local dragFactor = (telemetry.speed / 100.0) * (self.Spoiler_Angle / 50.0) 
+    
+    -- 3. Drafting Bonus
+    if self.Decision and self.Decision.currentMode == "Drafting" then
+        dragFactor = dragFactor * 0.5 
+    end
+    
+    local dragConsumption = dragFactor * DRAG_CONSUMPTION_FACTOR * dt
+
+    -- 4. Apply Consumption
+    local totalConsumption = (baseConsumption + dragConsumption) * multiplier
+    self.Fuel_Level = self.Fuel_Level - totalConsumption
+
+    -- 5. Limp Mode Logic
+    if self.Fuel_Level <= 0.0 then
+        if not self.fuelLimp then
+            print(self.id, "OUT OF FUEL - LIMP MODE ACTIVATED")
+            self.fuelLimp = true
+            self.Decision:calculateCarPerformance()
+        end
+        self.Fuel_Level = 0.0
+    else
+        if self.fuelLimp then
+            self.fuelLimp = false
+            self.Decision:calculateCarPerformance()
         end
     end
 end
@@ -251,7 +419,7 @@ function DriverGen8.sv_recieveCommand(self, command)
     elseif command.type == "handicap" then
         -- Handle handicap
     elseif command.type == "pit" then
-        -- Handle pit
+        self:sv_setup_pit(command.value)
     end
 end
 
@@ -266,27 +434,45 @@ function DriverGen8.deserializeTrackNode(self, dataNode)
         id = dataNode.id, location = toVec3(dataNode.pos), mid = toVec3(dataNode.pos),
         width = dataNode.width, bank = dataNode.bank, incline = dataNode.incline,
         outVector = toVec3(dataNode.out), perp = toVec3(dataNode.perp),
-        isJump = dataNode.isJump, sectorID = dataNode.sectorID or 1
+        isJump = dataNode.isJump, sectorID = dataNode.sectorID or 1,
+        isPitEntry = dataNode.isPitEntry, mergeTargetIndex = dataNode.mergeTargetIndex
     }
 end
 
 function DriverGen8.on_trackLoaded(self, data)
     if not data then self.trackLoaded = false return end
+    
+    -- Load Race Chain
     local rawNodes = nil
     if data['raceChain'] then rawNodes = data['raceChain']
     elseif data.nodes then rawNodes = data.nodes
     else rawNodes = data end
-    if not rawNodes then return end
-    self.nodeChain = {}
-    for i, nodeData in ipairs(rawNodes) do
-        if type(nodeData.location) == "userdata" then table.insert(self.nodeChain, nodeData)
-        else table.insert(self.nodeChain, self:deserializeTrackNode(nodeData)) end
+    
+    if rawNodes then
+        self.nodeChain = {}
+        for i, nodeData in ipairs(rawNodes) do
+            if type(nodeData.location) == "userdata" then table.insert(self.nodeChain, nodeData)
+            else table.insert(self.nodeChain, self:deserializeTrackNode(nodeData)) end
+        end
+        self.activeChain = self.nodeChain -- Default to Race Chain
+        
+        -- Propagate flags created by PitManager (if driver loads AFTER RaceControl)
+        -- Note: If driver loads first, it relies on re-sync or RaceControl to manage nodes globally
+        -- In optimized version, Drivers should just read nodes passed by RaceControl to save memory
     end
-    if data['pitChain'] then self.pitChain = data['pitChain'] end
+
+    -- Load Pit Chain
+    if data['pitChain'] then 
+        self.pitChain = {}
+        for i, nodeData in ipairs(data['pitChain']) do
+            table.insert(self.pitChain, self:deserializeTrackNode(nodeData))
+        end
+    end
+    
     self.trackLoaded = true
     if self.Perception then
-        self.Perception.chain = self.nodeChain
-        if self.Perception.currentNode == nil then self.Perception:findClosestPointOnTrack(nil, self.nodeChain) end
+        self.Perception.chain = self.activeChain
+        if self.Perception.currentNode == nil then self.Perception:findClosestPointOnTrack(nil, self.activeChain) end
     end
 end
 
@@ -303,44 +489,62 @@ function DriverGen8.checkSectorCross(self)
 end
 
 function DriverGen8.checkLapCross(self)
-    if not self.nodeChain or not self.location or not self.perceptionData then return end
-    local currentNode = self.Perception and self.Perception.currentNode
-    if not currentNode then return end
-    local totalNodes = #self.nodeChain
-    local cID = currentNode.id
-    if cID > 5 and cID < (totalNodes - 5) then self.newLap = false return end
-    local startLine = self.nodeChain[1]
-    if not startLine then return end
-    local sideWidth = startLine.width / 1.8 
-    local axis = startLine.perp or sm.vec3.new(1,0,0) 
-    local bufferDistance = 2.5 
-    local forwardVec = startLine.outVector or sm.vec3.new(0,1,0)
-    local checkLocation = self.location
-    if self.carDimensions and self.carDimensions['front'] then
-        local frontOffset = self.shape:getAt() * self.carDimensions['front']:length()
-        checkLocation = self.location + frontOffset
+    -- Disable lap crossing while in pits to prevent double counting
+    if self.pitState > 0 then return end
+
+    if not self.nodeChain or #self.nodeChain == 0 or not self.perceptionData then return end
+    local startNode = self.nodeChain[1]
+    if not startNode or not startNode.outVector then return end
+
+    local carPos = self.perceptionData.Telemetry.location
+    if not carPos then return end
+
+    local relPos = carPos - startNode.location
+    local forwardDist = relPos:dot(startNode.outVector) 
+    
+    local CROSSING_WINDOW = 10.0 
+    local RESET_WINDOW = 20.0    
+    local TRACK_WIDTH_BUFFER = (startNode.width or 20.0) * 0.8 
+    
+    local proj = startNode.outVector * forwardDist
+    local latVec = relPos - proj
+    local lateralDist = latVec:length()
+    
+    if lateralDist > TRACK_WIDTH_BUFFER then
+         return 
     end
-    local relativePos = checkLocation - startLine.location
-    local forwardDist = relativePos:dot(forwardVec)
-    local lateralDist = relativePos:dot(axis)       
-    local crossed = (math.abs(forwardDist) < bufferDistance) and (math.abs(lateralDist) < sideWidth)
-    if crossed and not self.newLap then self:handleLapCross() end
+
+    if forwardDist < -2.0 and forwardDist > -RESET_WINDOW then
+        self.readyToLap = true
+        self.newLap = false 
+    elseif forwardDist >= 0.0 and forwardDist < CROSSING_WINDOW then
+        if self.readyToLap and not self.newLap then
+            self:handleLapCross()
+            self.readyToLap = false 
+            self.newLap = true 
+        end
+    elseif math.abs(forwardDist) > RESET_WINDOW then
+        if forwardDist < -RESET_WINDOW then
+            self.readyToLap = true 
+        else
+            self.readyToLap = false 
+        end
+    end
 end
 
 function DriverGen8.handleLapCross(self)
-    if self.newLap then return end 
-    self.newLap = true
     self.currentLap = self.currentLap + 1
     local now = CLOCK()
     local lapTime = now - (self.lapStarted or now)
+    
     if self.currentLap > 1 then
         if self.bestLap == 0 or lapTime < self.bestLap then self.bestLap = lapTime end
         self.lastLap = lapTime
     end
     self.lapStarted = now
+    
+    print(self.id, "Lap:", self.currentLap, "Time:", lapTime)
     self:sv_sendCommand({ car = self.id, type = "lap_cross", value = now, lapTime = lapTime })
-    if self.pitIn then self.pitIn = false end
-    if self.pitOut then self.pitOut = false end
 end
 
 function DriverGen8.on_engineLoaded(self, data)
