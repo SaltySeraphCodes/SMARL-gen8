@@ -1,71 +1,58 @@
--- This is everything that has to do with Deciding what to do with the perception/input data
--- Returns an object of Desired commands for output
-dofile("globalsGen8.lua")
+-- DecisionModule.lua
+dofile("../globals.lua") 
 DecisionModule = class(nil)
 
--- --- UTILITY & SPEED CONSTANTS ---
-local MAX_TILT_RAD = 1.047        -- 60 degrees in radians (~1.047)
-local STUCK_SPEED_THRESHOLD = 0.5 -- Meters per second (M/s)
-local STUCK_TIME_LIMIT = 2.0      -- Seconds
-local BASE_MAX_SPEED = 1000        -- Absolute fastest the car can go on a straight (M/s)
-local MIN_CORNER_SPEED = 15       -- Minimum speed for the tightest corners
-local GRIP_FACTOR = 0.9         -- Tuning constant representing grip/friction
+local MAX_TILT_RAD = 1.047 
+local STUCK_SPEED_THRESHOLD = 0.5 
+local STUCK_TIME_LIMIT = 2.0 
+local BASE_MAX_SPEED = 1000 
+local MIN_CORNER_SPEED = 15 
+local GRIP_FACTOR = 0.9 
 local MIN_RADIUS_FOR_MAX_SPEED = 130.0 
-local FORMATION_SPEED = 20.0       
-local FORMATION_DISTANCE = 5.0     
+local FORMATION_SPEED = 20.0 
+local FORMATION_DISTANCE = 5.0 
 local FORMATION_BIAS_OUTSIDE = 0.6 
 local FORMATION_BIAS_INSIDE = -0.6 
-local CAUTION_SPEED = 15.0       
-local CAUTION_DISTANCE = 8.0     
+local CAUTION_SPEED = 15.0 
+local CAUTION_DISTANCE = 8.0 
 
--- --- PID GAINS ---
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local STEERING_Kp = 0.6    
+local STEERING_Kp = 0.6 
 local STEERING_Ki = 0.005 
 local STEERING_Kd = 0.01 
 local LATERAL_Kp = 0.6 
 
-local SPEED_Kp = 0.1  
+local SPEED_Kp = 0.1 
 local SPEED_Ki = 0.01 
 local SPEED_Kd = 0.08 
 local MAX_I_TERM_SPEED = 10.0 
 local STEER_FACTOR_REDUCE = 0.0001 
 
--- --- STRATEGY CONSTANTS ---
 local PASSING_DISTANCE_LIMIT = 10.0 
 local PASSING_EXIT_DISTANCE = 15.0 
 local MIN_CLOSING_SPEED = -1.0 
-
-local DEFENSE_BIAS_FACTOR = 0.5   
-local PASSING_BIAS = 0.75         
-local DRAFT_BOOST = 1.1           
+local DEFENSE_BIAS_FACTOR = 0.5 
+local PASSING_BIAS = 0.75 
+local DRAFT_BOOST = 1.1 
 local PASSING_SPEED_ADVANTAGE = 1.05 
-local LANE_SLOT_WIDTH = 0.33 
-local YIELD_BIAS_OFFSET = 0.7 -- NEW: How far off-line to go when yielding
-
--- Avoidance Constants --
+local YIELD_BIAS_OFFSET = 0.7 
 local WALL_STEERING_BIAS = 0.9 
-local CAR_WIDTH_BUFFER = 0.3   
-local GAP_STICKINESS = 0.2     
+local CAR_WIDTH_BUFFER = 0.3 
+local GAP_STICKINESS = 0.2 
 
 function DecisionModule.server_init(self,driver)
     self.Driver = driver 
     self.decisionData = {}
-
     self.previousSpeedError = 0.0
     self.integralSpeedError = 0.0
     self.integralSteeringError = 0.0
-
     self.onLift = false
-
     self.stuckTimer = 0.0
     self.isStuck = false
     self.isFlipped = false
-
     self.currentMode = "RaceLine"
     self.targetBias = 0.0 
     self.lastOvertakeBias = nil 
-
     self:calculateCarPerformance()
 end
 
@@ -85,7 +72,6 @@ function DecisionModule.calculateCarPerformance(self)
     self.dynamicMaxSpeed = dynamicMaxSpeed
 end
 
--- Helper: Calculates the required speed based on steering severity
 function DecisionModule.getTargetSpeed(self,perceptionData, steerInput)
     local navigation = perceptionData.Navigation
     local opponents = perceptionData.Opponents
@@ -98,27 +84,20 @@ function DecisionModule.getTargetSpeed(self,perceptionData, steerInput)
 
     local targetSpeed = 0.0
 
-    -- 1. STRUCTURED MODE SPEED
     if currentMode == "Formation" or currentMode == "Caution" then
         local _, structuredSpeed = self:getStructuredModeTargets(perceptionData, currentMode)
         targetSpeed = structuredSpeed
     else
-        -- 2. RACE SPEED CALCULATION
         local calculatedSpeed = math.sqrt(radius) * DYNAMIC_GRIP_FACTOR * 3.8 
-
         if radius > MIN_RADIUS_FOR_MAX_SPEED then
             calculatedSpeed = DYNAMIC_MAX_SPEED
         end
-
         targetSpeed = math.min(calculatedSpeed, DYNAMIC_MAX_SPEED)
-
-        -- Aggression braking margin
         local safetyBrakeMargin = (1.0 - self.Driver.carAggression) * 0.1 
         targetSpeed = math.max(targetSpeed, MIN_CORNER_SPEED)
         local V_curve_aggressive = targetSpeed * (1.0 - safetyBrakeMargin)
         targetSpeed = math.min(targetSpeed, V_curve_aggressive)
 
-        -- STRATEGIC OVERRIDES
         if currentMode == "Drafting" then
             targetSpeed = targetSpeed * DRAFT_BOOST
         elseif currentMode == "OvertakeDynamic" then
@@ -129,32 +108,20 @@ function DecisionModule.getTargetSpeed(self,perceptionData, steerInput)
             targetSpeed = targetSpeed * 0.85 
         end
         
-        -- NEW: TRAFFIC JAM / ROLLING START LOGIC
-        -- "Move only when the person in front moves"
-        -- FIX 1: Exclude Strategic Modes (Passing/Drafting)
-        -- FIX 2: Speed Gate - Only apply if we are already slow (< 20 m/s) to prevent phantom braking on straights
         local isProximityMode = (currentMode == "Drafting" or currentMode == "OvertakeDynamic" or currentMode == "OvertakeLeft" or currentMode == "OvertakeRight")
         local isSlowMoving = currentSpeed < 20.0 
 
         if not isProximityMode and isSlowMoving and opponents and opponents.count > 0 then
-            local carAhead = opponents.racers[1] -- Closest car
-            
-            -- FIX 3: Lane Check - Only brake if they are actually blocking our lane
-            -- Use track position bias to check alignment
+            local carAhead = opponents.racers[1] 
             local myBias = navigation.trackPositionBias or 0.0
             local carAheadBias = carAhead.opponentBias or 0.0
             local laneOverlap = math.abs(myBias - carAheadBias) < (CAR_WIDTH_BUFFER * 1.5)
 
             if carAhead and carAhead.isAhead and laneOverlap then
-                -- If we are bumper-to-bumper (< 6m), limit speed to crawl
                 if carAhead.distance < 6.0 then
-                     -- Don't stop completely if we are in a race, but slow drastically
                      targetSpeed = math.min(targetSpeed, 5.0) 
                 end
-                
-                -- If we are touching or extremely close (< 4m), STOP/MATCH SPEED
                 if carAhead.distance < 4.0 then
-                     -- If closing speed is negative (we are faster/closing in), kill throttle
                      if carAhead.closingSpeed < 0 then
                         targetSpeed = 0.0 
                      end
@@ -163,27 +130,17 @@ function DecisionModule.getTargetSpeed(self,perceptionData, steerInput)
         end
     end
 
-    -- 3. STEERING DAMPING
     local steerFactor = math.abs(steerInput) * STEER_FACTOR_REDUCE
     local steerDampedSpeed = DYNAMIC_MAX_SPEED - (DYNAMIC_MAX_SPEED - MIN_CORNER_SPEED) * steerFactor
     
     return math.min(targetSpeed, steerDampedSpeed)
 end
 
-
-
--- NEW: Helper to determine yield side
 function DecisionModule:getYieldBias(perceptionData)
     local nav = perceptionData.Navigation
-    
-    -- If we are in a turn, yield to the OUTSIDE (safest for faster cars taking the apex)
     if nav.longCurveDirection ~= 0 then
-        -- If turning Left (-1), Yield Right (1.0)
-        -- If turning Right (1), Yield Left (-1.0)
         return -nav.longCurveDirection * YIELD_BIAS_OFFSET
     end
-    
-    -- On a straight, yield to the right (standard etiquette)
     return YIELD_BIAS_OFFSET 
 end
 
@@ -248,7 +205,7 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
         end
     elseif currentMode == "Drafting" then
         targetBias = 0.0
-    elseif currentMode == "Yield" then -- NEW
+    elseif currentMode == "Yield" then 
         targetBias = self:getYieldBias(perceptionData)
     elseif currentMode == "DefendLine" then
         if nav.longCurveDirection ~= 0 then
@@ -363,7 +320,6 @@ function DecisionModule.determineStrategy(self,perceptionData)
         return
     end
     
-    -- NEW: BLUE FLAG CHECK (High Priority)
     if opp.blueFlagActive then
         self.currentMode = "Yield"
         return

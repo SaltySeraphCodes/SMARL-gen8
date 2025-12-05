@@ -1,6 +1,6 @@
 SmarlCamera = class()
 --MOD_FOLDER = "$CONTENT_DATA/" -- folder
-dofile("globalsGen8.lua")
+dofile("globals.lua")
 --print("hjelloo??")
 -- WHEN Loading tools manually, put this into toolsets.json:
 --"$CONTENT_5411dc77-fa28-4c61-af84-bcb1415e3476/Tools/Database/ToolSets/smarltools.toolset"

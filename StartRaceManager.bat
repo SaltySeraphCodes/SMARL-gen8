@@ -1,4 +1,4 @@
-cd Smarl_Overlays 
+cd Smarl_Manager
 call startRaceManager.bat"
 cd ../TwitchPlays
 call StartTwitchPlays.bat"

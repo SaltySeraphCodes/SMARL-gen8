@@ -1,55 +1,39 @@
--- This is everything that has to do with gathering data and information about the Driver and everything around it, 
--- and compiling it into a format usable by the DecisionModule.
-dofile("globalsGen8.lua")
+-- PerceptionModule.lua
+dofile("../globals.lua") 
 PerceptionModule = class(nil)
 
--- --- CONSTANTS ---
-local Z_TOLERANCE_SQ = 25        -- (5 meters)^2: Car must be within 5m vertically to consider a node.
-local LOOKAHEAD_DISTANCE_1 = 4.0 -- P_B: Point a short distance ahead for curvature calculation
-local LOOKAHEAD_DISTANCE_2 = 9.0 -- P_C: Point further ahead for curvature calculation
-local MAX_CURVATURE_RADIUS = 1000.0 -- Cap for straight lines
-local GRIP_FACTOR = 1 -- Tune this based on vehicle grip characteristics
-local GLOBAL_MAX_SPEED = 1000 -- Max speed limit for an engine
-local LONG_LOOKAHEAD_DISTANCE = 50.0 -- Distance to check for the next major curve
--- local CAR_HALF_WIDTH = 1.5 -- REMOVED: Now calculated dynamically in server_init
+local Z_TOLERANCE_SQ = 25        
+local LOOKAHEAD_DISTANCE_1 = 4.0 
+local LOOKAHEAD_DISTANCE_2 = 9.0 
+local MAX_CURVATURE_RADIUS = 1000.0 
+local LONG_LOOKAHEAD_DISTANCE = 50.0 
 
-local LANE_SLOT_WIDTH = 0.33 -- 1/3 of the track width for Left/Center/Right lanes (Can be adjusted for aggression)
-local MIN_DRAFTING_DIST = 30.0 -- Max distance for effective draft
-local MAX_DRAFTING_ANGLE = 0.9 -- Dot product: must be mostly in front
-local CAR_WIDTH_BIAS = 0.2 -- Estimated normalized width of one car (20% of the track)
-
--- Wall avoidance
-local CRITICAL_WALL_MARGIN = 0.5 -- Meters: The minimum safe distance from the wall
-local WALL_LOOKAHEAD_DIST = 10.0 -- Meters: How far ahead to check the lateral margin
-
+local LANE_SLOT_WIDTH = 0.33 
+local MIN_DRAFTING_DIST = 30.0 
+local MAX_DRAFTING_ANGLE = 0.9 
+local CAR_WIDTH_BIAS = 0.2 
+local CRITICAL_WALL_MARGIN = 0.5 
+local WALL_LOOKAHEAD_DIST = 10.0 
 
 function PerceptionModule.server_init(self,driver)
-    self.Driver = driver -- The main driver
+    self.Driver = driver 
     
-    -- --- DYNAMIC CAR WIDTH CALCULATION (Initial Setup) ---
     local aabb_min, aabb_max = self.Driver.body:getWorldAabb()
     local dimensions = aabb_max - aabb_min
-    
-    -- Approximate car width by taking the largest horizontal dimension (X or Y), then take half.
-    -- This ensures we use the car's actual physical width regardless of how it's oriented relative to the track when spawned.
     self.carHalfWidth = math.max(dimensions.x, dimensions.y) / 2.0
     
-    -- Structure for the final output data
     self.perceptionData = {
         ["Telemetry"] = nil, 
         ["Navigation"] = nil, 
         ["Opponents"] = nil,
         ["WallAvoidance"] = nil
     }
-    self.chain = nil -- Gets loaded async later
-    self.currentNode = nil -- Tracks the last known closest node
+    self.chain = nil 
+    self.currentNode = nil 
 end
 
--------- General Helpers --------
-
--- Helper function for initial/lost node searching
 function PerceptionModule:findClosestNodeFallback(chain, carLocation)
-     if not chain or #chain == 0 then return nil end
+    if not chain or #chain == 0 then return nil end
     local minDistanceSq = math.huge
     local closestNode = nil
     for i = 1, #chain do 
@@ -66,7 +50,6 @@ function PerceptionModule:findClosestNodeFallback(chain, carLocation)
     return closestNode
 end
 
--- Utility: Returns a world position (sm.vec3) a fixed distance along the path.
 function PerceptionModule:getPointInDistance(baseNode, start_t, distance, chain)
     local remainingDistance = distance
     local currentNode = baseNode
@@ -100,12 +83,10 @@ function PerceptionModule:getPointInDistance(baseNode, start_t, distance, chain)
             nodeDitsTimeout = nodeDitsTimeout + 1
         end
     end
-    return currentNode.location
+    return currentNode.location 
 end
 
--- Helper function to calculate the radius of curvature defined by three points (A, B, C)
 function PerceptionModule:calculateCurvatureRadius(pA, pB, pC)
-    -- Project to 2D (X-Y plane) for simpler road geometry analysis
     local a = sm.vec3.new(pA.x, pA.y, 0)
     local b = sm.vec3.new(pB.x, pB.y, 0)
     local c = sm.vec3.new(pC.x, pC.y, 0)
@@ -121,8 +102,6 @@ function PerceptionModule:calculateCurvatureRadius(pA, pB, pC)
     local radius = (length1 * length2 * length3) / (4 * area)
     return math.min(radius, MAX_CURVATURE_RADIUS) 
 end
-
---- Telemetry Data Compiler ---
 
 function PerceptionModule.get_artificial_downforce(self) 
     local totalDownforce = 0 
@@ -165,8 +144,6 @@ function PerceptionModule.build_telemetry_data(self)
     return telemetryData
 end
 
-
---- Navigation Data Compiler (Waypoints, Curvature, Bias) ---
 function PerceptionModule.findClosestPointOnTrack(self,location,chain)
     local telemetry_data = self.perceptionData.Telemetry or {}
     local carLocation = location or telemetry_data.location 
@@ -207,7 +184,7 @@ function PerceptionModule.findClosestPointOnTrack(self,location,chain)
 end
 
 function PerceptionModule.calculateNavigationInputs(self,navigation_data)
-   local telemetry_data = self.perceptionData.Telemetry or {}
+    local telemetry_data = self.perceptionData.Telemetry or {}
     local nav = navigation_data or {}
     if not navigation_data.closestPointData then return nav end
     local closestPointData = navigation_data.closestPointData
@@ -245,7 +222,7 @@ function PerceptionModule.calculateNavigationInputs(self,navigation_data)
         nav.lookaheadTargetLeft = lookaheadTarget
         nav.lookaheadTargetRight = lookaheadTarget
     end
-    return nav  
+    return nav
 end
 
 function PerceptionModule.build_navigation_data(self) 
@@ -269,23 +246,12 @@ function PerceptionModule.build_navigation_data(self)
         navigationData.longCurvatureRadius = MAX_CURVATURE_RADIUS
         navigationData.longCurveDirection = 0
     end
-    if navigationData.closestPointData and navigationData.roadCurvatureRadius then
-        local R = navigationData.roadCurvatureRadius
-        local G = 9.81
-        local V_max_sq = R * G * GRIP_FACTOR
-        local maxSpeed = math.sqrt(V_max_sq)
-        navigationData.suggestedMaxSpeed = math.min(maxSpeed, GLOBAL_MAX_SPEED or 60) 
-    else
-        navigationData.suggestedMaxSpeed = GLOBAL_MAX_SPEED or 60 
-    end
+    
     local navInputData = self:calculateNavigationInputs(navigationData) 
     navigationData.nodeGoalDirection = navInputData.nodeGoalDirection
     navigationData.trackPositionBias = navInputData.trackPositionBias
     return navigationData
 end
-
-
--- --- Wall Avoidance Data Compiler ---
 
 function PerceptionModule.calculateWallAvoidance(self)
     local nav = self.perceptionData.Navigation or {}
@@ -330,16 +296,10 @@ function PerceptionModule.calculateWallAvoidance(self)
     return wallData
 end
 
-
---- Opponent Data Compiler ---
-
--- Helper to check if an opponent triggers a Blue Flag
 function PerceptionModule:checkBlueFlagCondition(opponentDriver, distance, closingSpeed)
     local myLap = self.Driver.currentLap
     local opLap = opponentDriver.currentLap
-    
-    -- Condition: Opponent is behind, close, closing fast, AND is at least one lap ahead of us
-    if opLap > myLap and distance < 30.0 and closingSpeed > 2.0 then -- Note: positive closing speed means they are catching up
+    if opLap > myLap and distance < 30.0 and closingSpeed > 2.0 then 
         return true
     end
     return false
@@ -351,7 +311,7 @@ function PerceptionModule.get_other_racers(self)
     local myForward = telemetry.rotations.at
     
     local opponentList = {}
-    local blueFlagActive = false -- Track if ANY car is triggering a blue flag
+    local blueFlagActive = false 
 
     local allRacers = getAllDrivers() or {} 
     
@@ -366,25 +326,20 @@ function PerceptionModule.get_other_racers(self)
             if distance < 100.0 and distance > 0.01 then 
                 
                 local dirToOp = vectorToOp:normalize()
-                local dotProduct = dirToOp:dot(myForward) -- Positive = Ahead, Negative = Behind
-                
+                local dotProduct = dirToOp:dot(myForward) 
                 local relativeVelocity = opVelocity - telemetry.velocity
                 local closingSpeed = relativeVelocity:dot(dirToOp)
 
-                -- Retrieve opponent's perception data 
                 local opPerception = opponentDriver.perceptionData 
                 local opNav = opPerception and opPerception.Navigation or {}
                 local opBias = opNav.trackPositionBias or 0.0 
                 
                 local TTC = math.huge
-                if closingSpeed < -0.1 then -- Opponent coming towards me
+                if closingSpeed < -0.1 then 
                     TTC = distance / math.abs(closingSpeed)
                 end
 
                 local opForward = opponentDriver.shape:getAt() 
-                
-                -- CHECK FOR BLUE FLAG
-                -- If opponent is BEHIND (dotProduct < 0) and meets lapping criteria
                 local isLappingMe = false
                 if dotProduct < 0 and self:checkBlueFlagCondition(opponentDriver, distance, math.abs(closingSpeed)) then
                     isLappingMe = true
@@ -401,16 +356,14 @@ function PerceptionModule.get_other_racers(self)
                     timeToCollision = TTC,             
                     opponentForward = opForward,        
                     opponentBias = opBias,             
-                    isLappingMe = isLappingMe -- NEW
+                    isLappingMe = isLappingMe 
                 })
             end
         end
     end
     
     table.sort(opponentList, function(a, b) return a.distance < b.distance end)
-    
-    self.blueFlagActive = blueFlagActive -- Store locally
-    
+    self.blueFlagActive = blueFlagActive 
     return opponentList
 end
 
@@ -426,18 +379,16 @@ function PerceptionModule.build_opponent_data(self)
         isLeftLaneClear = true, 
         isRightLaneClear = true,
         isOvertakePossible = false,
-        blueFlagActive = self.blueFlagActive -- NEW FLAG
+        blueFlagActive = self.blueFlagActive 
     }
 
     for _, opponent in ipairs(opponentList) do
-        -- Check for drafting target (closest, ahead, and within range)
         if opponent.isAhead and opponent.distance < MIN_DRAFTING_DIST and opponent.dotProduct > MAX_DRAFTING_ANGLE then
             if not opponentData.draftingTarget or opponent.distance < opponentData.draftingTarget.distance then 
                 opponentData.draftingTarget = opponent
             end
         end
 
-        -- Check for imminent collision risk (e.g., TTC < 1.0s)
         if opponent.timeToCollision < 1.0 then 
             if not opponentData.collisionRisk or opponent.timeToCollision < opponentData.collisionRisk.timeToCollision then
                 opponentData.collisionRisk = opponent
@@ -467,7 +418,7 @@ function PerceptionModule.build_opponent_data(self)
     
     return opponentData
 end
---- Main Perception data generation ---
+
 function PerceptionModule.build_perception_data(self) 
     local newPerceptionData = {}
     local newTelemetryData = self:build_telemetry_data() 
@@ -486,7 +437,6 @@ function PerceptionModule.build_perception_data(self)
     return newPerceptionData
 end
 
--- Main (gets called on Driver.server_onFixedUpdate every physics tick)
 function PerceptionModule.server_onFixedUpdate(self,dt)
     local newPerceptionData = self:build_perception_data()
     self.perceptionData = newPerceptionData 
