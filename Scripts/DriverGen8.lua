@@ -130,6 +130,15 @@ function DriverGen8.server_onFixedUpdate(self, dt)
         self.Decision.pitState = self.pitState
         decisionData = self.Decision:server_onFixedUpdate(perceptionData, dt)
         self.decisionData = decisionData
+
+        -- [[ MISSING VISUALIZATION NETWORKING RESTORED HERE ]]
+        if self.Decision.latestDebugData then
+             -- Throttle: Send only every 3 ticks to save bandwidth
+             local tick = sm.game.getServerTick()
+             if tick % 3 == 0 then
+                 self.network:sendToClients("cl_updateDebugRays", self.Decision.latestDebugData)
+             end
+        end
     end
 
     -- 4. ACTION
@@ -588,3 +597,33 @@ function DriverGen8.on_engineDestroyed(self, data) self.engine = nil end
 function DriverGen8.client_canTinker(self, character) return true end
 function DriverGen8.client_onTinker(self, character, state) end
 function DriverGen8.client_onInteract(self, character, state) end
+
+function DriverGen8.client_onUpdate(self, dt)
+    -- Draw particles if we have data
+    if self.clientDebugRays then
+        for _, line in ipairs(self.clientDebugRays) do
+            local color = sm.color.new(0,1,0,1) -- Default Green
+            if line.c == 2 then color = sm.color.new(1,1,0,1) end -- Yellow
+            if line.c == 3 then color = sm.color.new(1,0,0,1) end -- Red
+            if line.c == 4 then color = sm.color.new(0,1,1,1) end -- Cyan
+            
+            -- Draw dotted line
+            -- Note: SM particles are world space, so we draw from Start to End
+            local dir = (line.e - line.s)
+            local length = dir:length()
+            local step = 2.5
+            local normDir = dir:normalize()
+            
+            for d = 0, length, step do
+                sm.particle.create("paint_smoke", line.s + (normDir * d), sm.quat.identity(), color)
+            end
+        end
+        -- Clear after drawing so they don't persist if server stops sending
+        -- (Optional: keep them until next update for smoother look, but "paint_smoke" lingers anyway)
+        self.clientDebugRays = nil 
+    end
+end
+
+function DriverGen8.cl_updateDebugRays(self, data)
+    self.clientDebugRays = data
+end

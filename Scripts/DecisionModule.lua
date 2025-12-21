@@ -49,6 +49,23 @@ local CORNER_APEX_BIAS = 0.15
 local CORNER_EXIT_BIAS = 0.60          
 local CORNER_PHASE_DURATION = 0.3      
 
+
+-- [[ CONTEXT STEERING CONFIG ]]
+local NUM_RAYS = 17            -- Odd number so we have a dead-center ray
+local VIEW_ANGLE = 120         -- Field of view in degrees
+local LOOKAHEAD_RANGE = 45.0   -- How far we look for opponents
+local SAFETY_WEIGHT = 4.0      -- HIGH = Timid (brakes for everything), LOW = Mad Max
+local INTEREST_WEIGHT = 1.5    -- How much we stick to the race line
+local WALL_DANGER_DIST = 0.8   -- Danger ramps up if wall margin is below this (meters)
+local VISUALIZE_RAYS = true    -- Set to FALSE to save FPS when done debugging
+
+-- VISUALIZATION CONFIG
+local VIS_STEP_SIZE = 4.0      -- Distance between dots (Higher = better FPS, Lower = cleaner lines)
+local VIS_RAY_HEIGHT = 0.5     -- Height above the car center to draw rays
+local VIS_EFFECT = "paint_smoke" -- "paint_smoke" takes color well. Alternatives: "construct_welder"
+local VIS_STEP = 3.0
+local VIS_HEIGHT = 1.0
+
 function DecisionModule.server_init(self,driver)
     self.Driver = driver 
     self.decisionData = {}
@@ -233,6 +250,116 @@ function DecisionModule.findBestOvertakeGap(self, perceptionData)
     return bestGapBias
 end
 
+
+function DecisionModule:calculateContextBias(perceptionData)
+    local nav = perceptionData.Navigation
+    local opp = perceptionData.Opponents
+    local wall = perceptionData.WallAvoidance
+    local telemetry = perceptionData.Telemetry
+
+    -- 1. SETUP MAPS
+    local interestMap = {}
+    local dangerMap = {}
+    local rayAngles = {}
+    
+    local sectorStep = VIEW_ANGLE / (NUM_RAYS - 1)
+    local startAngle = -(VIEW_ANGLE / 2)
+
+    -- 2. BUILD INTEREST MAP
+    local preferredBias = 0.0 
+    if self.currentMode == "DefendLine" then preferredBias = self.targetBias end 
+    local preferredAngle = preferredBias * 45.0 -- [FIX] Removed negative sign
+
+    for i = 1, NUM_RAYS do
+        local angle = startAngle + (i - 1) * sectorStep
+        rayAngles[i] = angle
+        dangerMap[i] = 0.0
+        
+        local diff = math.abs(angle - preferredAngle)
+        local sigma = 30.0 
+        interestMap[i] = math.exp(-(diff * diff) / (2 * sigma * sigma))
+    end
+
+    -- 3. BUILD DANGER MAP (Opponents)
+    if opp and opp.racers then
+        for _, racer in ipairs(opp.racers) do
+            if racer.isAhead and racer.distance < LOOKAHEAD_RANGE then
+                local toOp = racer.location - telemetry.location
+                local fwd = telemetry.rotations.at
+                local right = telemetry.rotations.right
+                
+                local dx = toOp:dot(right)
+                local dy = toOp:dot(fwd)
+                local oppAngle = math.deg(math.atan2(dx, dy))
+                
+                local carWidthDeg = math.deg(math.atan2(2.0, racer.distance)) * 2.0 
+                
+                for i = 1, NUM_RAYS do
+                    local diff = math.abs(rayAngles[i] - oppAngle)
+                    if diff < carWidthDeg then
+                        local severity = 1.0 - (racer.distance / LOOKAHEAD_RANGE)
+                        if racer.closingSpeed < -5.0 then severity = severity * 1.5 end
+                        dangerMap[i] = math.max(dangerMap[i], severity)
+                    end
+                end
+            end
+        end
+    end
+
+    -- 4. BUILD DANGER MAP (Walls)
+    if wall then
+        local critMargin = 1.5
+        -- Block Left Rays (Negative Angles)
+        if wall.marginLeft < critMargin then
+            local urgency = 1.0 - (math.max(wall.marginLeft, 0) / critMargin)
+            local blockAngle = -10.0 * (1.0 - urgency)
+            for i = 1, NUM_RAYS do
+                if rayAngles[i] < -5 and rayAngles[i] < blockAngle then
+                    dangerMap[i] = math.max(dangerMap[i], urgency)
+                end
+            end
+        end
+        -- Block Right Rays (Positive Angles)
+        if wall.marginRight < critMargin then
+            local urgency = 1.0 - (math.max(wall.marginRight, 0) / critMargin)
+            local blockAngle = 10.0 * (1.0 - urgency)
+            for i = 1, NUM_RAYS do
+                if rayAngles[i] > 5 and rayAngles[i] > blockAngle then
+                    dangerMap[i] = math.max(dangerMap[i], urgency)
+                end
+            end
+        end
+    end
+
+    -- 5. SOLVE
+    local bestScore = -math.huge
+    local bestIndex = math.ceil(NUM_RAYS/2)
+
+    for i = 1, NUM_RAYS do
+        local score = (interestMap[i] * INTEREST_WEIGHT) - (dangerMap[i] * SAFETY_WEIGHT)
+        if score > bestScore then
+            bestScore = score
+            bestIndex = i
+        end
+    end
+
+    -- 6. PREPARE VISUALIZATION DATA (Server Side)
+    -- We do NOT draw here. We package data to send to client.
+    local debugData = nil
+    if VISUALIZE_RAYS then
+        debugData = self:getDebugLines(rayAngles, interestMap, dangerMap, bestIndex, NUM_RAYS)
+    end
+
+    -- 7. OUTPUT
+    -- [FIX] Removed negative sign. 
+    -- +Angle (Right) -> +Bias (Right Steering)
+    local chosenAngle = rayAngles[bestIndex]
+    local targetBias = (chosenAngle / 45.0) 
+    
+    return math.min(math.max(targetBias, -1.0), 1.0), debugData
+end
+
+
 function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local nav = perceptionData.Navigation
     local radius = nav.roadCurvatureRadius or MIN_RADIUS_FOR_MAX_SPEED 
@@ -306,15 +433,10 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
         targetBias = WALL_STEERING_BIAS 
     elseif currentMode == "AvoidWallRight" then
         targetBias = -WALL_STEERING_BIAS
-    elseif currentMode == "OvertakeDynamic" then
-        if self.dynamicOvertakeBias then
-            targetBias = self.dynamicOvertakeBias
-        end
-    elseif currentMode == "AvoidCollision" then
-        local risk = opp.collisionRisk
-        if risk then
-            targetBias = -getSign(risk.opponentBias) * 1.0
-        end
+elseif self.currentMode == "OvertakeDynamic" or self.currentMode == "AvoidCollision" or (perceptionData.Opponents and perceptionData.Opponents.count > 0) then        local bias, debugData = self:calculateContextBias(perceptionData)
+        local bias, debugData = self:calculateContextBias(perceptionData)
+        self.latestDebugData = debugData 
+        return bias
     elseif currentMode == "Drafting" then
         targetBias = 0.0
     elseif currentMode == "Yield" then 
@@ -570,4 +692,48 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
 
     self.controls = controls
     return controls
+end
+
+
+
+-- NEW: Helper to package data for network
+function DecisionModule:getDebugLines(angles, interest, danger, bestIdx, count)
+    if not self.Driver or not self.Driver.shape then return nil end
+    local tm = self.Driver.perceptionData.Telemetry
+    if not tm or not tm.location then return nil end
+    
+    local startPos = tm.location + sm.vec3.new(0,0,VIS_RAY_HEIGHT)
+    local fwd = tm.rotations.at
+    local right = tm.rotations.right
+    
+    local lines = {}
+    
+    for i=1, count do
+        -- Optimization: Only send Significant rays to save bandwidth
+        local isBest = (i == bestIdx)
+        if isBest or danger[i] > 0.1 or (i == 1) or (i == count) or (i == math.ceil(count/2)) then
+            local rad = math.rad(angles[i])
+            local dir = (fwd * math.cos(rad)) + (right * math.sin(rad))
+            
+            local colorCode = 1 -- Green
+            local len = 15
+            
+            if isBest then 
+                colorCode = 4 -- Cyan
+                len = 25
+            elseif danger[i] > 0.5 then
+                colorCode = 3 -- Red
+                len = 10
+            elseif danger[i] > 0.0 then
+                colorCode = 2 -- Yellow
+            end
+            
+            table.insert(lines, {
+                s = startPos, 
+                e = startPos + (dir * len), 
+                c = colorCode
+            })
+        end
+    end
+    return lines
 end

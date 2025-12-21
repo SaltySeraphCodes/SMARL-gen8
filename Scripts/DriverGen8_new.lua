@@ -583,7 +583,6 @@ function DriverGen8.client_onTinker(self, character, state) end
 function DriverGen8.client_onInteract(self, character, state) end
 
 
-
 function DriverGen8.client_onUpdate(self, dt)
     -- Draw particles if we have data
     if self.clientDebugRays then
