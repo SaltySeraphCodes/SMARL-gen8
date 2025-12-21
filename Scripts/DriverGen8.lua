@@ -659,6 +659,11 @@ function DriverGen8.client_onUpdate(self, dt)
                 if not effect then
                     -- Create new attached effect if pool is too small
                     effect = sm.effect.createEffect("Loot - GlowItem", self.interactable)
+                    effect:setScale(sm.vec3.new(0,0,0)) -- Makes the item invisible so only the glowing shows up
+                    effect:setPosition(localPos)
+                    effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6")) -- Sets item so it shows up
+                    effect:setParameter("Color", color) -- (If supported)
+
                     table.insert(self.effectPool, effect)
                 end
                 
