@@ -696,45 +696,41 @@ end
 
 
 
--- NEW: Helper to package data for network
 function DecisionModule:getDebugLines(angles, interest, danger, bestIdx, count)
     if not self.Driver or not self.Driver.shape then return nil end
     local tm = self.Driver.perceptionData.Telemetry
     if not tm or not tm.location then return nil end
     
-    -- [FIX] Use Geometric Center (AABB) instead of Center of Mass to fix "Left Offset"
+    -- [FIX] Use Geometric Center
     local min, max = self.Driver.body:getWorldAabb()
     local centerPos = (min + max) * 0.5
     
-    -- [FIX] Use Local Rotation Vectors so lines don't clip into ground on slopes
     local fwd = tm.rotations.at
     local right = tm.rotations.right
     local up = tm.rotations.up
     
-    -- [FIX] Move the "Eye" position forward to the bumper (2.5m) and up (0.5m)
-    -- This makes the rays easier to see and clears the hood of the car
-    local startPos = centerPos + (fwd * 2.5) + (up * 0.5)
+    -- [FIX] Lowered Height: Changed (up * 0.5) to (up * -0.15)
+    local startPos = centerPos + (fwd * 2.5) + (up * -0.15)
     
     local lines = {}
     
     for i=1, count do
-        -- Optimization: Only send Significant rays to save bandwidth
         local isBest = (i == bestIdx)
         if isBest or danger[i] > 0.1 or (i == 1) or (i == count) or (i == math.ceil(count/2)) then
             local rad = math.rad(angles[i])
             local dir = (fwd * math.cos(rad)) + (right * math.sin(rad))
             
-            local colorCode = 1 -- Green
+            local colorCode = 1 
             local len = 15
             
             if isBest then 
-                colorCode = 4 -- Cyan
+                colorCode = 4
                 len = 25
             elseif danger[i] > 0.5 then
-                colorCode = 3 -- Red
+                colorCode = 3 
                 len = 10
             elseif danger[i] > 0.0 then
-                colorCode = 2 -- Yellow
+                colorCode = 2 
             end
             
             table.insert(lines, {

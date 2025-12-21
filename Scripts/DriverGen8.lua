@@ -23,7 +23,24 @@ function DriverGen8.server_onCreate(self) self:server_init() end
 function DriverGen8.client_onCreate(self) self:client_init() end
 function DriverGen8.server_onRefresh(self) self:server_init() end
 function DriverGen8.client_onRefresh(self) self:client_init() end
-function DriverGen8.client_onDestroy(self) if ALL_DRIVERS then for k, v in pairs(ALL_DRIVERS) do if v.id == self.id then table.remove(ALL_DRIVERS, k) end end end end
+function DriverGen8.client_onDestroy(self) 
+    if ALL_DRIVERS then 
+        for k, v in pairs(ALL_DRIVERS) do 
+            if v.id == self.id then table.remove(ALL_DRIVERS, k) end 
+        end 
+    end
+    
+    if self.effectPool then
+        for _, effect in ipairs(self.effectPool) do
+            if effect and sm.exists(effect) then
+                effect:destroy()
+            end
+        end
+        self.effectPool = {}
+    end
+end
+
+
 function DriverGen8.server_onDestroy(self) if ALL_DRIVERS then for k, v in pairs(ALL_DRIVERS) do if v.id == self.id then table.remove(ALL_DRIVERS, k) end end end end
 
 function DriverGen8.server_init(self)
@@ -600,31 +617,69 @@ function DriverGen8.client_onTinker(self, character, state) end
 function DriverGen8.client_onInteract(self, character, state) end
 
 function DriverGen8.client_onUpdate(self, dt)
-    -- Draw particles if we have data
+    -- Initialize Pool if missing
+    if not self.effectPool then self.effectPool = {} end
+
+    -- Active dot counter
+    local activeDots = 0
+
     if self.clientDebugRays then
+        -- Cache shape vectors for World->Local conversion
+        local shapePos = self.shape:getWorldPosition()
+        local shapeRight = self.shape:getRight()
+        local shapeAt = self.shape:getAt()
+        local shapeUp = self.shape:getUp()
+
         for _, line in ipairs(self.clientDebugRays) do
-            local color = sm.color.new(0,1,0,1) -- Default Green
-            if line.c == 2 then color = sm.color.new(1,1,0,1) end -- Yellow
-            if line.c == 3 then color = sm.color.new(1,0,0,1) end -- Red
-            if line.c == 4 then color = sm.color.new(0,1,1,1) end -- Cyan
+            -- Color Logic
+            local color = sm.color.new(0,1,0,1) 
+            if line.c == 2 then color = sm.color.new(1,1,0,1) end 
+            if line.c == 3 then color = sm.color.new(1,0,0,1) end 
+            if line.c == 4 then color = sm.color.new(0,1,1,1) end 
             
-            -- Draw dotted line
+            -- Ray Math
             local dir = (line.e - line.s)
             local length = dir:length()
-            local step = 2.5
+            local step = 1.5 -- Density of dots
             local normDir = dir:normalize()
             
             for d = 0, length, step do
-                local pos = line.s + (normDir * d)
-                local params = { Color = color,
-                                uuid = sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6")
-
-                                }
-                sm.effect.playEffect("Loot - GlowItem", pos, sm.vec3.zero(), sm.quat.identity(), sm.vec3.new(0,0,0), params)
+                activeDots = activeDots + 1
+                local worldPos = line.s + (normDir * d)
+                
+                -- Convert World Position to Local Offset (relative to Shape)
+                local rel = worldPos - shapePos
+                local localX = rel:dot(shapeRight)
+                local localY = rel:dot(shapeAt)
+                local localZ = rel:dot(shapeUp)
+                local localPos = sm.vec3.new(localX, localY, localZ)
+                
+                -- Manage Effect Pool
+                local effect = self.effectPool[activeDots]
+                if not effect then
+                    -- Create new attached effect if pool is too small
+                    effect = sm.effect.createEffect("Loot - GlowItem", self.interactable)
+                    table.insert(self.effectPool, effect)
+                end
+                
+                -- Update Effect
+                if not effect:isPlaying() then effect:start() end
+                effect:setPosition(localPos) -- Sets local offset
+                effect:setParameter("Color", color) -- (If supported)
             end
         end
-        -- Clear after drawing
-        self.clientDebugRays = nil 
+        
+        -- We don't clear clientDebugRays immediately anymore? 
+        -- Actually we should, otherwise we process old data. 
+        -- But since we only receive data every 3 ticks, we might want to KEEP displaying 
+        -- the last known data until new data arrives to prevent flickering.
+        -- Let's KEEP it. The server overwrites it when new data comes.
+    end
+
+    -- Cleanup: Stop unused effects in the pool
+    for i = activeDots + 1, #self.effectPool do
+        local effect = self.effectPool[i]
+        if effect:isPlaying() then effect:stop() end
     end
 end
 
