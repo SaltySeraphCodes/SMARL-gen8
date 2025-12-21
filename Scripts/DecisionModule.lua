@@ -1,5 +1,5 @@
 -- DecisionModule.lua
-dofile("../globals.lua") 
+dofile("globals.lua") 
 DecisionModule = class(nil)
 
 local MAX_TILT_RAD = 1.047 
@@ -15,7 +15,7 @@ local FORMATION_BIAS_OUTSIDE = 0.6
 local FORMATION_BIAS_INSIDE = -0.6 
 local CAUTION_SPEED = 15.0 
 local CAUTION_DISTANCE = 8.0 
-local PIT_SPEED_LIMIT = 15.0 -- New Pit Limit
+local PIT_SPEED_LIMIT = 15.0 
 
 local MAX_WHEEL_ANGLE_RAD = 0.8 
 local STEERING_Kp = 0.6 
@@ -40,13 +40,14 @@ local YIELD_BIAS_OFFSET = 0.7
 local WALL_STEERING_BIAS = 0.9 
 local CAR_WIDTH_BUFFER = 0.3 
 local GAP_STICKINESS = 0.2 
+local BANKING_SPEED_BOOST = 1.2
 
 -- NEW: Cornering Constants for Out-In-Out logic
-local CORNER_RADIUS_THRESHOLD = 80.0   -- Consider it a corner below this radius
-local CORNER_ENTRY_BIAS = 0.95         -- Extreme outside (Out)
-local CORNER_APEX_BIAS = 0.15          -- Extreme inside (In)
-local CORNER_EXIT_BIAS = 0.60          -- Outside for exit run-off (Out)
-local CORNER_PHASE_DURATION = 0.3      -- Time (in seconds) per phase (Entry, Apex, Exit)
+local CORNER_RADIUS_THRESHOLD = 90.0   -- Increased threshold slightly to detect corners earlier
+local CORNER_ENTRY_BIAS = 0.95         
+local CORNER_APEX_BIAS = 0.15          
+local CORNER_EXIT_BIAS = 0.60          
+local CORNER_PHASE_DURATION = 0.3      
 
 function DecisionModule.server_init(self,driver)
     self.Driver = driver 
@@ -63,45 +64,37 @@ function DecisionModule.server_init(self,driver)
     self.lastOvertakeBias = nil 
     self.pitState = 0 
     
-    -- NEW: Cornering State Machine variables
     self.isCornering = false
     self.cornerPhase = 0 -- 0: Straight, 1: Entry, 2: Apex, 3: Exit
     self.cornerTimer = 0.0
-    self.cornerDirection = 0 -- 1 for Right, -1 for Left
+    self.cornerDirection = 0 
     
     self:calculateCarPerformance()
 end
 
--- UPDATED: Includes Fuel Limp Logic
 function DecisionModule.calculateCarPerformance(self)
     local dynamicMaxSpeed = BASE_MAX_SPEED
     local dynamicGripFactor = GRIP_FACTOR
     local car = self.Driver
     
-    -- 1. Tire Logic
     local tireGripMultiplier = TIRE_TYPES[car.tire_type] and TIRE_TYPES[car.tire_type].GRIP or 0.5
     local wearPenalty = (1.0 - (car.tire_wear or 1.0)) * 0.2 
     dynamicGripFactor = dynamicGripFactor * (tireGripMultiplier - wearPenalty)
     
-    -- 2. Aero Logic
     local spoilerAngle = car.spoiler_angle or 0.0 
     local downforceBoost = math.min(spoilerAngle / 80.0, 1.0) * 0.1 
     dynamicGripFactor = dynamicGripFactor + downforceBoost
     
-    -- 3. Gearing Logic
     local gearRatio = car.gear_length or 1.0 
     dynamicMaxSpeed = BASE_MAX_SPEED * gearRatio * 0.5 
     
-    -- 4. Tire Limp Mode (Puncture/Worn out)
     if car.tireLimp then
         dynamicMaxSpeed = math.min(dynamicMaxSpeed, 40.0) 
         dynamicGripFactor = dynamicGripFactor * 0.5
     end
 
-    -- 5. Fuel Limp Mode (Empty Tank)
     if car.fuelLimp then
-        dynamicMaxSpeed = math.min(dynamicMaxSpeed, 20.0) -- Very slow crawl
-        -- Reduce grip slightly to prevent crazy cornering while slow
+        dynamicMaxSpeed = math.min(dynamicMaxSpeed, 20.0) 
         dynamicGripFactor = dynamicGripFactor * 0.9 
     end
 
@@ -112,14 +105,11 @@ end
 function DecisionModule.getTargetSpeed(self,perceptionData, steerInput)
     local navigation = perceptionData.Navigation
     local opponents = perceptionData.Opponents
-    local radius = navigation.roadCurvatureRadius or MIN_RADIUS_FOR_MAX_SPEED 
     local currentMode = self.currentMode
     local currentSpeed = perceptionData.Telemetry.speed
 
-    -- PIT LIMITER
     if self.pitState and self.pitState > 0 then
-        -- 2: InLane, 3: ApprBox, 5: ExitBox
-        if self.pitState == 3 then return 5.0 end -- Crawl to box
+        if self.pitState == 3 then return 5.0 end 
         return PIT_SPEED_LIMIT 
     end
 
@@ -132,13 +122,30 @@ function DecisionModule.getTargetSpeed(self,perceptionData, steerInput)
         local _, structuredSpeed = self:getStructuredModeTargets(perceptionData, currentMode)
         targetSpeed = structuredSpeed
     else
-        local calculatedSpeed = math.sqrt(radius) * DYNAMIC_GRIP_FACTOR * 3.8 
+        -- FIX: Use the MINIMUM of short-term radius and long-term radius
+        -- This ensures we brake for a wall 50m away even if the road under us is straight.
+        local immediateRadius = navigation.roadCurvatureRadius or MAX_CURVATURE_RADIUS
+        local upcomingRadius = navigation.longCurvatureRadius or MAX_CURVATURE_RADIUS
+        local effectiveRadius = math.min(immediateRadius, upcomingRadius)
+
+        local calculatedSpeed = math.sqrt(effectiveRadius) * DYNAMIC_GRIP_FACTOR * 3.8 
         
-        -- Use CORNER_RADIUS_THRESHOLD to govern speed in tight corners
-        if radius > MIN_RADIUS_FOR_MAX_SPEED and not self.isCornering then 
+        -- Banking Boost
+        local bank = navigation.roadBankAngle or 0
+        local turnDir = navigation.longCurveDirection or 0
+        if (turnDir * bank) < -0.5 then
+            calculatedSpeed = calculatedSpeed * BANKING_SPEED_BOOST
+        end
+        
+        -- FIX: Use effectiveRadius for the MAX SPEED override check
+        -- If effectiveRadius is small (approaching corner), we do NOT override to max speed.
+        if effectiveRadius > MIN_RADIUS_FOR_MAX_SPEED and not self.isCornering then 
              calculatedSpeed = DYNAMIC_MAX_SPEED
         end
-
+        
+        -- Debug output updated to show effective radius
+        -- print("isCornering", self.isCornering, "R:", math.floor(effectiveRadius), "Max:", MIN_RADIUS_FOR_MAX_SPEED, "CS:", math.floor(calculatedSpeed))
+        
         targetSpeed = math.min(calculatedSpeed, DYNAMIC_MAX_SPEED)
         local safetyBrakeMargin = (1.0 - self.Driver.carAggression) * 0.1 
         targetSpeed = math.max(targetSpeed, MIN_CORNER_SPEED)
@@ -226,7 +233,6 @@ function DecisionModule.findBestOvertakeGap(self, perceptionData)
     return bestGapBias
 end
 
--- NEW: Cornering State Machine
 function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local nav = perceptionData.Navigation
     local radius = nav.roadCurvatureRadius or MIN_RADIUS_FOR_MAX_SPEED 
@@ -239,7 +245,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir -- 1 for Right, -1 for Left
         self.currentMode = "Cornering"
-        -- Bias: Outside (opposite of turn direction)
         self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
         return
     end
@@ -251,30 +256,28 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         if self.cornerPhase == 1 and self.cornerTimer <= 0.0 then
             self.cornerPhase = 2 -- Apex (In)
             self.cornerTimer = CORNER_PHASE_DURATION
-            -- Bias: Inside (same as turn direction, small value for "In")
             self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
         
         -- 3. State Transition: Apex to Exit (2 -> 3)
         elseif self.cornerPhase == 2 and self.cornerTimer <= 0.0 then
             self.cornerPhase = 3 -- Exit (Out)
             self.cornerTimer = CORNER_PHASE_DURATION
-            -- Bias: Outside (opposite of turn direction, for Exit Run-off)
             self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
         
         -- 4. State Transition: Exit to Straight (3 -> 0)
-        -- Also check if the track straightens out early
-        elseif self.cornerPhase == 3 and (self.cornerTimer <= 0.0 or radius >= 1.5 * CORNER_RADIUS_THRESHOLD) then
+        elseif self.cornerPhase == 3 and (self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD) then
             self.isCornering = false
             self.cornerPhase = 0
             self.cornerTimer = 0.0
             self.cornerDirection = 0
-            self.currentMode = "RaceLine" -- Revert to default
-            self.targetBias = (self.Driver.carAggression - 0.5) * 0.8 -- Default straight-line bias
+            self.currentMode = "RaceLine" 
+            self.targetBias = (self.Driver.carAggression - 0.5) * 0.8 
         end
     end
     
-    -- Safety Reset if track straightens out unexpectedly (e.g., going off track)
-    if self.isCornering and radius > 3 * CORNER_RADIUS_THRESHOLD then
+    -- Safety Reset if track straightens out unexpectedly 
+    -- Increased multiplier (3x to 4x) to prevent flickering exit on noisy radius data
+    if self.isCornering and radius > 4 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
         self.currentMode = "RaceLine"
@@ -291,13 +294,10 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     local wall = perceptionData.WallAvoidance 
 
     if self.pitState and self.pitState > 0 then
-        -- While pitting, always target center of lane (0.0)
-        -- But if approaching box (State 3), we might want to target the box lateral pos
         return 0.0 
     end
 
     if self.isCornering then
-        -- Use the bias calculated by the cornering state machine
         targetBias = self.targetBias
     elseif currentMode == "Formation" or currentMode == "Caution" then
         local structuredBias, _ = self:getStructuredModeTargets(perceptionData, currentMode)
@@ -362,7 +362,6 @@ function DecisionModule.getStructuredModeTargets(self, perceptionData, mode)
     return targetBias, targetSpeed
 end
 
-
 function DecisionModule.checkUtility(self,perceptionData, dt)
     local telemetry = perceptionData.Telemetry
     local rotationData = telemetry.rotations
@@ -411,7 +410,6 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     local aggressionFactor = self.Driver.carAggression
     self.currentMode = "RaceLine" 
     
-    -- High-Priority Overrides (Must run first)
     if self.Driver.formation then
         self.currentMode = "Formation"
         return
@@ -438,16 +436,12 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
         return
     end
     
-    -- New Cornering Logic (Medium Priority)
-    -- This function manages self.isCornering and self.currentMode when conditions allow.
     self:handleCorneringStrategy(perceptionData, dt)
     
     if self.isCornering then
-        -- Don't check other RaceLine sub-modes while managing a cornering maneuver
         return 
     end
     
-    -- Other RaceLine Sub-Modes (Low Priority)
     local isStraight = nav.roadCurvatureRadius >= 500
     if opp.draftingTarget and telemetry.speed > 30 and isStraight and aggressionFactor >= 0.3 then
         self.currentMode = "Drafting"
@@ -459,7 +453,7 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
         if closestOpponent and not closestOpponent.isAhead and closestOpponent.distance < 15 then
             if closestOpponent.closingSpeed < -1.0 or aggressionFactor > 0.6 then
                 self.currentMode = "DefendLine"
-                print(self.Driver.id,self.currentMode,closestOpponent.distance)
+                -- print(self.Driver.id,self.currentMode,closestOpponent.distance)
                 return
             end
         end
@@ -481,7 +475,6 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
         end
     end
 end
-
 
 function DecisionModule.calculateSteering(self,perceptionData)
     local telemetry = perceptionData.Telemetry
@@ -552,7 +545,6 @@ function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
         brake = 0.0
     end
     
-    -- Aggressive braking for tight corners
     if self.isCornering and self.cornerPhase == 1 and currentSpeed > targetSpeed * 1.05 then
          brake = math.max(brake, self.Driver.carAggression * 0.4)
     end
@@ -571,7 +563,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         controls.throttle = 0.0
         controls.brake = 0.0
     else
-        self:determineStrategy(perceptionData, dt) -- Pass dt to handle timer
+        self:determineStrategy(perceptionData, dt) 
         controls.steer = self:calculateSteering(perceptionData)
         controls.throttle, controls.brake = self:calculateSpeedControl(perceptionData, controls.steer)
     end

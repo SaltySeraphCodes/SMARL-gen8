@@ -444,13 +444,29 @@ function DriverGen8.sv_loadTrackData(self)
 end
 
 function DriverGen8.deserializeTrackNode(self, dataNode)
-    local function toVec3(t) if not t then return nil end return sm.vec3.new(t.x, t.y, t.z) end
+    local function toVec3(t) 
+        if not t then return nil end 
+        return sm.vec3.new(t.x, t.y, t.z) 
+    end
+    
+    -- Map TrackScanner's "pointType" to Driver flags
+    local pType = dataNode.pointType or 0
+    local isEntry = (pType == 2) -- Type 2 is Pit Entry in Scanner
+    
     return {
-        id = dataNode.id, location = toVec3(dataNode.pos), mid = toVec3(dataNode.pos),
-        width = dataNode.width, bank = dataNode.bank, incline = dataNode.incline,
-        outVector = toVec3(dataNode.out), perp = toVec3(dataNode.perp),
-        isJump = dataNode.isJump, sectorID = dataNode.sectorID or 1,
-        isPitEntry = dataNode.isPitEntry, mergeTargetIndex = dataNode.mergeTargetIndex
+        id = dataNode.id, 
+        location = toVec3(dataNode.pos), 
+        mid = toVec3(dataNode.pos),
+        width = dataNode.width, 
+        bank = dataNode.bank, 
+        incline = dataNode.incline,
+        outVector = toVec3(dataNode.out), 
+        perp = toVec3(dataNode.perp),
+        isJump = dataNode.isJump, 
+        sectorID = dataNode.sectorID or 1,
+        pointType = pType,
+        isPitEntry = isEntry, 
+        mergeTargetIndex = nil 
     }
 end
 

@@ -3,28 +3,10 @@
 	"fd" : null,
 	"md" : 
 	{
-		"lapsLeft" : 5.0,
-		"qualifying" : "false",
-		"status" : 1.0
+		"lapsLeft" : 10.0,
+		"qualifying" : false,
+		"status" : 0.0
 	},
 	"qd" : null,
-	"rt" : 
-	[
-		
-		{
-			"fl" : 1.0,
-			"gapToLeader" : "0.000",
-			"gapToNext" : 0.0,
-			"id" : 1414870.0,
-			"isFocused" : "false",
-			"lapNum" : 0.0,
-			"lapSplit" : "0.000",
-			"locX" : 128.2345428466797,
-			"locY" : 136.9362030029297,
-			"name" : "Unknown",
-			"place" : 0.0,
-			"th" : 1.0,
-			"timeSplit" : "0.000"
-		}
-	]
+	"rt" : null
 }

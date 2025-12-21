@@ -3,10 +3,12 @@ dofile("globals.lua")
 PerceptionModule = class(nil)
 
 local Z_TOLERANCE_SQ = 25        
-local LOOKAHEAD_DISTANCE_1 = 4.0 
-local LOOKAHEAD_DISTANCE_2 = 9.0 
+-- UPDATED: Increased lookahead spread to better detect macro-curve geometry
+-- Previous 4.0/9.0 was too narrow, causing "straight line" detection on polyline segments.
+local LOOKAHEAD_DISTANCE_1 = 8.0 
+local LOOKAHEAD_DISTANCE_2 = 18.0 
 local MAX_CURVATURE_RADIUS = 1000.0 
-local LONG_LOOKAHEAD_DISTANCE = 50.0 
+local LONG_LOOKAHEAD_DISTANCE = 60.0 -- Increased slightly to see further down straights
 
 local LANE_SLOT_WIDTH = 0.33 
 local MIN_DRAFTING_DIST = 30.0 
@@ -96,9 +98,11 @@ function PerceptionModule:calculateCurvatureRadius(pA, pB, pC)
     local length2 = v2:length()
     local length3 = (c - a):length()
     local crossZ = v1.x * v2.y - v1.y * v2.x
+    -- If the points are collinear (cross product near 0), it's a straight line
     if math.abs(crossZ) < 0.001 then return MAX_CURVATURE_RADIUS end
     local s = (length1 + length2 + length3) / 2
     local area = math.sqrt(math.abs(s * (s - length1) * (s - length2) * (s - length3)))
+    if area == 0 then return MAX_CURVATURE_RADIUS end
     local radius = (length1 * length2 * length3) / (4 * area)
     return math.min(radius, MAX_CURVATURE_RADIUS) 
 end
@@ -146,8 +150,8 @@ end
 
 function PerceptionModule.findClosestPointOnTrack(self,location,chain)
     local telemetry_data = self.perceptionData.Telemetry or {}
-    local carLocation = location or telemetry_data.location 
-    local segmentStartNode = self.currentNode or self:findClosestNodeFallback(chain, telemetry_data.location) 
+    local carLocation = location or telemetry_data.location or self.Driver.body:getWorldPosition() 
+    local segmentStartNode = self.currentNode or self:findClosestNodeFallback(chain, carLocation) 
     if not segmentStartNode then return nil end
     local searchWindow = 10 
     local closestPoint = nil
@@ -222,9 +226,6 @@ function PerceptionModule.calculateNavigationInputs(self,navigation_data)
         nav.lookaheadTargetLeft = lookaheadTarget
         nav.lookaheadTargetRight = lookaheadTarget
     end
-    
-    --  - Visualizing how closest point maps to navigation inputs
-    
     return nav
 end
 
@@ -235,19 +236,24 @@ function PerceptionModule.build_navigation_data(self)
         local baseNode = navigationData.closestPointData.baseNode
         local tOnSegment = navigationData.closestPointData.tOnSegment
         local pA = navigationData.closestPointData.point 
+        
+        -- Use the updated, wider lookahead distances
         local pB = self:getPointInDistance(baseNode, tOnSegment, LOOKAHEAD_DISTANCE_1, self.chain) 
         local pC = self:getPointInDistance(baseNode, tOnSegment, LOOKAHEAD_DISTANCE_2, self.chain) 
         local pD = self:getPointInDistance(baseNode, tOnSegment, LONG_LOOKAHEAD_DISTANCE, self.chain) 
+        
         local V_AC = pC - pA
         local V_CD = pD - pC
         local crossZ_long = V_AC.x * V_CD.y - V_AC.y * V_CD.x
+        
+        navigationData.roadBankAngle = baseNode.bank or 0.0 
+        -- Long radius: Used for braking early
         navigationData.longCurvatureRadius = self:calculateCurvatureRadius(pA, pC, pD)
+        -- Short radius: Used for immediate cornering state
         navigationData.roadCurvatureRadius = self:calculateCurvatureRadius(pA, pB, pC)
         navigationData.longCurveDirection = getSign(crossZ_long) 
-        
-        -- NEW: Calculate Score for Leaderboard
-        -- id + percentage of progress to next node
         navigationData.continuousPositionScore = baseNode.id + tOnSegment
+        
     else
         navigationData.roadCurvatureRadius = MAX_CURVATURE_RADIUS
         navigationData.longCurvatureRadius = MAX_CURVATURE_RADIUS

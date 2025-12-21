@@ -63,7 +63,7 @@ function CameraManager.client_init( self,rc )
     self.droneCamSmoothness = 50 -- 3-100 (camera lag/smoothness of following racer) 
     self.droneCamDirSmoothness = 25 -- cam directio, smoothness
     self.droneTrackingRate = 0.05 -- smoothness of camera rotation
-
+    self.droneOffset = sm.vec3.new(0, 0, 15) -- Default drone height/offset
     self.droneCameraArr = {}
     self.droneCameraDirArr = {}
     self.droneCameraPos = sm.vec3.new(0,0,25) -- Direct drone cam position, gets update by average of CamArr
@@ -351,7 +351,7 @@ function CameraManager.cl_updateDroneCamPosition(self,dt)
     if currentRacerId ~= self.currentTrackedRacerId then -- Switching to new racer
         
         local lastPosition = self.droneCameraPos -- sm.camera.getPosition() -- or dronePosition
-        local nextLocation = self.trackedRacer.location + self.raceControl.droneOffset
+        local nextLocation = self.trackedRacer.location or self.trackedRacer.perceptionData.Telemetry.location or self.trackedRacer.body:getWorldPosition()  + self.raceControl.droneOffset
         local dist = (lastPosition-nextLocation):length2()
         --print("nextDist",dist,self.currentCameraMode)
         if self.currentCameraMode ~= CAMERA_MODES.DRONE_CAM then -- also check distance-- Reset drone position since cam too far
@@ -366,7 +366,7 @@ function CameraManager.cl_updateDroneCamPosition(self,dt)
     local avgPos = sm.vec3.new(0,0,0)
     for _,racer in pairs(top10Drivers) do 
         if racer then 
-            avgPos = avgPos + racer.location
+            avgPos = avgPos + racer.perceptionData.Telemetry.location
         end
     end
     avgPos = avgPos/#top10Drivers -- Average position between top 10 drivers 
@@ -673,7 +673,9 @@ function CameraManager.findClosestBattle(self, racers, battleThreshold)
         for j, racerB in ipairs(racers) do
             if i < j then -- Check each unique pair once
                 -- 2. Calculate the distance between them (using length2 is faster)
-                local distanceSq = (racerA.location - racerB.location):length2()
+                local racerALoc = racerA.perceptionData.Telemetry.location or racerA.body:getWorldPosition()
+                local racerBLoc = racerB.perceptionData.Telemetry.location or racerB.body:getWorldPosition()
+                local distanceSq = (racerALoc - racerBLoc):length2()
                 
                 -- 3. Check if they are in a battle zone and it's the closest battle found so far
                 if distanceSq < (battleThreshold * battleThreshold) and distanceSq < minDistance then

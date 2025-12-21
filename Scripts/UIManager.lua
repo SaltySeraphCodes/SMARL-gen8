@@ -1,7 +1,7 @@
 -- UIManager.lua
 UIManager = class(nil)
 
-local GUI_LAYOUT = "$CONTENT_DATA/Gui/Layouts/RaceControl.layout"
+local GUI_LAYOUT = "$CONTENT_DATA/Gui/Layouts/RCGen8.layout"
 
 function UIManager:init(raceControl)
     self.RC = raceControl

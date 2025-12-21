@@ -8,6 +8,7 @@ dofile("TwitchManager.lua")
 dofile("PitManager.lua")
 dofile("CameraManager.lua")
 dofile("UIManager.lua")
+dofile("Timer.lua") -- Ensure timer is available
 
 RaceControl = class(nil)
 RaceControl.maxChildCount = -1
@@ -48,6 +49,15 @@ function RaceControl.server_init(self)
     self.PitManager = PitManager()
     self.PitManager:server_init(self)
     
+    -- [FIX] Reset Timer Initialization
+    self.resetCarTimer = Timer()
+    self.resetCarTimer:start(0)
+
+    -- Race Settings Defaults
+    self.handiCapMultiplier = 1.0
+    self.draftStrength = 1.0
+    self.entriesOpen = true
+    
     self.tickTimer = 0
     self.dataOutputTimer = 0
     self.outputRealTime = true
@@ -57,22 +67,41 @@ function RaceControl.server_init(self)
     self.trackName = "Unknown Track"
     self:sv_init_track_data()
     self:sv_export_map_for_overlay() 
+    
+    -- Initial Sync
+    self:sv_syncRaceData()
 end
 
 function RaceControl.client_init(self)
     print("RaceControl: Client Init")
     RACE_CONTROL = self
+    
+    -- [FIX] Added droneOffset initialization to prevent CameraManager crash
+    self.droneOffset = sm.vec3.new(0, 0, 15) 
+
     self.CameraManager = CameraManager()
     self.CameraManager:client_init(self)
     if self.PitManager == nil then self.PitManager = PitManager() end
     self.PitManager:client_init(self)
     self.UIManager = UIManager()
     self.UIManager:init(self)
+    
+    -- Client State Defaults (will be overwritten by sync)
+    self.targetLaps = 10
+    self.currentLap = 0
+    self.handiCapMultiplier = 1.0
+    self.draftStrength = 1.0
+    self.tireWearEnabled = false
+    self.qualifying = false
+    self.entriesOpen = true
 end
 
 -- --- MAIN LOOP ---
 
 function RaceControl.server_onFixedUpdate(self, dt)
+    -- [FIX] Tick the reset timer
+    if self.resetCarTimer then self.resetCarTimer:tick() end
+
     if self.RaceManager then self.RaceManager:server_onFixedUpdate(dt) end
     if self.Leaderboard then self.Leaderboard:server_onFixedUpdate(dt) end
     if self.TwitchManager then self.TwitchManager:server_onFixedUpdate(dt) end
@@ -96,11 +125,90 @@ function RaceControl.client_onUpdate(self, dt)
     if self.CameraManager then self.CameraManager:client_onUpdate(dt) end
 end
 
+-- --- DATA SYNC (Server to Client) ---
+
+function RaceControl.sv_syncRaceData(self)
+    -- Gather all relevant data for the GUI
+    local data = {
+        status = self.RaceManager and self.RaceManager.state or 0,
+        lapsTotal = self.RaceManager and self.RaceManager.targetLaps or 10,
+        lapsCurrent = self.RaceManager and self.RaceManager.currentLap or 0,
+        handicap = self.handiCapMultiplier or 1.0,
+        draft = self.draftStrength or 1.0,
+        tires = self.RaceManager and self.RaceManager.tireWearEnabled or false,
+        qualifying = self.RaceManager and self.RaceManager.qualifying or false,
+        entries = self.entriesOpen or false
+    }
+    self.network:setClientData(data)
+end
+
+function RaceControl.client_onClientDataUpdate(self, data)
+    -- Receive sync and update local properties for UIManager to read
+    self.raceMetaData = data
+    
+    self.targetLaps = data.lapsTotal
+    self.currentLap = data.lapsCurrent
+    self.handiCapMultiplier = data.handicap
+    self.draftStrength = data.draft
+    self.tireWearEnabled = data.tires
+    self.qualifying = data.qualifying
+    self.entriesOpen = data.entries
+end
+
+-- --- GUI SERVER CALLBACKS ---
+
+function RaceControl.sv_set_race(self, state)
+    if self.RaceManager then self.RaceManager:setState(state) end
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_reset_race(self)
+    if self.RaceManager then self.RaceManager:resetRace() end
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_editLapCount(self, delta)
+    if self.RaceManager then
+        local newLaps = self.RaceManager.targetLaps + delta
+        if newLaps < 1 then newLaps = 1 end
+        self.RaceManager.targetLaps = newLaps
+    end
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_editHandicap(self, delta)
+    self.handiCapMultiplier = math.max(0, (self.handiCapMultiplier or 1.0) + delta)
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_editDraft(self, delta)
+    self.draftStrength = math.max(0, (self.draftStrength or 1.0) + delta)
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_toggleTireWear(self)
+    if self.RaceManager then
+        self.RaceManager.tireWearEnabled = not self.RaceManager.tireWearEnabled
+    end
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_toggleQualifying(self)
+    if self.RaceManager then
+        self.RaceManager.qualifying = not self.RaceManager.qualifying
+    end
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_toggleEntries(self)
+    self.entriesOpen = not self.entriesOpen
+    self:sv_syncRaceData()
+end
+
 -- --- RACER IMPORT LOGIC ---
 
 function RaceControl.checkForClearTrack(self, nodeID, chain)
     local clearFlag = true
-    -- Safety check for chain existence
     if not chain or #chain == 0 then return true end
     
     for _, v in ipairs(getAllDrivers()) do
@@ -145,7 +253,6 @@ function RaceControl.sv_import_racer(self, racer_id)
         local currentDriverCount = #getAllDrivers()
         local targetNodeIndex = 5 + (currentDriverCount * SPAWN_PADDING_NODES)
         
-        -- Wrap index if track is full
         targetNodeIndex = ((targetNodeIndex - 1) % #self.trackNodeChain) + 1
 
         local node = self.trackNodeChain[targetNodeIndex]
@@ -155,7 +262,6 @@ function RaceControl.sv_import_racer(self, racer_id)
             local isClear = self:checkForClearTrack(targetNodeIndex, self.trackNodeChain)
             if not isClear then
                 print("RaceControl: Spawn zone blocked. Retrying later...")
-                -- In a robust system, we would re-queue here, but for now we force spawn to prevent lock
             end
             
             local forward = node.outVector or sm.vec3.new(1,0,0)
@@ -192,6 +298,7 @@ function RaceControl.sv_recieveCommand(self, command)
     if self.RaceManager then self.RaceManager:handleCommand(command) end
     if command.type == "lap_cross" and self.Leaderboard then
         self.Leaderboard:onLapCross(command.car, command.value, command.lapTime)
+        self:sv_syncRaceData()
     end
 end
 
@@ -228,8 +335,8 @@ function RaceControl.sv_output_data(self)
             gapToLeader = driver.raceSplit or 0.0,
             gapToNext = gapToNext,
             locX = 0, locY = 0, speed = 0,
-            pitState = driver.pitState or 0, -- 0:Race, 1:Req, 2:InLane, 3:ApprBox, 4:Stopped, 5:ExitBox, 6:ExitLane
-            pitTimer = driver.pitTimer or 0, -- Remaining time in stop
+            pitState = driver.pitState or 0, 
+            pitTimer = driver.pitTimer or 0, 
             th = driver.Tire_Health or 1.0,
             fl = driver.Fuel_Level or 1.0,
             tt = driver.Tire_Type or 2,     
@@ -276,7 +383,6 @@ end
 -- --- MAP EXPORT & TRACK LOADING ---
 
 function RaceControl.sv_init_track_data(self)
-    -- 1. Load the Unified Track Data (contains both chains now)
     local trackData = sm.storage.load(TRACK_DATA_CHANNEL)
     
     if trackData then
@@ -290,18 +396,13 @@ function RaceControl.sv_init_track_data(self)
         end
         
         -- Load Pit Chain and Send to PitManager
-        -- Note: trackData.pitChain comes from scanner. pitBoxes comes from manual placement logic.
+        -- [FIX] Disabled loading old manual PIT_DATA for now
+        -- local manualPitData = sm.storage.load(PIT_DATA) or {} 
+        -- local pitBoxes = manualPitData.pitBoxes or {} 
+        local pitBoxes = nil -- Force nil to trigger anchor-based fallback in PitManager
+
         if self.PitManager then
             local pitChain = trackData.pitChain
-            
-            -- We still need the manual pit box locations (anchors) if not embedded
-            -- But the scanner embeds basic box info in the nodes (pointType 5)
-            -- For logic, PitManager uses PIT_ANCHORS global for live objects, 
-            -- but needs the chain for navigation.
-            
-            local manualPitData = sm.storage.load(PIT_DATA) or {}
-            local pitBoxes = manualPitData.pitBoxes or {} -- Legacy support
-            
             self.PitManager:sv_loadPitData(pitChain, pitBoxes)
         end
     else
@@ -357,6 +458,18 @@ function RaceControl.client_onInteract(self, character, state)
     end
 end
 
+-- --- GUI CALLBACK PROXIES ---
+function RaceControl.cl_onBtnStart(self) self.UIManager:cl_onBtnStart() end
+function RaceControl.cl_onBtnStop(self) self.UIManager:cl_onBtnStop() end
+function RaceControl.cl_onBtnCaution(self) self.UIManager:cl_onBtnCaution() end
+function RaceControl.cl_onBtnFormation(self) self.UIManager:cl_onBtnFormation() end
+function RaceControl.cl_onBtnEntries(self) self.UIManager:cl_onBtnEntries() end
+function RaceControl.cl_onBtnReset(self) self.UIManager:cl_onBtnReset() end
+function RaceControl.cl_onSettingsChange(self, btn) self.UIManager:cl_onSettingsChange(btn) end
+function RaceControl.cl_onToggleSetting(self, btn) self.UIManager:cl_onToggleSetting(btn) end
+function RaceControl.cl_onPopUpResponse(self, btn) self.UIManager:cl_onPopUpResponse(btn) end
+function RaceControl.cl_onClose(self) self.UIManager:cl_onClose() end
+
 function RaceControl.sv_delete_driver_entity(self, driver)
     if driver and sm.exists(driver.shape) then
         for _, body in ipairs(driver.body:getCreationBodies()) do
@@ -372,4 +485,35 @@ function RaceControl.sv_delete_all_racers(self)
     for i = #drivers, 1, -1 do
         self:sv_delete_driver_entity(drivers[i])
     end
+end
+
+function RaceControl.sv_delete_racer_by_meta(self, metaID)
+    local drivers = getAllDrivers()
+    for _, driver in ipairs(drivers) do
+        if (driver.metaData and tonumber(driver.metaData.ID) == tonumber(metaID)) or 
+           (driver.twitchData and driver.twitchData.uid == tostring(metaID)) then
+            self:sv_delete_driver_entity(driver)
+            return
+        end
+    end
+end
+
+function RaceControl.sv_delete_racer_by_body(self, bodyID)
+    local drivers = getAllDrivers()
+    for _, driver in ipairs(drivers) do
+        if driver.body and driver.body.id == bodyID then
+            self:sv_delete_driver_entity(driver)
+            return
+        end
+    end
+end
+
+-- [FIX] Missing Reset Functions
+function RaceControl.sv_checkReset(self)
+    return self.resetCarTimer:done()
+end
+
+function RaceControl.sv_resetCar(self)
+    -- Sets timer for 80 ticks (2 seconds) to avoid spamming
+    self.resetCarTimer:start(80)
 end

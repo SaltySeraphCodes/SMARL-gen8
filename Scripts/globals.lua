@@ -9,9 +9,9 @@ MOD_FOLDER = "$CONTENT_DATA/"
 
 -- IDs
 DRIVER_UUID = "fbc31377-6081-426d-b518-f676840c407c"
-DRIVER_GEN8_UUID = "31256788-71fb-4003-a9ca-9e6164a8faa3"
-ENGINE_GEN8_UUID = "74bfdcd7-cfb2-4791-9611-602154eb90dd"
-DOWNFORCE_BLOCK_UUID = "ab524867-122b-4f98-990b-67ff6d2e9c5c"
+DRIVER_GEN8_UUID = "a6e9d911-f86f-4292-af3c-7694049eef43"
+ENGINE_GEN8_UUID = "e7d83a24-c998-43fe-9690-1575c38c89f6"
+DOWNFORCE_BLOCK_UUID = "1e3b7ff3-d066-4b8b-9cb1-fa4a6ad8cc7c"
 
 -- Paths
 TWITCH_DATA = MOD_FOLDER .. "TwitchPlays/"
@@ -168,6 +168,20 @@ function getDriverFromMetaId(id)
     return nil
 end
 
+
+function getDriversByCameraPoints() -- grabs drivers sorted by points
+    local driverArr = {}
+    for k=1, #ALL_DRIVERS do local driver=ALL_DRIVERS[k]
+		local camPoints = driver.cameraPoints
+        if driver ~= nil then
+            --print("inserting driver",driver.id,camPoints)
+            table.insert(driverArr,{driver=driver.id,points=camPoints})
+        end
+	end
+    local outputArr = sortRacersByCameraPoints(driverArr)
+    return outputArr
+end
+
 function getDriverByPos(racePos)
     for _, v in ipairs(ALL_DRIVERS) do
         if v.racePosition == racePos then return v end
@@ -268,6 +282,57 @@ function getDirectionOffset(shapeList,direction,origin)
     if direction.x == 0 then offset.x = 0
     elseif direction.y == 0 then offset.y = 0 end
     return offset
+end
+
+
+-- Helpers
+function get_los(camera, driver)
+    if not camera or not driver or not driver.shape then return false end
+    -- Simple raycast from camera to car
+    local camPos = camera.location
+    local carPos = driver.shape:getWorldPosition()
+    local dir = carPos - camPos
+    local dist = dir:length()
+    
+    -- Check if we hit anything static (terrain/walls) before the car
+    local valid, result = sm.physics.raycast(camPos, camPos + dir)
+    if valid and result.type ~= "Body" and result.fraction < 0.95 then
+        return false -- View blocked by terrain or static object
+    end
+    return true
+end
+
+-- Sorting ---
+function sortRacersByRacePos(inTable)
+    table.sort(inTable, racePosCompare)
+	return inTable
+end
+
+function sortRacersByCameraPoints(inTable)
+    table.sort(inTable,cameraPointCompare)
+    return inTable
+end
+
+function sortCamerasByDistance(inTable)
+    table.sort(inTable,camerasDistanceCompare)
+    return inTable
+end
+
+
+function racerIDCompare(a,b)
+	return a['id'] < b['id']
+end 
+
+function racePosCompare(a,b)
+	return a['racePosition'] < b['racePosition']
+end 
+
+function cameraPointCompare(a,b) -- sort so biggest is first
+    return a['points'] > b['points']
+end
+
+function camerasDistanceCompare(a,b)
+    return a['distance'] < b['distance']
 end
 
 -- --- ENGINE UTILS ---

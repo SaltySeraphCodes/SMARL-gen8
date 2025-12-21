@@ -1,9 +1,9 @@
 {
-   "31256788-71fb-4003-a9ca-9e6164a8faa3" : {
+   "a6e9d911-f86f-4292-af3c-7694049eef43" : {
       "title" : "SMAR Driver (Gen 8)",
       "description" : "The brain of the race car. Connects to the SMAR Engine and steering bearings. Handles perception, decision making, and actions. Must be placed on a lift to initialize car dimensions correctly."
    },
-   "74bfdcd7-cfb2-4791-9611-602154eb90dd" : {
+   "e7d83a24-c998-43fe-9690-1575c38c89f6" : {
       "title" : "SMAR Engine (Gen 8)",
       "description" : "The heart of the car. Connects to the Driver and wheel bearings. Simulates RPM, torque, and gears. Features custom audio and tuning support."
    },

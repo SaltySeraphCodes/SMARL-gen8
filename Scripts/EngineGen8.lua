@@ -345,27 +345,10 @@ function Engine.parseParents(self)
     
     for _, v in pairs(parents) do
         -- Check if parent is a Driver (Logic Input)
-        -- We assume Driver outputs power/logic to Engine
-        -- In SM, the Driver block is usually the source.
+        local uuid = tostring(v:getShape():getShapeUuid())
         
-        -- If using UUID check:
-        -- local uuid = tostring(v:getShape():getShapeUuid())
-        -- if uuid == DRIVER_UUID then ...
-        
-        -- Since we rely on 'Driver' class registering itself, we check logic input
-        -- The Driver (ActionModule) calls setPower, which updates 'power' property of the connection?
-        -- Actually, ActionModule calls engine:setPower directly on the interactable?
-        -- NO, ActionModule calls self.Driver.interactable:setPower(). 
-        -- WAIT: Engine is a separate part. ActionModule needs to find the Engine part and set power on IT.
-        -- Driver.lua finds Engine in on_engineLoaded. 
-        -- But ActionModule.outputThrottle calls self.Driver.interactable:setPower().
-        -- This implies the Driver Seat itself is the power source for bearings? 
-        
-        -- CORRECTION: If this Engine script is on a Gas Engine part, it receives input from the Driver Seat.
-        -- The Driver Seat (Driver.lua) sets its own power output.
-        -- The Gas Engine (Engine.lua) reads that input via interacable:getPower().
-        
-        if v:hasOutput() then -- Potential Driver Seat
+        -- [FIX] Added check for DRIVER_GEN8_UUID so engine works with new drivers
+        if uuid == DRIVER_UUID or uuid == DRIVER_GEN8_UUID then
              -- Store driver reference if we find one via global ID lookup
              local id = v:getShape():getId()
              local driver = getDriverFromId(id)
@@ -378,9 +361,11 @@ function Engine.parseParents(self)
         end
     end
     
-    if not foundDriver then
-         self.noDriverError = true
-         self.accelInput = 0
+    if not foundDriver and self.noDriverError == false then
+        self:sv_setDriverError(true)
+        self.accelInput = 0
+    else
+        self:sv_setDriverError(false)
     end
 end
 

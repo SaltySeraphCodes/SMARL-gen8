@@ -47,7 +47,7 @@
             "filename" : "$MOD_DATA/Scripts/DriverGen8.lua"
          },
          "sticky" : "-Y+X-X-Z+Z",
-         "uuid" : "31256788-71fb-4003-a9ca-9e6164a8faa3"
+         "uuid" : "a6e9d911-f86f-4292-af3c-7694049eef43"
       },
       {
          "box" : {
@@ -95,7 +95,7 @@
             "classname" : "Engine",
             "filename" : "$MOD_DATA/Scripts/EngineGen8.lua"
          },
-         "uuid" : "74bfdcd7-cfb2-4791-9611-602154eb90dd"
+         "uuid" : "e7d83a24-c998-43fe-9690-1575c38c89f6"
       },
       {
          "box" : {
@@ -295,7 +295,7 @@
          },
          "rotationSet" : "PropY",
          "scripted" : {
-            "classname" : "Control",
+            "classname" : "RaceControl",
             "data" : {},
             "filename" : "$MOD_DATA/Scripts/RaceControl.lua"
          },
