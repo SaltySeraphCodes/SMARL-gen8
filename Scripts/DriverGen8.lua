@@ -75,6 +75,7 @@ function DriverGen8.server_init(self)
     self.twitchData = {}
     self.twitchCar = false 
     self.carDimensions = nil 
+    self.cameraPoints = 0
 
     self.Perception = PerceptionModule()
     self.Perception:server_init(self, nil) 
@@ -608,18 +609,21 @@ function DriverGen8.client_onUpdate(self, dt)
             if line.c == 4 then color = sm.color.new(0,1,1,1) end -- Cyan
             
             -- Draw dotted line
-            -- Note: SM particles are world space, so we draw from Start to End
             local dir = (line.e - line.s)
             local length = dir:length()
             local step = 2.5
             local normDir = dir:normalize()
             
             for d = 0, length, step do
-                sm.particle.create("paint_smoke", line.s + (normDir * d), sm.quat.identity(), color)
+                local pos = line.s + (normDir * d)
+                local params = { Color = color,
+                                uuid = sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6")
+
+                                }
+                sm.effect.playEffect("Loot - GlowItem", pos, sm.vec3.zero(), sm.quat.identity(), sm.vec3.new(0,0,0), params)
             end
         end
-        -- Clear after drawing so they don't persist if server stops sending
-        -- (Optional: keep them until next update for smoother look, but "paint_smoke" lingers anyway)
+        -- Clear after drawing
         self.clientDebugRays = nil 
     end
 end

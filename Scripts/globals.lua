@@ -328,7 +328,9 @@ function racePosCompare(a,b)
 end 
 
 function cameraPointCompare(a,b) -- sort so biggest is first
-    return a['points'] > b['points']
+    local pA = a['points'] or 0
+    local pB = b['points'] or 0
+    return pA > pB
 end
 
 function camerasDistanceCompare(a,b)
