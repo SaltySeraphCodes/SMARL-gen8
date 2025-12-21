@@ -458,6 +458,9 @@ function RaceControl.client_onInteract(self, character, state)
     end
 end
 
+function RaceControl.client_canTinker(self, character) return true end
+function RaceControl.client_onTinker(self, character, state) end
+
 -- --- GUI CALLBACK PROXIES ---
 function RaceControl.cl_onBtnStart(self) self.UIManager:cl_onBtnStart() end
 function RaceControl.cl_onBtnStop(self) self.UIManager:cl_onBtnStop() end
