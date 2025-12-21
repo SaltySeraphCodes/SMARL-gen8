@@ -16,6 +16,7 @@ local SCAN_MODE_RACE = 1
 local SCAN_MODE_PIT = 2
 
 function TrackScanner.server_init(self)
+    print("server init")
     self.rawNodes = {}
     self.nodeChain = {} 
     self.pitChain = {} 
@@ -88,7 +89,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             currentPos = currentPos + (currentDir * SCAN_STEP_SIZE) + jumpGravity
             if jumpCounter > JUMP_SEARCH_LIMIT then break end
             iterations = iterations + 1
-            goto continue_scan 
+            goto continue_scan -- SM lua does not support goto..
         end
 
         local rightVec = currentDir:cross(currentUp):normalize() * -1 
