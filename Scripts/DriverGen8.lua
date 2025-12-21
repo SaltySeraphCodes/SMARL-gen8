@@ -624,12 +624,6 @@ function DriverGen8.client_onUpdate(self, dt)
     local activeDots = 0
 
     if self.clientDebugRays then
-        -- Cache shape vectors for World->Local conversion
-        local shapePos = self.shape:getWorldPosition()
-        local shapeRight = self.shape:getRight()
-        local shapeAt = self.shape:getAt()
-        local shapeUp = self.shape:getUp()
-
         for _, line in ipairs(self.clientDebugRays) do
             -- Color Logic
             local color = sm.color.new(0,1,0,1) 
@@ -647,38 +641,26 @@ function DriverGen8.client_onUpdate(self, dt)
                 activeDots = activeDots + 1
                 local worldPos = line.s + (normDir * d)
                 
-                -- Convert World Position to Local Offset (relative to Shape)
-                local rel = worldPos - shapePos
-                local localX = rel:dot(shapeRight)
-                local localY = rel:dot(shapeAt)
-                local localZ = rel:dot(shapeUp)
-                local localPos = sm.vec3.new(localX, localY, localZ)
-                
                 -- Manage Effect Pool
                 local effect = self.effectPool[activeDots]
                 if not effect then
-                    -- Create new attached effect if pool is too small
-                    effect = sm.effect.createEffect("Loot - GlowItem", self.interactable)
-                    effect:setScale(sm.vec3.new(0,0,0)) -- Makes the item invisible so only the glowing shows up
-                    effect:setPosition(localPos)
-                    effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6")) -- Sets item so it shows up
-                    effect:setParameter("Color", color) -- (If supported)
-
+                    -- [CHANGE] Host is nil (World Space)
+                    effect = sm.effect.createEffect("Loot - GlowItem", nil)
+                    effect:setScale(sm.vec3.new(0,0,0)) 
+                    effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+                    effect:setParameter("Color", color)
+                    
                     table.insert(self.effectPool, effect)
                 end
                 
                 -- Update Effect
                 if not effect:isPlaying() then effect:start() end
-                effect:setPosition(localPos) -- Sets local offset
-                effect:setParameter("Color", color) -- (If supported)
+                
+                -- [CHANGE] Set Position directly in World Space
+                effect:setPosition(worldPos)
+                effect:setParameter("Color", color)
             end
         end
-        
-        -- We don't clear clientDebugRays immediately anymore? 
-        -- Actually we should, otherwise we process old data. 
-        -- But since we only receive data every 3 ticks, we might want to KEEP displaying 
-        -- the last known data until new data arrives to prevent flickering.
-        -- Let's KEEP it. The server overwrites it when new data comes.
     end
 
     -- Cleanup: Stop unused effects in the pool
@@ -687,6 +669,7 @@ function DriverGen8.client_onUpdate(self, dt)
         if effect:isPlaying() then effect:stop() end
     end
 end
+
 
 function DriverGen8.cl_updateDebugRays(self, data)
     self.clientDebugRays = data

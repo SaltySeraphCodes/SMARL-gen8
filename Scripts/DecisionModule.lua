@@ -433,7 +433,7 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
         targetBias = WALL_STEERING_BIAS 
     elseif currentMode == "AvoidWallRight" then
         targetBias = -WALL_STEERING_BIAS
-elseif self.currentMode == "OvertakeDynamic" or self.currentMode == "AvoidCollision" or (perceptionData.Opponents and perceptionData.Opponents.count > 0) then        local bias, debugData = self:calculateContextBias(perceptionData)
+elseif self.currentMode == "OvertakeDynamic" or self.currentMode == "AvoidCollision" or (perceptionData.Opponents and perceptionData.Opponents.count > 0) then
         local bias, debugData = self:calculateContextBias(perceptionData)
         self.latestDebugData = debugData 
         return bias
