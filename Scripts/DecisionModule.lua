@@ -702,9 +702,18 @@ function DecisionModule:getDebugLines(angles, interest, danger, bestIdx, count)
     local tm = self.Driver.perceptionData.Telemetry
     if not tm or not tm.location then return nil end
     
-    local startPos = tm.location + sm.vec3.new(0,0,VIS_RAY_HEIGHT)
+    -- [FIX] Use Geometric Center (AABB) instead of Center of Mass to fix "Left Offset"
+    local min, max = self.Driver.body:getWorldAabb()
+    local centerPos = (min + max) * 0.5
+    
+    -- [FIX] Use Local Rotation Vectors so lines don't clip into ground on slopes
     local fwd = tm.rotations.at
     local right = tm.rotations.right
+    local up = tm.rotations.up
+    
+    -- [FIX] Move the "Eye" position forward to the bumper (2.5m) and up (0.5m)
+    -- This makes the rays easier to see and clears the hood of the car
+    local startPos = centerPos + (fwd * 2.5) + (up * 0.5)
     
     local lines = {}
     
