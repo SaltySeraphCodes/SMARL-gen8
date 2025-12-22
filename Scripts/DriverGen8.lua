@@ -263,49 +263,115 @@ function DriverGen8.updatePitBehavior(self, dt)
     end
 end
 
--- ... [Existing Reset/Tire/Fuel/Load functions from previous version] ...
 
 function DriverGen8.resetCar(self, force)
     local isOnLift = self.perceptionData and self.perceptionData.Telemetry and self.perceptionData.Telemetry.isOnLift
+    
+    -- 1. TIMEOUT CHECK
     if self.resetPosTimeout < 10 and not isOnLift and not force then
         self.resetPosTimeout = self.resetPosTimeout + 0.1
         return 
     end
+
+    -- 2. RACE CONTROL CHECK
     if not self.raceControlError then
         local rc = getRaceControl()
         if rc and not rc:sv_checkReset() then return end 
         if rc then rc:sv_resetCar() end
     end
+    
     if isOnLift then return end
+
+    -- 3. EXECUTE RESET
     if not self.liftPlaced and (self.racing or force) then
-        local resetNode = self.Perception and self.Perception.currentNode 
-        if not resetNode and self.nodeChain and #self.nodeChain > 4 then 
-            resetNode = self.nodeChain[4] 
-        end
-        if resetNode and resetNode.outVector then
-            local location = resetNode.mid or resetNode.location
-            local rotation = getRotationIndexFromVector(resetNode.outVector, 0.75)
-            if rotation == -1 then rotation = getRotationIndexFromVector(resetNode.outVector, 0.45) end
-            local spawnPos = sm.vec3.new(math.floor(location.x + 0.5), math.floor(location.y + 0.5), math.floor(location.z + 4.5))
-            local bodies = self.body:getCreationBodies()
-            local ok, liftLevel = sm.tool.checkLiftCollision(bodies, spawnPos, rotation)
-            if self.player then
-                if ok then
-                    print("reset car spawn",spawnPos,resetNode.id,location)
-                    sm.player.placeLift(self.player, bodies, spawnPos, liftLevel, rotation)
-                    self.liftPlaced = true
-                    self.resetPosTimeout = 0
-                else
-                    print(self.id, "Reset collision, forcing...")
-                    spawnPos = (spawnPos + resetNode.outVector * 2.0) + sm.vec3.new(0,0,3)
-                    sm.player.placeLift(self.player, bodies, spawnPos, liftLevel, rotation)
-                    self.liftPlaced = true
-                    self.resetPosTimeout = 0
+        local bodies = self.body:getCreationBodies()
+        local carPos = self.body:getWorldPosition()
+        
+        -- A. RESCUE SEARCH: Find the absolute closest node, ignoring Z-height constraints
+        -- We don't trust self.Perception.currentNode because the car might be lost/off-track.
+        local bestNode = nil
+        local bestDistSq = math.huge
+        
+        if self.nodeChain then
+            for _, node in ipairs(self.nodeChain) do
+                -- Calculate horizontal distance only (ignore Z for search)
+                local dx = carPos.x - node.location.x
+                local dy = carPos.y - node.location.y
+                local distSq = (dx*dx) + (dy*dy)
+                
+                if distSq < bestDistSq then
+                    bestDistSq = distSq
+                    bestNode = node
                 end
             end
         end
+        
+        -- Fallback if search failed
+        if not bestNode then 
+            bestNode = self.Perception and self.Perception.currentNode
+        end
+        if not bestNode and self.nodeChain and #self.nodeChain > 4 then 
+            bestNode = self.nodeChain[4] 
+        end
+
+        -- B. VALIDATION LOOP: Try to find a valid spawn spot
+        if bestNode and bestNode.outVector then
+            local spawnAttemptNode = bestNode
+            local success = false
+            
+            -- Try this node, then the next 5 nodes if blocked
+            for i = 0, 5 do
+                if not spawnAttemptNode then break end
+                
+                -- Calculate Position: Center of node + Height Buffer
+                local loc = spawnAttemptNode.mid or spawnAttemptNode.location
+                -- Align rotation with track direction
+                local rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.75)
+                if rot == -1 then rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.45) end
+                
+                -- Spawn 2.5m above the track node to clear ground
+                local spawnPos = sm.vec3.new(loc.x, loc.y, loc.z + 2.5)
+                
+                -- Check Collision (Is the lift Green?)
+                local valid, liftLevel = sm.tool.checkLiftCollision(bodies, spawnPos, rot)
+                
+                if valid then
+                    -- FOUND A SPOT! Place it.
+                    if self.player then
+                        sm.player.placeLift(self.player, bodies, spawnPos, liftLevel, rot)
+                        self.liftPlaced = true
+                        self.resetPosTimeout = 0
+                        print(self.id, "Reset Success at Node:", spawnAttemptNode.id)
+                        
+                        -- Reset AI Internal State so it doesn't throttle immediately
+                        if self.Decision then
+                            self.Decision.stuckTimer = 0
+                            self.Decision.isStuck = false
+                            self.Decision.smoothedRadius = 1000 -- Reset corner memory
+                        end
+                        
+                        success = true
+                        break
+                    end
+                end
+                
+                -- If blocked, move to the next node in the chain
+                local nextIdx = spawnAttemptNode.id + 1
+                -- Handle loop around track (assuming sequential IDs)
+                if self.nodeChain[nextIdx] then
+                    spawnAttemptNode = self.nodeChain[nextIdx]
+                else
+                    spawnAttemptNode = self.nodeChain[1]
+                end
+            end
+            
+            if not success then
+                print(self.id, "Reset Failed: Could not find clear spawn point.")
+            end
+        end
+        
     elseif self.liftPlaced and self.player then
-        print("Reset complete")
+        -- Remove lift if it was already placed
         sm.player.removeLift(self.player)
         self.liftPlaced = false
     end

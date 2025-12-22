@@ -3,8 +3,8 @@ dofile("globals.lua")
 DecisionModule = class(nil)
 
 local MAX_TILT_RAD = 1.047 
-local STUCK_SPEED_THRESHOLD = 0.5 
-local STUCK_TIME_LIMIT = 2.0 
+local STUCK_SPEED_THRESHOLD = 1.0 -- Increased slightly to prevent resets while creeping
+local STUCK_TIME_LIMIT = 4.0      -- [FIX] Increased from 2.0s to 4.0s to stop panic resets
 local BASE_MAX_SPEED = 1000 
 local MIN_CORNER_SPEED = 15 
 local GRIP_FACTOR = 0.9 
@@ -42,32 +42,31 @@ local CAR_WIDTH_BUFFER = 0.3
 local GAP_STICKINESS = 0.2 
 local BANKING_SPEED_BOOST = 1.2
 
--- NEW: Cornering Constants for Out-In-Out logic
-local CORNER_RADIUS_THRESHOLD = 90.0   -- Increased threshold slightly to detect corners earlier
-local CORNER_ENTRY_BIAS = 0.95         
-local CORNER_APEX_BIAS = 0.15          
+-- CORNERING CONSTANTS
+local CORNER_RADIUS_THRESHOLD = 90.0   
+local CORNER_ENTRY_BIAS = 0.90         -- [FIX] Reduced slightly (was 0.95) to stay further from outer wall
+local CORNER_APEX_BIAS = 0.20          -- [FIX] Increased (was 0.15) to give more room at Apex
 local CORNER_EXIT_BIAS = 0.60          
 local CORNER_PHASE_DURATION = 0.3      
 
+-- CONTEXT STEERING
+local NUM_RAYS = 17            
+local VIEW_ANGLE = 120         
+local LOOKAHEAD_RANGE = 45.0   
+local SAFETY_WEIGHT = 5.0      -- [FIX] Increased Safety Weight to fear walls more
+local INTEREST_WEIGHT = 1.5    
+local WALL_DANGER_DIST = 0.8   
+local VISUALIZE_RAYS = true    
 
--- [[ CONTEXT STEERING CONFIG ]]
-local NUM_RAYS = 17            -- Odd number so we have a dead-center ray
-local VIEW_ANGLE = 120         -- Field of view in degrees
-local LOOKAHEAD_RANGE = 45.0   -- How far we look for opponents
-local SAFETY_WEIGHT = 4.0      -- HIGH = Timid (brakes for everything), LOW = Mad Max
-local INTEREST_WEIGHT = 1.5    -- How much we stick to the race line
-local WALL_DANGER_DIST = 0.8   -- Danger ramps up if wall margin is below this (meters)
-local VISUALIZE_RAYS = true    -- Set to FALSE to save FPS when done debugging
-
--- VISUALIZATION CONFIG
-local VIS_STEP_SIZE = 4.0      -- Distance between dots (Higher = better FPS, Lower = cleaner lines)
-local VIS_RAY_HEIGHT = 0.5     -- Height above the car center to draw rays
-local VIS_EFFECT = "paint_smoke" -- "paint_smoke" takes color well. Alternatives: "construct_welder"
+-- VISUALIZATION
+local VIS_STEP_SIZE = 4.0      
+local VIS_RAY_HEIGHT = 0.5     
+local VIS_EFFECT = "paint_smoke" 
 local VIS_STEP = 3.0
 local VIS_HEIGHT = 1.0
 
-local BRAKING_POWER_FACTOR = 0.6 -- Safety margin for braking (Lower = Brake Earlier)
-local SCAN_DISTANCE = 80.0       -- How far ahead to plan speed
+local BRAKING_POWER_FACTOR = 0.6 
+local SCAN_DISTANCE = 80.0       
 
 function DecisionModule.server_init(self,driver)
     self.Driver = driver 
@@ -85,12 +84,16 @@ function DecisionModule.server_init(self,driver)
     self.pitState = 0 
     
     self.isCornering = false
-    self.cornerPhase = 0 -- 0: Straight, 1: Entry, 2: Apex, 3: Exit
+    self.cornerPhase = 0 
     self.cornerTimer = 0.0
     self.cornerDirection = 0
 
-    self.speedUpdateTimer = 0 --
+    self.speedUpdateTimer = 0 
     
+    -- [FIX] Radius Memory
+    self.smoothedRadius = 1000.0
+    self.radiusHoldTimer = 0.0
+
     self:calculateCarPerformance()
 end
 
@@ -124,58 +127,55 @@ function DecisionModule.calculateCarPerformance(self)
     self.dynamicMaxSpeed = dynamicMaxSpeed
 end
 
--- In DecisionModule.lua
-
 function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     local tm = perceptionData.Telemetry
-    local currentSpeed = tm.speed
     
-    -- 1. SCAN THE TRACK (Throttled)
+    -- 1. SCAN THE TRACK
     local tick = sm.game.getServerTick()
     if tick % 4 == 0 or not self.cachedMinRadius then
          self.cachedMinRadius, self.cachedDist = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
     end
     
-    local rawRadius = self.cachedMinRadius or MAX_CURVATURE_RADIUS
-    local distToCorner = self.cachedDist or 0
+    local rawRadius = self.cachedMinRadius or 1000.0
+    local distToCorner = self.cachedDist or 0.0
 
-    -- [[ FIX: RADIUS SMOOTHING ]]
-    -- Initialize if nil
-    if not self.smoothedRadius then self.smoothedRadius = rawRadius end
-
+    -- [[ FIX: RADIUS MEMORY ]]
+    -- Prevents the car from accelerating if the scanner momentarily misses the corner
     if rawRadius < self.smoothedRadius then
-        -- REACT FAST: If we see a sharper turn, accept it instantly
+        -- Found a tighter corner? React immediately.
         self.smoothedRadius = rawRadius
+        self.radiusHoldTimer = 1.0 -- Remember this corner for 1 second
     else
-        -- RECOVER SLOW: If the track seems to open up, blend slowly
-        -- This prevents the "Acceleration Spike" when data flickers
-        self.smoothedRadius = self.smoothedRadius + (5.0) -- Increase radius by 5 units per frame max
-        self.smoothedRadius = math.min(self.smoothedRadius, rawRadius)
+        -- Track opening up? Wait before believing it.
+        if self.radiusHoldTimer > 0 then
+            self.radiusHoldTimer = self.radiusHoldTimer - (1.0/40.0) -- Count down
+        else
+            -- Slowly release the memory
+            self.smoothedRadius = self.smoothedRadius + 2.0 
+        end
     end
+    -- Limit the smoothed radius to reality (don't hold it FOREVER)
+    if self.smoothedRadius > rawRadius then self.smoothedRadius = rawRadius end
     
     local effectiveRadius = self.smoothedRadius
     
-    -- [[ DEBUG VALUES ]]
-    self.dbg_Radius = effectiveRadius -- Log the smoothed value
+    -- Debug Logs
+    self.dbg_Radius = effectiveRadius
     self.dbg_Dist = distToCorner
 
-    -- 2. CALCULATE MAX CORNER SPEED
+    -- 2. CALCULATE SPEED
     local friction = self.dynamicGripFactor or 0.9
-    -- Use effectiveRadius instead of raw minRadius
     local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * 3.5
     
-    -- Clamp limits
     maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
     maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
     
-    -- 3. CALCULATE REQUIRED BRAKING
     local brakingForce = 25.0 * BRAKING_POWER_FACTOR
     local allowableSpeed = math.sqrt((maxCornerSpeed * maxCornerSpeed) + (2 * brakingForce * distToCorner))
     
     self.dbg_MaxCorner = maxCornerSpeed
     self.dbg_Allowable = allowableSpeed
 
-    -- 4. DECISION
     local targetSpeed = math.min(self.dynamicMaxSpeed, allowableSpeed)
     
     -- 5. CONTEXT MODIFIERS
@@ -191,145 +191,12 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     return targetSpeed
 end
 
-function DecisionModule.getTargetSpeed_old(self,perceptionData, steerInput)
-    local navigation = perceptionData.Navigation
-    local opponents = perceptionData.Opponents
-    local currentMode = self.currentMode
-    local currentSpeed = perceptionData.Telemetry.speed
-
-    if self.pitState and self.pitState > 0 then
-        if self.pitState == 3 then return 5.0 end 
-        return PIT_SPEED_LIMIT 
-    end
-
-    local DYNAMIC_GRIP_FACTOR = self.dynamicGripFactor or GRIP_FACTOR
-    local DYNAMIC_MAX_SPEED = self.dynamicMaxSpeed or BASE_MAX_SPEED
-
-    local targetSpeed = 0.0
-
-    if currentMode == "Formation" or currentMode == "Caution" then
-        local _, structuredSpeed = self:getStructuredModeTargets(perceptionData, currentMode)
-        targetSpeed = structuredSpeed
-    else
-        -- FIX: Use the MINIMUM of short-term radius and long-term radius
-        -- This ensures we brake for a wall 50m away even if the road under us is straight.
-        local immediateRadius = navigation.roadCurvatureRadius or MAX_CURVATURE_RADIUS
-        local upcomingRadius = navigation.longCurvatureRadius or MAX_CURVATURE_RADIUS
-        local effectiveRadius = math.min(immediateRadius, upcomingRadius)
-
-        local calculatedSpeed = math.sqrt(effectiveRadius) * DYNAMIC_GRIP_FACTOR * 3.8 
-        
-        -- Banking Boost
-        local bank = navigation.roadBankAngle or 0
-        local turnDir = navigation.longCurveDirection or 0
-        if (turnDir * bank) < -0.5 then
-            calculatedSpeed = calculatedSpeed * BANKING_SPEED_BOOST
-        end
-        
-        -- FIX: Use effectiveRadius for the MAX SPEED override check
-        -- If effectiveRadius is small (approaching corner), we do NOT override to max speed.
-        if effectiveRadius > MIN_RADIUS_FOR_MAX_SPEED and not self.isCornering then 
-             calculatedSpeed = DYNAMIC_MAX_SPEED
-        end
-        
-        -- Debug output updated to show effective radius
-        -- print("isCornering", self.isCornering, "R:", math.floor(effectiveRadius), "Max:", MIN_RADIUS_FOR_MAX_SPEED, "CS:", math.floor(calculatedSpeed))
-        
-        targetSpeed = math.min(calculatedSpeed, DYNAMIC_MAX_SPEED)
-        local safetyBrakeMargin = (1.0 - self.Driver.carAggression) * 0.1 
-        targetSpeed = math.max(targetSpeed, MIN_CORNER_SPEED)
-        local V_curve_aggressive = targetSpeed * (1.0 - safetyBrakeMargin)
-        targetSpeed = math.min(targetSpeed, V_curve_aggressive)
-
-        if currentMode == "Drafting" then
-            targetSpeed = targetSpeed * DRAFT_BOOST
-        elseif currentMode == "OvertakeDynamic" then
-            targetSpeed = targetSpeed * PASSING_SPEED_ADVANTAGE
-        elseif currentMode == "AvoidCollision" or currentMode == "AvoidWallLeft" or currentMode == "AvoidWallRight" then
-            targetSpeed = MIN_CORNER_SPEED 
-        elseif currentMode == "Yield" then
-            targetSpeed = targetSpeed * 0.85 
-        end
-        
-        local isProximityMode = (currentMode == "Drafting" or currentMode == "OvertakeDynamic" or currentMode == "OvertakeLeft" or currentMode == "OvertakeRight")
-        local isSlowMoving = currentSpeed < 20.0 
-
-        if not isProximityMode and isSlowMoving and opponents and opponents.count > 0 then
-            local carAhead = opponents.racers[1] 
-            local myBias = navigation.trackPositionBias or 0.0
-            local carAheadBias = carAhead.opponentBias or 0.0
-            local laneOverlap = math.abs(myBias - carAheadBias) < (CAR_WIDTH_BUFFER * 1.5)
-
-            if carAhead and carAhead.isAhead and laneOverlap then
-                if carAhead.distance < 6.0 then
-                     targetSpeed = math.min(targetSpeed, 5.0) 
-                end
-                if carAhead.distance < 4.0 then
-                     if carAhead.closingSpeed < 0 then
-                        targetSpeed = 0.0 
-                     end
-                end
-            end
-        end
-    end
-
-    local steerFactor = math.abs(steerInput) * STEER_FACTOR_REDUCE
-    local steerDampedSpeed = DYNAMIC_MAX_SPEED - (DYNAMIC_MAX_SPEED - MIN_CORNER_SPEED) * steerFactor
-    
-    return math.min(targetSpeed, steerDampedSpeed)
-end
-
-function DecisionModule:getYieldBias(perceptionData)
-    local nav = perceptionData.Navigation
-    if nav.longCurveDirection ~= 0 then
-        return -nav.longCurveDirection * YIELD_BIAS_OFFSET
-    end
-    return YIELD_BIAS_OFFSET 
-end
-
-function DecisionModule.findBestOvertakeGap(self, perceptionData)
-    local opp = perceptionData.Opponents
-    local obstacles = {}
-    for _, racer in ipairs(opp.racers) do
-        if racer.isAhead and racer.distance < 30.0 then
-            table.insert(obstacles, {bias = racer.opponentBias, width = CAR_WIDTH_BUFFER})
-        end
-    end
-    table.sort(obstacles, function(a,b) return a.bias < b.bias end)
-    local currentLeftEdge = -1.0
-    local bestGapBias = 0.0
-    local bestGapScore = -math.huge
-    table.insert(obstacles, {bias = 1.0 + (CAR_WIDTH_BUFFER/2), width = 0.0}) 
-
-    for _, obs in ipairs(obstacles) do
-        local currentRightEdge = obs.bias - (obs.width / 2.0)
-        local gapWidth = currentRightEdge - currentLeftEdge
-        if gapWidth > CAR_WIDTH_BUFFER then 
-            local gapCenter = (currentLeftEdge + currentRightEdge) / 2.0
-            local score = gapWidth * 2.0 - math.abs(gapCenter)
-            if self.lastOvertakeBias and math.abs(gapCenter - self.lastOvertakeBias) < 0.2 then
-                score = score + GAP_STICKINESS
-            end
-            if score > bestGapScore then
-                bestGapScore = score
-                bestGapBias = gapCenter
-            end
-        end
-        currentLeftEdge = obs.bias + (obs.width / 2.0)
-    end
-    if bestGapScore == -math.huge then return 0.0 end
-    self.lastOvertakeBias = bestGapBias 
-    return bestGapBias
-end
-
-
 function DecisionModule:calculateContextBias(perceptionData)
     local nav = perceptionData.Navigation
     local opp = perceptionData.Opponents
     local wall = perceptionData.WallAvoidance
     local telemetry = perceptionData.Telemetry
 
-    -- 1. SETUP MAPS
     local interestMap = {}
     local dangerMap = {}
     local rayAngles = {}
@@ -337,10 +204,9 @@ function DecisionModule:calculateContextBias(perceptionData)
     local sectorStep = VIEW_ANGLE / (NUM_RAYS - 1)
     local startAngle = -(VIEW_ANGLE / 2)
 
-    -- 2. BUILD INTEREST MAP
     local preferredBias = 0.0 
     if self.currentMode == "DefendLine" then preferredBias = self.targetBias end 
-    local preferredAngle = preferredBias * 45.0 -- [FIX] Removed negative sign
+    local preferredAngle = preferredBias * 45.0 
 
     for i = 1, NUM_RAYS do
         local angle = startAngle + (i - 1) * sectorStep
@@ -352,7 +218,6 @@ function DecisionModule:calculateContextBias(perceptionData)
         interestMap[i] = math.exp(-(diff * diff) / (2 * sigma * sigma))
     end
 
-    -- 3. BUILD DANGER MAP (Opponents)
     if opp and opp.racers then
         for _, racer in ipairs(opp.racers) do
             if racer.isAhead and racer.distance < LOOKAHEAD_RANGE then
@@ -363,7 +228,6 @@ function DecisionModule:calculateContextBias(perceptionData)
                 local dx = toOp:dot(right)
                 local dy = toOp:dot(fwd)
                 local oppAngle = math.deg(math.atan2(dx, dy))
-                
                 local carWidthDeg = math.deg(math.atan2(2.0, racer.distance)) * 2.0 
                 
                 for i = 1, NUM_RAYS do
@@ -378,10 +242,8 @@ function DecisionModule:calculateContextBias(perceptionData)
         end
     end
 
-    -- 4. BUILD DANGER MAP (Walls)
     if wall then
         local critMargin = 1.5
-        -- Block Left Rays (Negative Angles)
         if wall.marginLeft < critMargin then
             local urgency = 1.0 - (math.max(wall.marginLeft, 0) / critMargin)
             local blockAngle = -10.0 * (1.0 - urgency)
@@ -391,7 +253,6 @@ function DecisionModule:calculateContextBias(perceptionData)
                 end
             end
         end
-        -- Block Right Rays (Positive Angles)
         if wall.marginRight < critMargin then
             local urgency = 1.0 - (math.max(wall.marginRight, 0) / critMargin)
             local blockAngle = 10.0 * (1.0 - urgency)
@@ -403,7 +264,6 @@ function DecisionModule:calculateContextBias(perceptionData)
         end
     end
 
-    -- 5. SOLVE
     local bestScore = -math.huge
     local bestIndex = math.ceil(NUM_RAYS/2)
 
@@ -415,34 +275,53 @@ function DecisionModule:calculateContextBias(perceptionData)
         end
     end
 
-    -- 6. PREPARE VISUALIZATION DATA (Server Side)
-    -- We do NOT draw here. We package data to send to client.
     local debugData = nil
     if VISUALIZE_RAYS then
         debugData = self:getDebugLines(rayAngles, interestMap, dangerMap, bestIndex, NUM_RAYS)
     end
 
-    -- 7. OUTPUT
-    -- [FIX] Removed negative sign. 
-    -- +Angle (Right) -> +Bias (Right Steering)
     local chosenAngle = rayAngles[bestIndex]
     local targetBias = (chosenAngle / 45.0) 
     
     return math.min(math.max(targetBias, -1.0), 1.0), debugData
 end
 
+function DecisionModule:getDebugLines(angles, interest, danger, bestIdx, count)
+    if not self.Driver or not self.Driver.shape then return nil end
+    local tm = self.Driver.perceptionData.Telemetry
+    if not tm or not tm.location then return nil end
+    
+    local min, max = self.Driver.body:getWorldAabb()
+    local centerPos = (min + max) * 0.5
+    local fwd = tm.rotations.at
+    local right = tm.rotations.right
+    local up = tm.rotations.up
+    local startPos = centerPos + (fwd * 2.5) + (up * -0.15)
+    
+    local lines = {}
+    for i=1, count do
+        local isBest = (i == bestIdx)
+        if isBest or danger[i] > 0.1 or (i == 1) or (i == count) or (i == math.ceil(count/2)) then
+            local rad = math.rad(angles[i])
+            local dir = (fwd * math.cos(rad)) + (right * math.sin(rad))
+            local colorCode = 1 
+            if isBest then colorCode = 4 elseif danger[i] > 0.5 then colorCode = 3 elseif danger[i] > 0.0 then colorCode = 2 end
+            table.insert(lines, { s = startPos, e = startPos + (dir * 15), c = colorCode })
+        end
+    end
+    return lines
+end
 
 function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local nav = perceptionData.Navigation
     local radius = nav.roadCurvatureRadius or MIN_RADIUS_FOR_MAX_SPEED 
     local curveDir = nav.longCurveDirection 
 
-    -- 1. State Transition: Straight to Corner Entry (0 -> 1)
     if self.isCornering == false and radius < CORNER_RADIUS_THRESHOLD then
         self.isCornering = true
-        self.cornerPhase = 1 -- Entry (Out)
+        self.cornerPhase = 1 
         self.cornerTimer = CORNER_PHASE_DURATION
-        self.cornerDirection = curveDir -- 1 for Right, -1 for Left
+        self.cornerDirection = curveDir 
         self.currentMode = "Cornering"
         self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
         return
@@ -450,35 +329,23 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     
     if self.isCornering == true then
         self.cornerTimer = self.cornerTimer - dt
-
-        -- 2. State Transition: Entry to Apex (1 -> 2)
         if self.cornerPhase == 1 and self.cornerTimer <= 0.0 then
-            self.cornerPhase = 2 -- Apex (In)
+            self.cornerPhase = 2 
             self.cornerTimer = CORNER_PHASE_DURATION
             self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
-        
-        -- 3. State Transition: Apex to Exit (2 -> 3)
         elseif self.cornerPhase == 2 and self.cornerTimer <= 0.0 then
-            self.cornerPhase = 3 -- Exit (Out)
+            self.cornerPhase = 3 
             self.cornerTimer = CORNER_PHASE_DURATION
             self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
-        
-        -- 4. State Transition: Exit to Straight (3 -> 0)
         elseif self.cornerPhase == 3 and (self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD) then
             self.isCornering = false
             self.cornerPhase = 0
-            self.cornerTimer = 0.0
-            self.cornerDirection = 0
             self.currentMode = "RaceLine" 
             self.targetBias = (self.Driver.carAggression - 0.5) * 0.8 
         end
     end
     
-    -- [[ FIX: INCREASED SAFETY THRESHOLD ]]
-    -- Was: radius > 3 * CORNER_RADIUS_THRESHOLD
-    -- Change to: radius > 5 * CORNER_RADIUS_THRESHOLD
-    -- This prevents the car from abandoning the "Cornering" line just because
-    -- it saw a brief glimpse of straight track while mid-corner.
+    -- [FIX] Increased threshold so it doesn't bail out on a single flicker
     if self.isCornering and radius > 5 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
@@ -493,29 +360,35 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     local wall = perceptionData.WallAvoidance 
     local currentMode = self.currentMode 
     
-    -- 1. CRITICAL OVERRIDES
     if self.pitState and self.pitState > 0 then return 0.0 end
-    if self.isCornering then return self.targetBias end
+    
+    -- overrides
     if currentMode == "Formation" or currentMode == "Caution" then
         local b, _ = self:getStructuredModeTargets(perceptionData, currentMode)
         return b
     end
 
-    -- 2. HYBRID CONTEXT SYSTEM (Now handles Walls, Opponents, and Overtakes)
-    -- We enable this if there is Traffic OR Wall Danger
+    -- [[ CRITICAL PRIORITY FIX ]] 
+    -- Safety (Context Steering) MUST check first, even before Cornering Strategy.
+    -- If there is a wall at the apex, we must avoid it, not ram it.
+    
     local isWallDanger = (wall.isLeftCritical or wall.isRightCritical or wall.isForwardLeftCritical or wall.isForwardRightCritical)
     
     if currentMode == "OvertakeDynamic" or 
        currentMode == "AvoidCollision" or 
        (opp.count > 0) or 
-       isWallDanger then  -- <--- Added Wall Trigger
+       isWallDanger then  
        
         local bias, debugData = self:calculateContextBias(perceptionData)
         self.latestDebugData = debugData 
         return bias
     end
 
-    -- 3. STANDARD MODES
+    -- If safe, THEN apply Cornering Strategy
+    if self.isCornering then 
+        return self.targetBias 
+    end
+
     if currentMode == "Drafting" then return 0.0 end
     if currentMode == "Yield" then return self:getYieldBias(perceptionData) end
     if currentMode == "DefendLine" then
@@ -523,59 +396,12 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
         return DEFENSE_BIAS_FACTOR * self.Driver.carAggression * getSign(nav.trackPositionBias or 0.01)
     end
     
-    -- Default Cruise
     return (self.Driver.carAggression - 0.5) * 0.8 
-end
-
-
-function DecisionModule.getFinalTargetBias_old(self, perceptionData)
-    local nav = perceptionData.Navigation
-    local opp = perceptionData.Opponents
-    local aggression = self.Driver.carAggression 
-    local currentMode = self.currentMode 
-    local targetBias = 0.0 
-    local wall = perceptionData.WallAvoidance 
-
-    if self.pitState and self.pitState > 0 then
-        return 0.0 
-    end
-
-    if self.isCornering then
-        targetBias = self.targetBias
-    elseif currentMode == "Formation" or currentMode == "Caution" then
-        local structuredBias, _ = self:getStructuredModeTargets(perceptionData, currentMode)
-        targetBias = structuredBias
-    elseif currentMode == "AvoidWallLeft" then
-        targetBias = WALL_STEERING_BIAS 
-    elseif currentMode == "AvoidWallRight" then
-        targetBias = -WALL_STEERING_BIAS
-elseif self.currentMode == "OvertakeDynamic" or self.currentMode == "AvoidCollision" or (perceptionData.Opponents and perceptionData.Opponents.count > 0) then
-        local bias, debugData = self:calculateContextBias(perceptionData)
-        self.latestDebugData = debugData 
-        return bias
-    elseif currentMode == "Drafting" then
-        targetBias = 0.0
-    elseif currentMode == "Yield" then 
-        targetBias = self:getYieldBias(perceptionData)
-    elseif currentMode == "DefendLine" then
-        if nav.longCurveDirection ~= 0 then
-            targetBias = nav.longCurveDirection * DEFENSE_BIAS_FACTOR
-        else
-            targetBias = DEFENSE_BIAS_FACTOR * aggression * getSign(nav.trackPositionBias or 0.01)
-        end
-    else 
-        local aggressionBias = (aggression - 0.5) * 0.8 
-        targetBias = aggressionBias 
-        self.lastOvertakeBias = nil 
-    end
-    
-    return mathClamp(-1.0, 1.0, targetBias)
 end
 
 function DecisionModule.getStructuredModeTargets(self, perceptionData, mode)
     local nav = perceptionData.Navigation
     local opp = perceptionData.Opponents
-    local telemetry = perceptionData.Telemetry
     local targetBias = 0.0
     local targetSpeed = FORMATION_SPEED 
     local targetDistance = FORMATION_DISTANCE
@@ -605,21 +431,14 @@ function DecisionModule.checkUtility(self,perceptionData, dt)
     local rotationData = telemetry.rotations
     local resetFlag = false
 
-    if self.Driver.body:isStatic() then 
-        self.onLift = true
-    else
-        self.onLift = false
-    end
+    if self.Driver.body:isStatic() then self.onLift = true else self.onLift = false end
     
     local upDot = rotationData.up:dot(sm.vec3.new(0,0,1))
     local maxDot = math.cos(MAX_TILT_RAD) 
     
-    if upDot < maxDot then
-        self.isFlipped = true
-    else
-        self.isFlipped = false
-    end
+    if upDot < maxDot then self.isFlipped = true else self.isFlipped = false end
 
+    -- Stuck Timer
     if telemetry.speed < STUCK_SPEED_THRESHOLD and telemetry.isOnLift == false and self.Driver.isRacing then 
         self.stuckTimer = self.stuckTimer + dt
     else
@@ -632,10 +451,7 @@ function DecisionModule.checkUtility(self,perceptionData, dt)
         self.isStuck = false
     end
 
-    if self.isFlipped or self.isStuck then
-        resetFlag = true
-    end
-    
+    if self.isFlipped or self.isStuck then resetFlag = true end
     return resetFlag
 end
 
@@ -644,58 +460,29 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     local opp = perceptionData.Opponents
     local telemetry = perceptionData.Telemetry
     local wall = perceptionData.WallAvoidance 
-    
     local aggressionFactor = self.Driver.carAggression
     self.currentMode = "RaceLine" 
     
-    if self.Driver.formation then
-        self.currentMode = "Formation"
-        return
-    elseif self.Driver.caution then
-        self.currentMode = "Caution"
-        return
-    end
+    if self.Driver.formation then self.currentMode = "Formation"; return
+    elseif self.Driver.caution then self.currentMode = "Caution"; return end
 
-    if wall.isForwardLeftCritical then
-        self.currentMode = "AvoidWallRight"
-        return
-    elseif wall.isForwardRightCritical then
-        self.currentMode = "AvoidWallLeft"
-        return
-    end
+    if wall.isForwardLeftCritical then self.currentMode = "AvoidWallRight"; return
+    elseif wall.isForwardRightCritical then self.currentMode = "AvoidWallLeft"; return end
 
-    if opp.collisionRisk and opp.collisionRisk.timeToCollision < 0.5 then
-        self.currentMode = "AvoidCollision"
-        return
-    end
-    
-    if opp.blueFlagActive then
-        self.currentMode = "Yield"
-        return
-    end
+    if opp.collisionRisk and opp.collisionRisk.timeToCollision < 0.5 then self.currentMode = "AvoidCollision"; return end
+    if opp.blueFlagActive then self.currentMode = "Yield"; return end
     
     self:handleCorneringStrategy(perceptionData, dt)
-    
-    if self.isCornering then
-        return 
-    end
+    if self.isCornering then return end
     
     local isStraight = nav.roadCurvatureRadius >= 500
-    if opp.draftingTarget and telemetry.speed > 30 and isStraight and aggressionFactor >= 0.3 then
-        self.currentMode = "Drafting"
-        return
-    end
+    if opp.draftingTarget and telemetry.speed > 30 and isStraight and aggressionFactor >= 0.3 then self.currentMode = "Drafting"; return end
     
     if opp.count > 0 then
         local closestOpponent = opp.racers[1]
         if closestOpponent and not closestOpponent.isAhead and closestOpponent.distance < 15 then
-            if closestOpponent.closingSpeed < -1.0 or aggressionFactor > 0.6 then
-                self.currentMode = "DefendLine"
-                -- print(self.Driver.id,self.currentMode,closestOpponent.distance)
-                return
-            end
+            if closestOpponent.closingSpeed < -1.0 or aggressionFactor > 0.6 then self.currentMode = "DefendLine"; return end
         end
-
         if closestOpponent and closestOpponent.isAhead and aggressionFactor > 0.4 then
             if closestOpponent.distance < PASSING_DISTANCE_LIMIT then
                 if closestOpponent.closingSpeed < MIN_CLOSING_SPEED then 
@@ -717,10 +504,7 @@ end
 function DecisionModule.calculateSteering(self,perceptionData)
     local telemetry = perceptionData.Telemetry
     local navigation = perceptionData.Navigation
-    
-    if not navigation.nodeGoalDirection or not telemetry.rotations then
-        return 0.0
-    end
+    if not navigation.nodeGoalDirection or not telemetry.rotations then return 0.0 end
 
     local goalDir = navigation.nodeGoalDirection
     local carDir = telemetry.rotations.at 
@@ -750,7 +534,6 @@ function DecisionModule.calculateSteering(self,perceptionData)
     local steerInput = -(pTerm * STEERING_Kp) + iTerm + dTerm
     return math.min(math.max(steerInput, -1.0), 1.0)
 end
-
 
 function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
     local currentSpeed = perceptionData.Telemetry.speed
@@ -792,7 +575,6 @@ end
 
 function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local controls = {}
-
     controls.resetCar = self:checkUtility(perceptionData,dt)
 
     if controls.resetCar then
@@ -806,72 +588,58 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         controls.throttle, controls.brake = self:calculateSpeedControl(perceptionData, controls.steer)
     end
 
-    local spd = perceptionData.Telemetry.speed or 0 -- logging
+    local spd = perceptionData.Telemetry.speed or 0 
     local tick = sm.game.getServerTick()
-    if spd > 10 and self.dbg_Radius and  tick % 3 == 0 then -- Only log when moving and every 3 ticks
+    if spd > 10 and self.dbg_Radius and  tick % 3 == 0 then 
         print(string.format(
             "[%s] SPD: %.0f/%.0f | RAD: %.0f (Dist: %.0f) | LIMIT: %.0f | ACT: T:%.1f B:%.1f | MODE: %s",
-            tostring(self.Driver.id % 100), -- Short ID
-            spd,                            -- Current Speed
-            self.dbg_Allowable or 0,        -- The speed the physics says is safe
-            self.dbg_Radius or 0,           -- The tightest turn seen
-            self.dbg_Dist or 0,             -- Distance to that turn
-            self.dbg_MaxCorner or 0,        -- The max speed for that turn
-            controls.throttle,              -- Throttle Output
-            controls.brake,                 -- Brake Output
-            self.currentMode                -- AI State
-        ))
+            tostring(self.Driver.id % 100), 
+            spd, self.dbg_Allowable or 0, self.dbg_Radius or 0, self.dbg_Dist or 0, self.dbg_MaxCorner or 0,
+            controls.throttle, controls.brake, self.currentMode))
     end
 
     self.controls = controls
     return controls
 end
 
-
-
-function DecisionModule:getDebugLines(angles, interest, danger, bestIdx, count)
-    if not self.Driver or not self.Driver.shape then return nil end
-    local tm = self.Driver.perceptionData.Telemetry
-    if not tm or not tm.location then return nil end
-    
-    -- [FIX] Use Geometric Center
-    local min, max = self.Driver.body:getWorldAabb()
-    local centerPos = (min + max) * 0.5
-    
-    local fwd = tm.rotations.at
-    local right = tm.rotations.right
-    local up = tm.rotations.up
-    
-    -- [FIX] Lowered Height: Changed (up * 0.5) to (up * -0.15)
-    local startPos = centerPos + (fwd * 2.5) + (up * -0.15)
-    
-    local lines = {}
-    
-    for i=1, count do
-        local isBest = (i == bestIdx)
-        if isBest or danger[i] > 0.1 or (i == 1) or (i == count) or (i == math.ceil(count/2)) then
-            local rad = math.rad(angles[i])
-            local dir = (fwd * math.cos(rad)) + (right * math.sin(rad))
-            
-            local colorCode = 1 
-            local len = 15
-            
-            if isBest then 
-                colorCode = 4
-                len = 25
-            elseif danger[i] > 0.5 then
-                colorCode = 3 
-                len = 10
-            elseif danger[i] > 0.0 then
-                colorCode = 2 
-            end
-            
-            table.insert(lines, {
-                s = startPos, 
-                e = startPos + (dir * len), 
-                c = colorCode
-            })
+-- Visualizations for Debugging (Data Generation)
+function DecisionModule.findBestOvertakeGap(self, perceptionData)
+    local opp = perceptionData.Opponents
+    local obstacles = {}
+    for _, racer in ipairs(opp.racers) do
+        if racer.isAhead and racer.distance < 30.0 then
+            table.insert(obstacles, {bias = racer.opponentBias, width = CAR_WIDTH_BUFFER})
         end
     end
-    return lines
+    table.sort(obstacles, function(a,b) return a.bias < b.bias end)
+    local currentLeftEdge = -1.0
+    local bestGapBias = 0.0
+    local bestGapScore = -math.huge
+    table.insert(obstacles, {bias = 1.0 + (CAR_WIDTH_BUFFER/2), width = 0.0}) 
+
+    for _, obs in ipairs(obstacles) do
+        local currentRightEdge = obs.bias - (obs.width / 2.0)
+        local gapWidth = currentRightEdge - currentLeftEdge
+        if gapWidth > CAR_WIDTH_BUFFER then 
+            local gapCenter = (currentLeftEdge + currentRightEdge) / 2.0
+            local score = gapWidth * 2.0 - math.abs(gapCenter)
+            if self.lastOvertakeBias and math.abs(gapCenter - self.lastOvertakeBias) < 0.2 then
+                score = score + GAP_STICKINESS
+            end
+            if score > bestGapScore then
+                bestGapScore = score
+                bestGapBias = gapCenter
+            end
+        end
+        currentLeftEdge = obs.bias + (obs.width / 2.0)
+    end
+    if bestGapScore == -math.huge then return 0.0 end
+    self.lastOvertakeBias = bestGapBias 
+    return bestGapBias
+end
+
+function DecisionModule:getYieldBias(perceptionData)
+    local nav = perceptionData.Navigation
+    if nav.longCurveDirection ~= 0 then return -nav.longCurveDirection * YIELD_BIAS_OFFSET end
+    return YIELD_BIAS_OFFSET 
 end
