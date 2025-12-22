@@ -13,14 +13,12 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
--- Base Gains
-local STEERING_Kp_BASE = 0.18  -- Initial snap-to-target strength
-local STEERING_Kd_BASE = 0.55  -- Initial damping (prevents overswing)
-local LATERAL_Kp = 0.45        -- Sensitivity to distance from the line
--- Velocity Scaling Factors
--- These reduce the steering force as you go faster to stop physics-based jitter.
-local Kp_MIN_FACTOR = 0.35     -- At max speed, Kp is reduced to 35% of base
-local Kd_BOOST_FACTOR = 1.2    -- At max speed, Kd is boosted 120% to fight momentum
+-- [FIX] Renamed to DEFAULT so we can distinguish from the instance variables
+local DEFAULT_STEERING_Kp = 0.18  
+local DEFAULT_STEERING_Kd = 0.55  
+local LATERAL_Kp = 0.45        
+local Kp_MIN_FACTOR = 0.35     
+local Kd_BOOST_FACTOR = 1.2    
 
 -- [[ TUNING - SPEED PID ]]
 local SPEED_Kp = 0.1 
@@ -82,7 +80,12 @@ function DecisionModule.server_init(self,driver)
     self.cornerDirection = 0
 
     self.speedUpdateTimer = 0 
-    self.trackPositionBias = 0.0 -- or 1.0, depending on your logic
+    
+    -- [FIX 1] Initialize Tuning Values on SELF so Optimizer can see them
+    self.STEERING_Kp_BASE = DEFAULT_STEERING_Kp
+    self.STEERING_Kd_BASE = DEFAULT_STEERING_Kd
+    
+    self.trackPositionBias = 0.0 
     self.smoothedRadius = 1000.0
     self.radiusHoldTimer = 0.0
     self.cachedDist = 0.0
@@ -92,6 +95,7 @@ function DecisionModule.server_init(self,driver)
 end
 
 function DecisionModule.calculateCarPerformance(self)
+    -- [Use your existing code here]
     local dynamicMaxSpeed = BASE_MAX_SPEED
     local dynamicGripFactor = GRIP_FACTOR
     local car = self.Driver
@@ -502,16 +506,22 @@ end
 function DecisionModule.calculateSteering(self, perceptionData)
     local telemetry = perceptionData.Telemetry
     local nav = perceptionData.Navigation
-    if not nav or not nav.trackPositionBias then
-        return 0.0
-    end
+    
+    -- [SAFETY CHECK]
+    if not nav or not nav.trackPositionBias then return 0.0 end
+    
     local speed = telemetry.speed or 0
     
     -- 1. Dynamic Gain Scaling
     -- Reduces Kp as speed increases to prevent high-speed fishtailing
     local speedRatio = math.min(speed / self.dynamicMaxSpeed, 1.0)
-    local dynamicKp = STEERING_Kp_BASE * (1.0 - (speedRatio * (1.0 - Kp_MIN_FACTOR)))
-    local dynamicKd = STEERING_Kd_BASE * (1.0 + (speedRatio * (Kd_BOOST_FACTOR - 1.0)))
+    
+    -- [FIX 2] Use SELF.STEERING_Kp_BASE instead of local to prevent TuningOptimizer Crash
+    local kp = self.STEERING_Kp_BASE or DEFAULT_STEERING_Kp
+    local kd = self.STEERING_Kd_BASE or DEFAULT_STEERING_Kd
+    
+    local dynamicKp = kp * (1.0 - (speedRatio * (1.0 - Kp_MIN_FACTOR)))
+    local dynamicKd = kd * (1.0 + (speedRatio * (Kd_BOOST_FACTOR - 1.0)))
 
     -- 2. Bias Calculation
     local rawTargetBias = self:getFinalTargetBias(perceptionData)
@@ -519,9 +529,13 @@ function DecisionModule.calculateSteering(self, perceptionData)
     self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.15
     
     -- 3. Lateral Error (Target - Current)
-    -- Car is Left (-0.5), Target is Center (0.0) -> Error = +0.5 (Steer Right)
+    -- Car is Left (-0.5), Target is Center (0.0) -> Error = +0.5
+    -- [FIX 3] CRITICAL STEERING INVERSION
+    -- Previous: Positive Error -> Positive Steer -> Left Turn (Crash into Wall)
+    -- New: Positive Error -> Negative Steer -> Right Turn (Corrective)
     local lateralError = self.smoothedBias - nav.trackPositionBias
     self.lateralError = lateralError
+
     -- 4. Heading Error (Angle)
     local carDir = telemetry.rotations.at 
     local goalDir = nav.nodeGoalDirection
@@ -532,7 +546,8 @@ function DecisionModule.calculateSteering(self, perceptionData)
     -- Damping (dTerm) uses Yaw Rate to actively counter the car's spin
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
     
-    local pTerm = (lateralError * LATERAL_Kp) - (angleErrorRad / MAX_WHEEL_ANGLE_RAD)    
+    -- INVERTED Kp LOGIC HERE
+    local pTerm = -((lateralError * LATERAL_Kp) + (angleErrorRad / MAX_WHEEL_ANGLE_RAD))
     local dTerm = -yawRate * dynamicKd
     
     local rawSteer = (pTerm * dynamicKp) + dTerm

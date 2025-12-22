@@ -392,8 +392,14 @@ function DriverGen8.resetCar(self, force)
         end
         
     elseif self.liftPlaced and self.player then
-        sm.player.removeLift(self.player)
-        self.liftPlaced = false
+        -- [FIX] Do not remove the lift instantly. 
+        -- Wait for the car to settle on the lift for 2 seconds (80 ticks)
+        self.resetPosTimeout = self.resetPosTimeout + 1
+        if self.resetPosTimeout > 20 then 
+            sm.player.removeLift(self.player)
+            self.liftPlaced = false
+            self.resetPosTimeout = 0 -- Reset timer for the next phase (driving)
+        end
     end
 end
 
