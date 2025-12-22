@@ -321,49 +321,59 @@ end
 
 function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local nav = perceptionData.Navigation
-    -- [FIX] Use the SMOOTHED radius so the state machine doesn't flicker
     local radius = self.smoothedRadius or MIN_RADIUS_FOR_MAX_SPEED 
     local curveDir = nav.longCurveDirection 
 
+    -- ENTRY TRIGGER
     if self.isCornering == false and radius < CORNER_RADIUS_THRESHOLD then
         self.isCornering = true
         self.cornerPhase = 1 
         self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir 
-        self.currentMode = "Cornering"
         self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
-        return
     end
     
+    -- STATE MACHINE
     if self.isCornering == true then
+        -- [FIX] Enforce the mode name immediately so it doesn't get overwritten
+        self.currentMode = "Cornering"
+        
         self.cornerTimer = self.cornerTimer - dt
         
         -- PHASE 1: ENTRY
-        if self.cornerPhase == 1 and self.cornerTimer <= 0.0 then
-            self.cornerPhase = 2 
-            self.cornerTimer = CORNER_PHASE_DURATION
-            self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
-            
-        -- PHASE 2: APEX (With Latch)
-        elseif self.cornerPhase == 2 and self.cornerTimer <= 0.0 then
-            if radius < CORNER_RADIUS_THRESHOLD * 0.8 then
-                self.cornerTimer = 0.1 -- Hold
-            else
-                self.cornerPhase = 3 
+        if self.cornerPhase == 1 then
+            self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
+            if self.cornerTimer <= 0.0 then
+                self.cornerPhase = 2
                 self.cornerTimer = CORNER_PHASE_DURATION
-                self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
+            end
+            
+        -- PHASE 2: APEX
+        elseif self.cornerPhase == 2 then
+            self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
+            if self.cornerTimer <= 0.0 then
+                -- Latch: Don't leave Apex if turn is still tight
+                if radius < CORNER_RADIUS_THRESHOLD * 0.8 then
+                    self.cornerTimer = 0.1
+                else
+                    self.cornerPhase = 3
+                    self.cornerTimer = CORNER_PHASE_DURATION
+                end
             end
             
         -- PHASE 3: EXIT
-        elseif self.cornerPhase == 3 and (self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD) then
-            self.isCornering = false
-            self.cornerPhase = 0
-            self.currentMode = "RaceLine" 
-            self.targetBias = (self.Driver.carAggression - 0.5) * 0.8 
+        elseif self.cornerPhase == 3 then
+            self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
+            if self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
+                self.isCornering = false
+                self.cornerPhase = 0
+                self.currentMode = "RaceLine"
+                self.targetBias = (self.Driver.carAggression - 0.5) * 0.8
+            end
         end
     end
     
-    -- Safety Reset
+    -- SAFETY EXIT
     if self.isCornering and radius > 5 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
@@ -497,7 +507,11 @@ function DecisionModule.calculateSteering(self,perceptionData)
     local goalDir = navigation.nodeGoalDirection
     local carDir = telemetry.rotations.at 
     local angularVel = telemetry.angularVelocity 
-    local targetBias = self:getFinalTargetBias(perceptionData)
+    local rawTargetBias = self:getFinalTargetBias(perceptionData)
+    if not self.smoothedBias then self.smoothedBias = rawTargetBias end
+    -- Move smoothed bias 10% towards raw target per tick (Acts as a Low Pass Filter)
+    self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.1
+    local targetBias = self.smoothedBias -- Use the smooth value!
     local lateralError = targetBias - navigation.trackPositionBias
     local lateralPTerm = lateralError * LATERAL_Kp
     local carDir2D = sm.vec3.new(carDir.x, carDir.y, 0):normalize()
@@ -560,14 +574,25 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
 
     local spd = perceptionData.Telemetry.speed or 0 
     local tick = sm.game.getServerTick()
+
+    -- Get Track Position Data
+    local currentBias = 0.0
+    if perceptionData.Navigation and perceptionData.Navigation.trackPositionBias then
+        currentBias = perceptionData.Navigation.trackPositionBias
+    end
+
     if spd > 10 and self.dbg_Radius and  tick % 3 == 0 then 
-        -- [FIX] Enhanced Debug Print
         print(string.format(
-            "[%s] SPD: %.0f/%.0f | RAD: %.0f (Dist: %.0f) | LIMIT: %.0f | ACT: T:%.1f B:%.1f | MODE: %s | DBG: B:%.2f S:%.2f P:%d",
+            "[%s] S:%.0f | R:%.0f | M:%s | BIAS: %.2f->%.2f | STR: %.2f | P:%d",
             tostring(self.Driver.id % 100), 
-            spd, self.dbg_Allowable or 0, self.dbg_Radius or 0, self.dbg_Dist or 0, self.dbg_MaxCorner or 0,
-            controls.throttle, controls.brake, self.currentMode,
-            self.targetBias, controls.steer, self.cornerPhase or 0))
+            spd, 
+            self.dbg_Radius or 0, 
+            self.currentMode:sub(1,4), -- Short mode name (Race/Corn)
+            currentBias,               -- Where we ARE
+            self.targetBias,           -- Where we WANT to be
+            controls.steer,            -- Steering Output
+            self.cornerPhase or 0
+        ))
     end
 
     self.controls = controls
