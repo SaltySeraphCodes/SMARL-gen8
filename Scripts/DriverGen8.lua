@@ -674,7 +674,7 @@ function DriverGen8.client_onUpdate(self, dt)
 
     -- [[ CoM VISUALIZER ]]
     if self.body and self.shape then -- todo add flag so only when enabled
-        local comWorld = self.body.centerofMassPosition --Returns the center of mass world position of a body.
+        local comWorld = self.body.centerOfMassPosition --Returns the center of mass world position of a body.
         -- Draw a Blue Dot at CoM
         local effect = sm.effect.createEffect("Loot - GlowItem", nil)
         effect:setScale(sm.vec3.new(0,0,0))
