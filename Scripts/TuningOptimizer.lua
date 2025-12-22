@@ -18,8 +18,7 @@ function TuningOptimizer:init(driver)
     self.tickCount = 0
     self.yawAccumulator = 0
     self.yawHistory = {}
-    
-    print("TuningOptimizer: Initialized [" .. self.carType .. "] for Racer " .. self.driver.id)
+    print("TuningOptimizer: Initialized [" .. (self.driver.carType or "Generic") .. "] for Racer " .. self.driver.id)
 end
 
 function TuningOptimizer:checkFingerprint()

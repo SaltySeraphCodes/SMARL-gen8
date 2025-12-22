@@ -165,8 +165,8 @@ function DriverGen8.server_onFixedUpdate(self, dt)
         
         perceptionData = self.Perception:server_onFixedUpdate(dt)
         self.perceptionData = perceptionData 
-        if perceptionData.Telemetry and perceptionData.Telemetry.dimensions then
-            self.carDimensions = perceptionData.Telemetry.dimensions
+        if perceptionData.Telemetry and perceptionData.Telemetry.carDimensions then
+            self.carDimensions = perceptionData.Telemetry.carDimensions
         end
     end
     if perceptionData and self.Optimizer then
