@@ -349,9 +349,6 @@ function CameraManager.cl_resetDroneArrays(self)
                     table.insert(self.droneCameraDirArr, lookDirection)
                 end
             end
-        else
-            -- Optional: Print warning if still nil
-            -- print("CameraManager: Could not find valid position for racer", self.trackedRacer.id)
         end
     end
 end
@@ -361,15 +358,28 @@ function CameraManager.cl_updateDroneCamPosition(self,dt)
     if self.trackedRacer == nil or getDriverFromId(self.trackedRacer.id) == nil then return end
 
     local currentRacerId = self.trackedRacer and self.trackedRacer.id or nil
+    
+    -- [FIX] LOCAL HELPER: Robust Position Getter
+    -- This prevents the 'perceptionData is nil' crash by avoiding server-only data
+    local function getRacerPos(racer)
+        if not racer then return nil end
+        if racer.location then return racer.location end
+        if racer.shape then return racer.shape:getWorldPosition() end
+        if racer.body then return racer.body:getWorldPosition() end
+        return nil
+    end
+
     if currentRacerId ~= self.currentTrackedRacerId then -- Switching to new racer
+        local lastPosition = self.droneCameraPos
+        local racerPos = getRacerPos(self.trackedRacer)
         
-        local lastPosition = self.droneCameraPos -- sm.camera.getPosition() -- or dronePosition
-        local nextLocation = self.trackedRacer.location or self.trackedRacer.perceptionData.Telemetry.location or self.trackedRacer.body:getWorldPosition()  + self.raceControl.droneOffset
-        local dist = (lastPosition-nextLocation):length2()
-        --print("nextDist",dist,self.currentCameraMode)
-        if self.currentCameraMode ~= CAMERA_MODES.DRONE_CAM then -- also check distance-- Reset drone position since cam too far
-            --print("reset drone arr",self.currentCameraMode)
-            self:cl_resetDroneArrays()
+        if racerPos then
+            -- [FIX] Apply offset logic correctly
+            local nextLocation = racerPos + self.raceControl.droneOffset
+            local dist = (lastPosition-nextLocation):length2()
+            if self.currentCameraMode ~= CAMERA_MODES.DRONE_CAM then 
+                self:cl_resetDroneArrays()
+            end
         end
         self.currentTrackedRacerId = currentRacerId
     end
@@ -377,34 +387,45 @@ function CameraManager.cl_updateDroneCamPosition(self,dt)
     -- Get list of racers in top 10
     local top10Drivers = getDriversAbovePos(10)
     local avgPos = sm.vec3.new(0,0,0)
+    local count = 0
+    
     for _,racer in pairs(top10Drivers) do 
-        if racer then 
-            avgPos = avgPos + racer.perceptionData.Telemetry.location
+        -- [FIX] Use local helper instead of accessing perceptionData
+        local rPos = getRacerPos(racer)
+        if rPos then 
+            avgPos = avgPos + rPos
+            count = count + 1
         end
     end
-    avgPos = avgPos/#top10Drivers -- Average position between top 10 drivers 
-
-    if avgPos then 
+    
+    if count > 0 then
+        avgPos = avgPos / count -- Average position
+        
         local nextLocation = avgPos + self.raceControl.droneOffset
-        if nextLocation == nil then -- Move to velocity??
-            nextLocation = self.droneCameraArr[#self.droneCameraArr]  + self.raceControl.droneOffset -- Replaces with back location
+        if nextLocation == nil then 
+            -- Fallback to last known if somehow nil
+            nextLocation = self.droneCameraArr[#self.droneCameraArr] + self.raceControl.droneOffset 
         end
-        table.insert(self.droneCameraArr,nextLocation)
+        
+        table.insert(self.droneCameraArr, nextLocation)
 
         if #self.droneCameraArr > self.droneCamSmoothness then
-            table.remove(self.droneCameraArr,1)
+            table.remove(self.droneCameraArr, 1)
         end
+        
         local avg = sm.vec3.new(0,0,0)
         for _,x in pairs(self.droneCameraArr) do
-            --print(x)
             avg = avg + x
         end
-        avg = avg/self.droneCamSmoothness
-        self.droneCameraPos = avg-- directly pull this value onUpdate
-    else -- todo get distance between camPos, next avg  and DT to determine lag spikes/camera jumps
-        -- TODO: Have the drone follow the nodeChain in RC
+        avg = avg / self.droneCamSmoothness
+        self.droneCameraPos = avg
+    else 
+        -- Fallback if no group average possible
+        local racerPos = getRacerPos(self.trackedRacer)
+        if racerPos then
+             self.droneCameraPos = racerPos + self.raceControl.droneOffset
+        end
     end
-
 end
 
 function CameraManager.cl_updateDroneCamRotation(self, dt) -- might need to get avg over time for smoothness?
