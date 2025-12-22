@@ -120,6 +120,42 @@ function PerceptionModule.get_artificial_downforce(self)
     return totalDownforce
 end
 
+function PerceptionModule:scanTrackCurvature(scanDistance)
+    local nav = self.perceptionData.Navigation
+    if not nav or not nav.closestPointData then 
+        return MAX_CURVATURE_RADIUS, 0.0 
+    end
+
+    local currentNode = nav.closestPointData.baseNode
+    local currentT = nav.closestPointData.tOnSegment
+    
+    local minRadius = MAX_CURVATURE_RADIUS
+    local distToMin = 0.0
+    
+    -- Check points at intervals ahead
+    local scanStep = 5.0 -- Check every 5 meters
+    local currentDist = 0.0
+    
+    while currentDist < scanDistance do
+        -- Get three points centered around our scan distance
+        -- P_Prev -- P_Center -- P_Next
+        local pPrev = self:getPointInDistance(currentNode, currentT, currentDist - 3.0, self.chain)
+        local pCenter = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
+        local pNext = self:getPointInDistance(currentNode, currentT, currentDist + 3.0, self.chain)
+        
+        local radius = self:calculateCurvatureRadius(pPrev, pCenter, pNext)
+        
+        if radius < minRadius then
+            minRadius = radius
+            distToMin = currentDist
+        end
+        
+        currentDist = currentDist + scanStep
+    end
+    
+    return minRadius, distToMin
+end
+
 function PerceptionModule.get_world_rotations(self) 
     local rotationData = {}
     rotationData.at = self.Driver.shape:getAt()

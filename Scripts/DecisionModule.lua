@@ -66,6 +66,9 @@ local VIS_EFFECT = "paint_smoke" -- "paint_smoke" takes color well. Alternatives
 local VIS_STEP = 3.0
 local VIS_HEIGHT = 1.0
 
+local BRAKING_POWER_FACTOR = 0.6 -- Safety margin for braking (Lower = Brake Earlier)
+local SCAN_DISTANCE = 80.0       -- How far ahead to plan speed
+
 function DecisionModule.server_init(self,driver)
     self.Driver = driver 
     self.decisionData = {}
@@ -84,7 +87,9 @@ function DecisionModule.server_init(self,driver)
     self.isCornering = false
     self.cornerPhase = 0 -- 0: Straight, 1: Entry, 2: Apex, 3: Exit
     self.cornerTimer = 0.0
-    self.cornerDirection = 0 
+    self.cornerDirection = 0
+
+    self.speedUpdateTimer = 0 --
     
     self:calculateCarPerformance()
 end
@@ -119,7 +124,60 @@ function DecisionModule.calculateCarPerformance(self)
     self.dynamicMaxSpeed = dynamicMaxSpeed
 end
 
-function DecisionModule.getTargetSpeed(self,perceptionData, steerInput)
+function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
+    local tm = perceptionData.Telemetry
+    local currentSpeed = tm.speed
+    
+    -- 1. SCAN THE TRACK
+    -- Instead of relying on one lookahead point, we scan the whole sector
+    -- OPTIMIZATION: Only scan track geometry every 4 ticks (0.1s)
+    -- We cache the result in 'self.cachedMinRadius' and 'self.cachedDist'
+    local tick = sm.game.getServerTick()
+    if tick % 4 == 0 or not self.cachedMinRadius then
+         self.cachedMinRadius, self.cachedDist = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
+    end
+    
+    local minRadius = self.cachedMinRadius
+    local distToCorner = self.cachedDist
+    
+    -- 2. CALCULATE MAX CORNER SPEED (Physics: v = sqrt(r * g * friction))
+    -- 9.8 * 1.5 (Grip) approx 15.0. 
+    -- We multiply by a tuning factor (3.5) to match SM physics units
+    local friction = self.dynamicGripFactor or 0.9
+    local maxCornerSpeed = math.sqrt(minRadius * friction * 15.0) * 3.5
+    
+    -- Clamp limits
+    maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
+    maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
+    
+    -- 3. CALCULATE REQUIRED BRAKING
+    -- Physics: v_final^2 = v_initial^2 + 2*a*d
+    -- We need to know if we can reach v_final (CornerSpeed) from currentSpeed in distToCorner
+    -- Breaking Force approx 20.0 units in SM
+    local brakingForce = 25.0 * BRAKING_POWER_FACTOR
+    
+    -- Calculate the maximum speed we can have RIGHT NOW to still survive the upcoming corner
+    -- V_allowable = sqrt(V_corner^2 + 2 * a * d)
+    local allowableSpeed = math.sqrt((maxCornerSpeed * maxCornerSpeed) + (2 * brakingForce * distToCorner))
+    
+    -- 4. DECISION
+    -- If we are going faster than allowable, LIMIT the target speed to force braking
+    local targetSpeed = math.min(self.dynamicMaxSpeed, allowableSpeed)
+    
+    -- 5. CONTEXT MODIFIERS (Traffic, etc)
+    if self.currentMode == "Drafting" then targetSpeed = targetSpeed * 1.1 end
+    if self.currentMode == "Caution" then targetSpeed = 15.0 end
+    if self.pitState > 0 then targetSpeed = 15.0 end
+    if self.pitState == 3 then targetSpeed = 5.0 end
+
+    -- 6. STEERING DRAG (Slow down if turning hard now)
+    local steerFactor = math.abs(steerInput) * 0.1
+    targetSpeed = targetSpeed * (1.0 - steerFactor)
+
+    return targetSpeed
+end
+
+function DecisionModule.getTargetSpeed_old(self,perceptionData, steerInput)
     local navigation = perceptionData.Navigation
     local opponents = perceptionData.Opponents
     local currentMode = self.currentMode
@@ -413,6 +471,47 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
 end
 
 function DecisionModule.getFinalTargetBias(self, perceptionData)
+    local nav = perceptionData.Navigation
+    local opp = perceptionData.Opponents
+    local wall = perceptionData.WallAvoidance 
+    local currentMode = self.currentMode 
+    
+    -- 1. CRITICAL OVERRIDES
+    if self.pitState and self.pitState > 0 then return 0.0 end
+    if self.isCornering then return self.targetBias end
+    if currentMode == "Formation" or currentMode == "Caution" then
+        local b, _ = self:getStructuredModeTargets(perceptionData, currentMode)
+        return b
+    end
+
+    -- 2. HYBRID CONTEXT SYSTEM (Now handles Walls, Opponents, and Overtakes)
+    -- We enable this if there is Traffic OR Wall Danger
+    local isWallDanger = (wall.isLeftCritical or wall.isRightCritical or wall.isForwardLeftCritical or wall.isForwardRightCritical)
+    
+    if currentMode == "OvertakeDynamic" or 
+       currentMode == "AvoidCollision" or 
+       (opp.count > 0) or 
+       isWallDanger then  -- <--- Added Wall Trigger
+       
+        local bias, debugData = self:calculateContextBias(perceptionData)
+        self.latestDebugData = debugData 
+        return bias
+    end
+
+    -- 3. STANDARD MODES
+    if currentMode == "Drafting" then return 0.0 end
+    if currentMode == "Yield" then return self:getYieldBias(perceptionData) end
+    if currentMode == "DefendLine" then
+        if nav.longCurveDirection ~= 0 then return nav.longCurveDirection * DEFENSE_BIAS_FACTOR end
+        return DEFENSE_BIAS_FACTOR * self.Driver.carAggression * getSign(nav.trackPositionBias or 0.01)
+    end
+    
+    -- Default Cruise
+    return (self.Driver.carAggression - 0.5) * 0.8 
+end
+
+
+function DecisionModule.getFinalTargetBias_old(self, perceptionData)
     local nav = perceptionData.Navigation
     local opp = perceptionData.Opponents
     local aggression = self.Driver.carAggression 
