@@ -271,7 +271,10 @@ function DecisionModule:calculateContextBias(perceptionData)
     end
 
     local chosenAngle = rayAngles[bestIndex]
-    local targetBias = (chosenAngle / 45.0) 
+    
+    -- [FIX] INVERT CONTEXT BIAS
+    -- Positive Angle (Right) must become Negative Bias (Right Lane)
+    local targetBias = -(chosenAngle / 45.0) 
     
     return math.min(math.max(targetBias, -1.0), 1.0), debugData
 end
@@ -311,7 +314,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         self.cornerPhase = 1 
         self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir 
-        -- [FIX] Logic Correction: Go Negative (Right) for Left Turn Entry
         self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
     end
     
@@ -321,7 +323,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         -- PHASE 1: ENTRY (Setup)
         if self.cornerPhase == 1 then
             local entryIntensity = 1.0 - math.min(math.max((distToApex - 30.0) / 70.0, 0.0), 1.0)
-            -- [FIX] Target Outside
             self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
             
             local currentSpeed = perceptionData.Telemetry.speed or 0
@@ -334,7 +335,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             
         -- PHASE 2: APEX (Turn In)
         elseif self.cornerPhase == 2 then
-            -- [FIX] Target Inside (Positive for Left Turn)
             self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
             self.cornerTimer = self.cornerTimer - dt
             
@@ -349,7 +349,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             
         -- PHASE 3: EXIT (Track Out)
         elseif self.cornerPhase == 3 then
-            -- [FIX] Target Outside
             self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
             
             self.cornerTimer = self.cornerTimer - dt
@@ -525,8 +524,8 @@ function DecisionModule.calculateSteering(self,perceptionData)
     self.integralSteeringError = math.min(math.max(self.integralSteeringError, -MAX_I_TERM), MAX_I_TERM)
     local iTerm = self.integralSteeringError * STEERING_Ki
     
-    -- [FIX] RESTORE NEGATIVE SIGN - Steering = -Error
-    local rawSteer = -(pTerm * STEERING_Kp) + iTerm + dTerm
+    -- [FIX] REMOVED NEGATIVE SIGN: Error + means steer + (Right)
+    local rawSteer = (pTerm * STEERING_Kp) + iTerm + dTerm
     
     local speed = telemetry.speed or 0
     local speedFactor = 1.0 / (1.0 + (speed * 0.02)) 
