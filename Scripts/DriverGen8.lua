@@ -3,7 +3,6 @@ dofile("PerceptionModule.lua")
 dofile("DecisionModule.lua")
 dofile("ActionModule.lua")
 dofile("TuningOptimizer.lua")
-dofile("TuningOptimizer.lua")
 dofile("globals.lua")
 
 DriverGen8 = class(nil)
@@ -112,6 +111,15 @@ function DriverGen8.server_init(self)
 end
 
 function DriverGen8.client_init(self)
+    if not ALL_DRIVERS then ALL_DRIVERS = {} end
+    table.insert(ALL_DRIVERS, self)
+    
+    -- 2. Generate Dimensions Locally (So CameraManager has offsets)
+    -- We can reuse the global helpers since they are loaded on client too
+    if self.shape and self.body then
+         self.carDimensions = self:cl_scanDimensions()
+    end
+
     if sm.isHost then
         self.player = sm.localPlayer.getPlayer()
         self.network:sendToServer("sv_setPlayer", self.player)
@@ -119,6 +127,28 @@ function DriverGen8.client_init(self)
 end
 
 function DriverGen8.sv_setPlayer(self, player) self.player = player end
+
+function DriverGen8.cl_scanDimensions(self)
+    local body = self.shape:getBody()
+    if not body then return nil end
+    local shapes = body:getCreationShapes()
+    local origin = self.shape:getWorldPosition()
+    local at = self.shape:getAt()
+    local right = self.shape:getRight()
+
+    -- Calculate Offsets using Global Helpers
+    local front = getDirectionOffset(shapes, at, origin)
+    local rear = getDirectionOffset(shapes, at * -1, origin)
+    local left = getDirectionOffset(shapes, right * -1, origin)
+    local rightVec = getDirectionOffset(shapes, right, origin)
+
+    return {
+        front = front,
+        rear = rear, 
+        left = left,
+        right = rightVec
+    }
+end
 
 function DriverGen8.server_onFixedUpdate(self, dt)
     self:validate_self()
