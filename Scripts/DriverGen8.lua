@@ -291,6 +291,7 @@ function DriverGen8.resetCar(self, force)
             local ok, liftLevel = sm.tool.checkLiftCollision(bodies, spawnPos, rotation)
             if self.player then
                 if ok then
+                    print("reset car spawn",spawnPos,resetNode.id,location)
                     sm.player.placeLift(self.player, bodies, spawnPos, liftLevel, rotation)
                     self.liftPlaced = true
                     self.resetPosTimeout = 0
@@ -304,6 +305,7 @@ function DriverGen8.resetCar(self, force)
             end
         end
     elseif self.liftPlaced and self.player then
+        print("Reset complete")
         sm.player.removeLift(self.player)
         self.liftPlaced = false
     end
