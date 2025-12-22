@@ -13,10 +13,10 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
--- [FIX] Lower Kp from 0.18 to 0.12 to reduce oscillation on spawn
-local DEFAULT_STEERING_Kp = 0.12  
+-- [CHANGE] Lowered Kp to 0.10 for gentler steering on straights
+local DEFAULT_STEERING_Kp = 0.10  
 local DEFAULT_STEERING_Kd = 0.55  
-local LATERAL_Kp = 0.45    
+local LATERAL_Kp = 0.45        
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
 
@@ -81,7 +81,7 @@ function DecisionModule.server_init(self,driver)
 
     self.speedUpdateTimer = 0 
     
-    -- [FIX 1] Initialize Tuning Values on SELF so Optimizer can see them
+    -- Initialize Tuning Values
     self.STEERING_Kp_BASE = DEFAULT_STEERING_Kp
     self.STEERING_Kd_BASE = DEFAULT_STEERING_Kd
     
@@ -95,7 +95,6 @@ function DecisionModule.server_init(self,driver)
 end
 
 function DecisionModule.calculateCarPerformance(self)
-    -- [Use your existing code here]
     local dynamicMaxSpeed = BASE_MAX_SPEED
     local dynamicGripFactor = GRIP_FACTOR
     local car = self.Driver
@@ -516,7 +515,7 @@ function DecisionModule.calculateSteering(self, perceptionData)
     -- Reduces Kp as speed increases to prevent high-speed fishtailing
     local speedRatio = math.min(speed / self.dynamicMaxSpeed, 1.0)
     
-    -- [FIX 2] Use SELF.STEERING_Kp_BASE instead of local to prevent TuningOptimizer Crash
+    -- [FIX] Use SELF variables so TuningOptimizer can adjust them
     local kp = self.STEERING_Kp_BASE or DEFAULT_STEERING_Kp
     local kd = self.STEERING_Kd_BASE or DEFAULT_STEERING_Kd
     
@@ -530,9 +529,6 @@ function DecisionModule.calculateSteering(self, perceptionData)
     
     -- 3. Lateral Error (Target - Current)
     -- Car is Left (-0.5), Target is Center (0.0) -> Error = +0.5
-    -- [FIX 3] CRITICAL STEERING INVERSION
-    -- Previous: Positive Error -> Positive Steer -> Left Turn (Crash into Wall)
-    -- New: Positive Error -> Negative Steer -> Right Turn (Corrective)
     local lateralError = self.smoothedBias - nav.trackPositionBias
     self.lateralError = lateralError
 
@@ -543,11 +539,22 @@ function DecisionModule.calculateSteering(self, perceptionData)
     local angleErrorRad = math.atan2(crossZ, carDir:dot(goalDir))
 
     -- 5. PID Summation
-    -- Damping (dTerm) uses Yaw Rate to actively counter the car's spin
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
     
-    -- INVERTED Kp LOGIC HERE
-    local pTerm = -((lateralError * LATERAL_Kp) + (angleErrorRad / MAX_WHEEL_ANGLE_RAD))
+    -- [FIX] P-Term Logic: 
+    -- LateralError (+) = Car Left of Line -> Steer Right (+)
+    -- AngleError (+) = Car Right of Target Angle -> Steer Left (-)
+    local pTerm = (lateralError * LATERAL_Kp) - (angleErrorRad / MAX_WHEEL_ANGLE_RAD)
+    
+    -- [FIX] Damping Logic:
+    -- Yaw (+) = Spinning Left -> Steer Right (+) to Counter-Steer? 
+    -- NO. If we are spinning left, we want to resist that spin.
+    -- To resist Left Yaw, we need to create torque Right. 
+    -- However, in steering control, steering Right usually initiates a Right Turn (Negative Yaw).
+    -- So to Counter a Positive Yaw Rate, we steer Right.
+    -- Wait, previously 'yawRate' was positive, causing spin. That means Positive feedback.
+    -- We need Negative Feedback (Resistance).
+    -- So dTerm should be Negative.
     local dTerm = -yawRate * dynamicKd
     
     local rawSteer = (pTerm * dynamicKp) + dTerm
@@ -607,7 +614,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local velocity = tel.velocity
     local yawRate = tel.angularVelocity:dot(tel.rotations.up)
     
-    if spd > 10 and self.dbg_Radius and tick % 4 == 0 then 
+    if spd > 0.5 and self.dbg_Radius and tick % 4 == 0 then 
         print(string.format(
             "[%s] SPD:%03.0f/%03.0f | RAD:%03.0f | DIST:%03.0f | T:%.1f B:%.1f | STR:%+.2f | BIAS:%+.2f->%+.2f | %s | P:%d | YAW:%+.2f | ERR:%+.2f | V: (%.2f, %.2f, %.2f)",
             tostring(self.Driver.id % 100), 
