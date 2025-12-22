@@ -274,7 +274,12 @@ function DecisionModule:calculateContextBias(perceptionData)
     
     -- [FIX] INVERT CONTEXT BIAS
     -- Positive Angle (Right) must become Negative Bias (Right Lane)
-    local targetBias = -(chosenAngle / 45.0) 
+    -- But since we confirmed NegBias=Left, and +Angle=Right
+    -- +Angle (Right) -> +Bias (Right). 
+    -- WAIT: You confirmed Neg=Left, Pos=Right.
+    -- Context angles: + = Right.
+    -- So +Angle should produce +Bias.
+    local targetBias = (chosenAngle / 45.0) 
     
     return math.min(math.max(targetBias, -1.0), 1.0), debugData
 end
@@ -314,7 +319,9 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         self.cornerPhase = 1 
         self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir 
-        self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
+        -- [FIX] Logic: Entry = Opposite of Turn. 
+        -- Left Turn (Pos Dir) -> Need Right Bias (Pos Bias).
+        self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
     end
     
     if self.isCornering == true then
@@ -323,7 +330,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         -- PHASE 1: ENTRY (Setup)
         if self.cornerPhase == 1 then
             local entryIntensity = 1.0 - math.min(math.max((distToApex - 30.0) / 70.0, 0.0), 1.0)
-            self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
+            -- [FIX] Target Outside (Positive for Left Turn)
+            self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
             
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 20.0 + (currentSpeed * 0.7) 
@@ -335,7 +343,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             
         -- PHASE 2: APEX (Turn In)
         elseif self.cornerPhase == 2 then
-            self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
+            -- [FIX] Target Inside (Negative for Left Turn)
+            self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
             self.cornerTimer = self.cornerTimer - dt
             
             if self.cornerTimer <= 0.0 then
@@ -349,7 +358,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             
         -- PHASE 3: EXIT (Track Out)
         elseif self.cornerPhase == 3 then
-            self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
+            -- [FIX] Target Outside (Positive for Left Turn)
+            self.targetBias = self.cornerDirection * CORNER_EXIT_BIAS
             
             self.cornerTimer = self.cornerTimer - dt
             if self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
@@ -524,8 +534,8 @@ function DecisionModule.calculateSteering(self,perceptionData)
     self.integralSteeringError = math.min(math.max(self.integralSteeringError, -MAX_I_TERM), MAX_I_TERM)
     local iTerm = self.integralSteeringError * STEERING_Ki
     
-    -- [FIX] REMOVED NEGATIVE SIGN: Error + means steer + (Right)
-    local rawSteer = (pTerm * STEERING_Kp) + iTerm + dTerm
+    -- [FIX] RESTORE NEGATIVE SIGN: Error + means Go Right -> Steer - (Right)
+    local rawSteer = -(pTerm * STEERING_Kp) + iTerm + dTerm
     
     local speed = telemetry.speed or 0
     local speedFactor = 1.0 / (1.0 + (speed * 0.02)) 
