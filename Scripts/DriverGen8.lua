@@ -674,15 +674,21 @@ function DriverGen8.client_onUpdate(self, dt)
 
     -- [[ CoM VISUALIZER ]]
     if self.body and self.shape then -- todo add flag so only when enabled
-        local comWorld = self.body.centerOfMassPosition --Returns the center of mass world position of a body.
-        -- Draw a Blue Dot at CoM
-        local effect = sm.effect.createEffect("Loot - GlowItem", nil)
-        effect:setScale(sm.vec3.new(0,0,0))
-        effect:setPosition(comWorld)
-        effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-        effect:setParameter("Color", sm.color.new(0, 0, 1, 1))
-        if not effect:isPlaying() then effect:start() end
-        effect:setPosition(comWorld)
+        if self.CoMDebugEffect then
+            if not self.CoMDebugEffect:isPlaying() then self.CoMDebugEffect:start() end
+            self.CoMDebugEffect:setPosition(self.body.centerOfMassPosition)
+        else
+            local comWorld = self.body.centerOfMassPosition --Returns the center of mass world position of a body.
+            -- Draw a Blue Dot at CoM
+            local effect = sm.effect.createEffect("Loot - GlowItem", nil)
+            effect:setScale(sm.vec3.new(0,0,0))
+            effect:setPosition(comWorld)
+            effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+            effect:setParameter("Color", sm.color.new(0, 0, 1, 1))
+            if not effect:isPlaying() then effect:start() end
+            effect:setPosition(comWorld)
+            self.CoMDebugEffect = effect
+        end
     end
 
     -- Active dot counter
@@ -733,6 +739,10 @@ function DriverGen8.client_onUpdate(self, dt)
     for i = activeDots + 1, #self.effectPool do
         local effect = self.effectPool[i]
         if effect:isPlaying() then effect:stop() end
+    end
+    if self.CoMDebugEffect then
+        if self.CoMDebugEffect:isPlaying() then self.CoMDebugEffect:stop() end
+        self.CoMDebugEffect = nil
     end
 end
 
