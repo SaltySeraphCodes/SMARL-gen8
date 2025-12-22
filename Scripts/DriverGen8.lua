@@ -740,10 +740,6 @@ function DriverGen8.client_onUpdate(self, dt)
         local effect = self.effectPool[i]
         if effect:isPlaying() then effect:stop() end
     end
-    if self.CoMDebugEffect then
-        if self.CoMDebugEffect:isPlaying() then self.CoMDebugEffect:stop() end
-        self.CoMDebugEffect = nil
-    end
 end
 
 
