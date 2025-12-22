@@ -124,55 +124,67 @@ function DecisionModule.calculateCarPerformance(self)
     self.dynamicMaxSpeed = dynamicMaxSpeed
 end
 
+-- In DecisionModule.lua
+
 function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     local tm = perceptionData.Telemetry
     local currentSpeed = tm.speed
     
-    -- 1. SCAN THE TRACK
-    -- Instead of relying on one lookahead point, we scan the whole sector
-    -- OPTIMIZATION: Only scan track geometry every 4 ticks (0.1s)
-    -- We cache the result in 'self.cachedMinRadius' and 'self.cachedDist'
+    -- 1. SCAN THE TRACK (Throttled)
     local tick = sm.game.getServerTick()
     if tick % 4 == 0 or not self.cachedMinRadius then
          self.cachedMinRadius, self.cachedDist = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
     end
     
-    local minRadius = self.cachedMinRadius
-    local distToCorner = self.cachedDist
-    self.dbg_Radius = minRadius
+    local rawRadius = self.cachedMinRadius or MAX_CURVATURE_RADIUS
+    local distToCorner = self.cachedDist or 0
+
+    -- [[ FIX: RADIUS SMOOTHING ]]
+    -- Initialize if nil
+    if not self.smoothedRadius then self.smoothedRadius = rawRadius end
+
+    if rawRadius < self.smoothedRadius then
+        -- REACT FAST: If we see a sharper turn, accept it instantly
+        self.smoothedRadius = rawRadius
+    else
+        -- RECOVER SLOW: If the track seems to open up, blend slowly
+        -- This prevents the "Acceleration Spike" when data flickers
+        self.smoothedRadius = self.smoothedRadius + (5.0) -- Increase radius by 5 units per frame max
+        self.smoothedRadius = math.min(self.smoothedRadius, rawRadius)
+    end
+    
+    local effectiveRadius = self.smoothedRadius
+    
+    -- [[ DEBUG VALUES ]]
+    self.dbg_Radius = effectiveRadius -- Log the smoothed value
     self.dbg_Dist = distToCorner
-    -- 2. CALCULATE MAX CORNER SPEED (Physics: v = sqrt(r * g * friction))
-    -- 9.8 * 1.5 (Grip) approx 15.0. 
-    -- We multiply by a tuning factor (3.5) to match SM physics units
+
+    -- 2. CALCULATE MAX CORNER SPEED
     local friction = self.dynamicGripFactor or 0.9
-    local maxCornerSpeed = math.sqrt(minRadius * friction * 15.0) * 3.5
+    -- Use effectiveRadius instead of raw minRadius
+    local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * 3.5
     
     -- Clamp limits
     maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
     maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
     
     -- 3. CALCULATE REQUIRED BRAKING
-    -- Physics: v_final^2 = v_initial^2 + 2*a*d
-    -- We need to know if we can reach v_final (CornerSpeed) from currentSpeed in distToCorner
-    -- Breaking Force approx 20.0 units in SM
     local brakingForce = 25.0 * BRAKING_POWER_FACTOR
-    
-    -- Calculate the maximum speed we can have RIGHT NOW to still survive the upcoming corner
-    -- V_allowable = sqrt(V_corner^2 + 2 * a * d)
     local allowableSpeed = math.sqrt((maxCornerSpeed * maxCornerSpeed) + (2 * brakingForce * distToCorner))
+    
     self.dbg_MaxCorner = maxCornerSpeed
     self.dbg_Allowable = allowableSpeed
+
     -- 4. DECISION
-    -- If we are going faster than allowable, LIMIT the target speed to force braking
     local targetSpeed = math.min(self.dynamicMaxSpeed, allowableSpeed)
     
-    -- 5. CONTEXT MODIFIERS (Traffic, etc)
+    -- 5. CONTEXT MODIFIERS
     if self.currentMode == "Drafting" then targetSpeed = targetSpeed * 1.1 end
     if self.currentMode == "Caution" then targetSpeed = 15.0 end
     if self.pitState > 0 then targetSpeed = 15.0 end
     if self.pitState == 3 then targetSpeed = 5.0 end
 
-    -- 6. STEERING DRAG (Slow down if turning hard now)
+    -- 6. STEERING DRAG
     local steerFactor = math.abs(steerInput) * 0.1
     targetSpeed = targetSpeed * (1.0 - steerFactor)
 
@@ -462,9 +474,12 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         end
     end
     
-    -- Safety Reset if track straightens out unexpectedly 
-    -- Increased multiplier (3x to 4x) to prevent flickering exit on noisy radius data
-    if self.isCornering and radius > 4 * CORNER_RADIUS_THRESHOLD then
+    -- [[ FIX: INCREASED SAFETY THRESHOLD ]]
+    -- Was: radius > 3 * CORNER_RADIUS_THRESHOLD
+    -- Change to: radius > 5 * CORNER_RADIUS_THRESHOLD
+    -- This prevents the car from abandoning the "Cornering" line just because
+    -- it saw a brief glimpse of straight track while mid-corner.
+    if self.isCornering and radius > 5 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
         self.currentMode = "RaceLine"
@@ -793,7 +808,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
 
     local spd = perceptionData.Telemetry.speed or 0 -- logging
     local tick = sm.game.getServerTick()
-    if spd > 2 and self.dbg_Radius and  tick % 3 == 0 then -- Only log when moving and every 3 ticks
+    if spd > 10 and self.dbg_Radius and  tick % 3 == 0 then -- Only log when moving and every 3 ticks
         print(string.format(
             "[%s] SPD: %.0f/%.0f | RAD: %.0f (Dist: %.0f) | LIMIT: %.0f | ACT: T:%.1f B:%.1f | MODE: %s",
             tostring(self.Driver.id % 100), -- Short ID
