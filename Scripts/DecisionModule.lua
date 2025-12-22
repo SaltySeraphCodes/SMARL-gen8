@@ -57,7 +57,7 @@ local VISUALIZE_RAYS = true
 
 
 -- [[ BRAKING PHYSICS ]]
-local BRAKING_POWER_FACTOR = 0.6 
+local BRAKING_POWER_FACTOR = 0.9
 local SCAN_DISTANCE = 120.0       
 
 function DecisionModule.server_init(self,driver)
@@ -323,15 +323,15 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local nav = perceptionData.Navigation
     local radius = self.smoothedRadius or MIN_RADIUS_FOR_MAX_SPEED 
     local curveDir = nav.longCurveDirection 
-    local distToApex = self.cachedDist or 0.0 -- Uses the scanner's distance to the sharpest point
+    local distToApex = self.cachedDist or 0.0 
 
     -- ENTRY TRIGGER
     if self.isCornering == false and radius < CORNER_RADIUS_THRESHOLD then
         self.isCornering = true
         self.cornerPhase = 1 
+        self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir 
         self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
-        self.currentMode = "Cornering"
     end
     
     -- STATE MACHINE
@@ -340,14 +340,20 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         
         -- PHASE 1: ENTRY (Setup)
         if self.cornerPhase == 1 then
-            self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
+            -- [[ FIX: GRADUAL ENTRY ]]
+            -- Don't jerk to the outside wall at 120m. Slide over smoothly.
+            -- 100m+ away = 0% bias. 30m away = 100% bias.
+            local entryIntensity = 1.0 - math.min(math.max((distToApex - 30.0) / 70.0, 0.0), 1.0)
+            self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
             
-            -- [FIX] DISTANCE BASED SWITCH
-            -- Stay in Entry Mode until we are 25m from the Apex
-            -- (Or if we passed it, indicated by distance jumping up or radius increasing)
-            if distToApex < 25.0 then 
+            -- [[ FIX: DYNAMIC TURN-IN POINT ]]
+            -- Turn in earlier if we are going fast to account for latency/slip
+            local currentSpeed = perceptionData.Telemetry.speed or 0
+            local switchDist = 15.0 + (currentSpeed * 0.5) 
+            
+            if distToApex < switchDist then 
                 self.cornerPhase = 2 
-                self.cornerTimer = CORNER_PHASE_DURATION -- Reset timer for Phase 2 use
+                self.cornerTimer = CORNER_PHASE_DURATION 
             end
             
         -- PHASE 2: APEX (Turn In)
@@ -355,10 +361,7 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
             self.cornerTimer = self.cornerTimer - dt
             
-            -- Hold Apex line until we are clearly exiting the turn
-            -- We use the timer here to ensure we commit to the turn for at least 0.3s
             if self.cornerTimer <= 0.0 then
-                -- Latch: Don't leave Apex if turn is still tight
                 if radius < CORNER_RADIUS_THRESHOLD * 0.8 then
                     self.cornerTimer = 0.1 
                 else
@@ -381,7 +384,7 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         end
     end
     
-    -- SAFETY EXIT (If the straight is detected early)
+    -- SAFETY EXIT
     if self.isCornering and radius > 5 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
@@ -596,7 +599,6 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local spd = perceptionData.Telemetry.speed or 0 
     local tick = sm.game.getServerTick()
     
-    -- Track Position Info
     local nav = perceptionData.Navigation
     local trackInfo = "N:0|S:0"
     if nav and nav.closestPointData and nav.closestPointData.baseNode then
@@ -605,14 +607,14 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     
     local currentBias = nav and nav.trackPositionBias or 0.0
     
-    -- Only print if moving (reduce spam)
-    if spd > 10 and self.dbg_Radius and tick % 3 == 0 then 
+    if spd > 10 and self.dbg_Radius and tick % 4 == 0 then 
         print(string.format(
-            "[%s] SPD:%03.0f | RAD:%03.0f | DIST:%03.0f | T:%.1f B:%.1f | STR:%+.2f | BIAS:%+.2f->%+.2f | %s | P:%d",
+            "[%s] SPD:%03.0f/%03.0f | RAD:%03.0f | DIST:%03.0f | T:%.1f B:%.1f | STR:%+.2f | BIAS:%+.2f->%+.2f | %s | P:%d",
             tostring(self.Driver.id % 100), 
             spd, 
+            self.dbg_Allowable or 0, -- Limit is back!
             self.dbg_Radius or 0, 
-            self.cachedDist or 0, -- [NEW] Show Distance to Apex
+            self.cachedDist or 0, 
             controls.throttle,         
             controls.brake,            
             controls.steer,            
