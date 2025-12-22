@@ -1,4 +1,8 @@
 -- ActionModule.lua
+-- Steering Values (Permanent):
+---1 = full Left
+--1 = full right
+-- throttle values: 1 = full gas, 0 = coast, -1 = full brake
 dofile("globals.lua")
 ActionModule = class(nil)
 
@@ -83,7 +87,7 @@ end
 
 function ActionModule.applyControls(self,controls) 
     local currentSpeed = self.Driver.perceptionData.Telemetry.speed or 0.0
-    self:setSteering(controls.steer,currentSpeed)
+    self:setSteering(-1,currentSpeed)
     self:outputThrotttle(controls.throttle, controls.brake)
     if controls.resetCar then 
         self.Driver:resetCar() 
