@@ -240,13 +240,14 @@ function PerceptionModule.calculateNavigationInputs(self,navigation_data)
     nav.nodeGoalDirection = (lookaheadTarget - telemetry_data.location):normalize() 
     local node = navigation_data.closestPointData.baseNode
     if node.mid and node.perp and node.width then
-        -- [FIX] Use Car Location (telemetry) instead of Track Point (closestPointData.point)
-        -- This calculates where the CAR is relative to the center line.
-        local offsetVector = telemetry_data.location - node.mid 
-        
-        local halfWidth = node.width / 2
-        local lateralOffset = offsetVector:dot(node.perp) 
-        nav.trackPositionBias = math.min(math.max(lateralOffset / halfWidth, -1.0), 1.0)
+        local segmentDir = (node2.location - node1.location):normalize()
+        local segmentPerp = sm.vec3.new(-segmentDir.y, segmentDir.x, 0)
+        local offsetVector = telemetry_data.location - node.location -- Use optimized racing line
+        local lateralOffset = offsetVector:dot(node.perp)
+        -- If perp points Left: 
+        -- Car on Left -> Dot is Positive. We want BIAS to be Negative.
+        -- Car on Right -> Dot is Negative. We want BIAS to be Positive.
+        nav.trackPositionBias = -math.min(math.max(lateralOffset / (node.width / 2), -1.0), 1.0)
     else
         nav.trackPositionBias = 0.0
     end

@@ -85,9 +85,9 @@ function ActionModule.outputThrotttle(self, throttleValue, brakeValue)
     self.Driver.interactable:setPower(engineOutput)
 end
 
-function ActionModule.applyControls(self,controls) 
+function ActionModule.applyControls(self, controls) 
     local currentSpeed = self.Driver.perceptionData.Telemetry.speed or 0.0
-    self:setSteering(-1,currentSpeed)
+    self:setSteering(controls.steer, currentSpeed) -- Pass the AI's steer value
     self:outputThrotttle(controls.throttle, controls.brake)
     if controls.resetCar then 
         self.Driver:resetCar() 

@@ -13,16 +13,21 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local STEERING_Kp = 0.25           
-local STEERING_Ki = 0.005 
-local STEERING_Kd = 0.40           
-local LATERAL_Kp = 0.6 
+-- Base Gains
+local STEERING_Kp_BASE = 0.18  -- Initial snap-to-target strength
+local STEERING_Kd_BASE = 0.55  -- Initial damping (prevents overswing)
+local LATERAL_Kp = 0.45        -- Sensitivity to distance from the line
+-- Velocity Scaling Factors
+-- These reduce the steering force as you go faster to stop physics-based jitter.
+local Kp_MIN_FACTOR = 0.35     -- At max speed, Kp is reduced to 35% of base
+local Kd_BOOST_FACTOR = 1.2    -- At max speed, Kd is boosted 120% to fight momentum
 
 -- [[ TUNING - SPEED PID ]]
 local SPEED_Kp = 0.1 
 local SPEED_Ki = 0.01 
 local SPEED_Kd = 0.08 
 local MAX_I_TERM_SPEED = 10.0 
+local speedFactor = 1.0 / (1.0 + (speed * 0.05)) -- More aggressive reduction at speed
 local STEER_FACTOR_REDUCE = 0.0001 
 
 -- [[ RACING LOGIC ]]
@@ -49,8 +54,8 @@ local CORNER_PHASE_DURATION = 0.3
 local NUM_RAYS = 17            
 local VIEW_ANGLE = 120         
 local LOOKAHEAD_RANGE = 45.0   
-local SAFETY_WEIGHT = 4.0      
-local INTEREST_WEIGHT = 1.5    
+local SAFETY_WEIGHT = 5.0      
+local INTEREST_WEIGHT = 1.0   
 local WALL_AVOID_DIST = 4.0    
 local VISUALIZE_RAYS = true    
 
@@ -498,48 +503,41 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     end
 end
 
-function DecisionModule.calculateSteering(self,perceptionData)
+function DecisionModule.calculateSteering(self, perceptionData)
     local telemetry = perceptionData.Telemetry
-    local navigation = perceptionData.Navigation
-    if not navigation.nodeGoalDirection or not telemetry.rotations then return 0.0 end
-    local goalDir = navigation.nodeGoalDirection
-    local carDir = telemetry.rotations.at 
-    local angularVel = telemetry.angularVelocity 
-    
-    local rawTargetBias = self:getFinalTargetBias(perceptionData)
-    if not self.smoothedBias then self.smoothedBias = rawTargetBias end
-    self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.1
-    local targetBias = self.smoothedBias
-
-    local lateralError = targetBias - navigation.trackPositionBias
-    local lateralPTerm = lateralError * LATERAL_Kp 
-    
-    local carDir2D = sm.vec3.new(carDir.x, carDir.y, 0):normalize()
-    local goalDir2D = sm.vec3.new(goalDir.x, goalDir.y, 0):normalize()
-    local crossZ = carDir2D.x * goalDir2D.y - carDir2D.y * goalDir2D.x
-    local alignment = carDir2D:dot(goalDir2D) 
-    local angleErrorRad = math.atan2(crossZ, alignment)
-    local directionalPTerm = angleErrorRad / MAX_WHEEL_ANGLE_RAD
-    
-    local pTerm = lateralPTerm + directionalPTerm
-    local yawRate = angularVel:dot(telemetry.rotations.up) 
-    local dTerm = -yawRate * STEERING_Kd 
-    self.integralSteeringError = self.integralSteeringError + angleErrorRad 
-    local MAX_I_TERM = 5.0
-    self.integralSteeringError = math.min(math.max(self.integralSteeringError, -MAX_I_TERM), MAX_I_TERM)
-    local iTerm = self.integralSteeringError * STEERING_Ki
-    
-    -- [FIX] STEERING LOGIC FLIP
-    -- Error + means "Go Left".
-    -- Steer + means "Turn Left".
-    -- Steer = Error. No negative sign.
-    local rawSteer = (pTerm * STEERING_Kp) + iTerm + dTerm
-    
+    local nav = perceptionData.Navigation
     local speed = telemetry.speed or 0
-    local speedFactor = 1.0 / (1.0 + (speed * 0.02)) 
-    local finalSteer = rawSteer * speedFactor
     
-    return math.min(math.max(finalSteer, -1.0), 1.0)
+    -- 1. Dynamic Gain Scaling
+    -- Reduces Kp as speed increases to prevent high-speed fishtailing
+    local speedRatio = math.min(speed / self.dynamicMaxSpeed, 1.0)
+    local dynamicKp = STEERING_Kp_BASE * (1.0 - (speedRatio * (1.0 - Kp_MIN_FACTOR)))
+    local dynamicKd = STEERING_Kd_BASE * (1.0 + (speedRatio * (Kd_BOOST_FACTOR - 1.0)))
+
+    -- 2. Bias Calculation
+    local rawTargetBias = self:getFinalTargetBias(perceptionData)
+    self.smoothedBias = self.smoothedBias or rawTargetBias
+    self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.15
+    
+    -- 3. Lateral Error (Target - Current)
+    -- Car is Left (-0.5), Target is Center (0.0) -> Error = +0.5 (Steer Right)
+    local lateralError = self.smoothedBias - nav.trackPositionBias
+    self.lateralError = lateralError
+    -- 4. Heading Error (Angle)
+    local carDir = telemetry.rotations.at 
+    local goalDir = nav.nodeGoalDirection
+    local crossZ = carDir.x * goalDir.y - carDir.y * goalDir.x
+    local angleErrorRad = math.atan2(crossZ, carDir:dot(goalDir))
+
+    -- 5. PID Summation
+    -- Damping (dTerm) uses Yaw Rate to actively counter the car's spin
+    local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
+    
+    local pTerm = (lateralError * LATERAL_Kp) + (angleErrorRad / MAX_WHEEL_ANGLE_RAD)
+    local dTerm = -yawRate * dynamicKd
+    
+    local rawSteer = (pTerm * dynamicKp) + dTerm
+    return math.min(math.max(rawSteer, -1.0), 1.0)
 end
 
 function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
@@ -590,10 +588,14 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     end
     
     local currentBias = nav and nav.trackPositionBias or 0.0
+
+    local tel = perceptionData
+    local velocity = tel.velocity
+    local yawRate = tel.angularVelocity:dot(tel.rotations.up)
     
     if spd > 10 and self.dbg_Radius and tick % 4 == 0 then 
         print(string.format(
-            "[%s] SPD:%03.0f/%03.0f | RAD:%03.0f | DIST:%03.0f | T:%.1f B:%.1f | STR:%+.2f | BIAS:%+.2f->%+.2f | %s | P:%d",
+            "[%s] SPD:%03.0f/%03.0f | RAD:%03.0f | DIST:%03.0f | T:%.1f B:%.1f | STR:%+.2f | BIAS:%+.2f->%+.2f | %s | P:%d | YAW:%+.2f | ERR:%+.2f | V: (%.2f, %.2f, %.2f)",
             tostring(self.Driver.id % 100), 
             spd, 
             self.dbg_Allowable or 0, 
@@ -605,8 +607,12 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
             currentBias,               
             self.targetBias or 0,      
             self.currentMode:sub(1,4), 
-            self.cornerPhase or 0
+            self.cornerPhase or 0,
+            yawRate,
+            self.lateralError,
+            velocity.x, velocity.y, velocity.z
         ))
+        
     end
 
     self.controls = controls
