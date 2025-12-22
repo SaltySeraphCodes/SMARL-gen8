@@ -49,17 +49,12 @@ local CORNER_PHASE_DURATION = 0.3
 local NUM_RAYS = 17            
 local VIEW_ANGLE = 120         
 local LOOKAHEAD_RANGE = 45.0   
-local SAFETY_WEIGHT = 6.0      
-local INTEREST_WEIGHT = 1.2    
-local WALL_DANGER_DIST = 0.8   
+local SAFETY_WEIGHT = 4.0      -- [TUNED] Lowered from 6.0 to 4.0 to stop panic steering
+local INTEREST_WEIGHT = 1.5    -- [TUNED] Restored to 1.5 to keep forward focus
+local WALL_AVOID_DIST = 4.0    -- [TUNED] Start reacting earlier but softer
 local VISUALIZE_RAYS = true    
 
--- [[ VISUALIZATION ]]
-local VIS_STEP_SIZE = 4.0      
-local VIS_RAY_HEIGHT = 0.5     
-local VIS_EFFECT = "paint_smoke" 
-local VIS_STEP = 3.0
-local VIS_HEIGHT = 1.0
+
 
 -- [[ BRAKING PHYSICS ]]
 local BRAKING_POWER_FACTOR = 0.6 
@@ -245,19 +240,31 @@ function DecisionModule:calculateContextBias(perceptionData)
     end
 
     if wall then
-        local avoidanceMargin = 3.5 
+        -- SOFT WALL REPULSION
+        -- Instead of blocking rays entirely, we apply a gradient penalty.
+        local avoidanceMargin = WALL_AVOID_DIST 
+        
+        -- Left Wall
         if wall.marginLeft < avoidanceMargin then
+            -- 0m = 1.0 urgency, 4m = 0.0 urgency
             local urgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
-            local blockAngle = -5.0 + (urgency * -20.0) 
+            -- Cubing the urgency makes it start gentle and get strong ONLY when very close
+            urgency = urgency * urgency * urgency 
+            
+            local blockAngle = -5.0 + (urgency * -30.0) 
             for i = 1, NUM_RAYS do
                 if rayAngles[i] < 5 and rayAngles[i] < blockAngle then
                     dangerMap[i] = math.max(dangerMap[i], urgency)
                 end
             end
         end
+
+        -- Right Wall
         if wall.marginRight < avoidanceMargin then
             local urgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin)
-            local blockAngle = 5.0 + (urgency * 20.0)
+            urgency = urgency * urgency * urgency -- Cubic curve for smoothness
+            
+            local blockAngle = 5.0 + (urgency * 30.0)
             for i = 1, NUM_RAYS do
                 if rayAngles[i] > -5 and rayAngles[i] > blockAngle then
                     dangerMap[i] = math.max(dangerMap[i], urgency)

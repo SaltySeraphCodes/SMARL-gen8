@@ -332,16 +332,17 @@ function DriverGen8.resetCar(self, force)
         if bestNode and bestNode.outVector then
             local spawnAttemptNode = bestNode
             local success = false
-            
-            for i = 0, 5 do
+            for i = 0, 10 do
                 if not spawnAttemptNode then break end
                 
                 local loc = spawnAttemptNode.mid or spawnAttemptNode.location
                 local rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.75)
                 if rot == -1 then rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.45) end
+                -- Fallback rotation if vector math fails
+                if rot == -1 then rot = 0 end 
                 
-                -- Spawn high enough
-                local spawnPos = sm.vec3.new(loc.x, loc.y, loc.z + 2.5)
+                -- Spawn higher (3.0m) to avoid suspension clipping
+                local spawnPos = sm.vec3.new(loc.x, loc.y, loc.z + 3.0)
                 
                 local valid, liftLevel = sm.tool.checkLiftCollision(bodies, spawnPos, rot)
                 if valid and self.player then
@@ -363,7 +364,9 @@ function DriverGen8.resetCar(self, force)
                 spawnAttemptNode = self.nodeChain[nextIdx]
             end
             
-            if not success then print(self.id, "Reset Failed: Blocked") end
+            if not success then 
+                print(self.id, "Reset Failed: Blocked. BestNode:", bestNode.id, "Attempted:", i) 
+            end
         end
         
     elseif self.liftPlaced and self.player then
