@@ -477,6 +477,53 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     
     if self.pitState and self.pitState > 0 then return 0.0 end
     
+    if currentMode == "Formation" or currentMode == "Caution" then
+        local b, _ = self:getStructuredModeTargets(perceptionData, currentMode)
+        return b
+    end
+
+    -- Check if we NEED to use Context Steering
+    local isWallDanger = (wall.isLeftCritical or wall.isRightCritical or wall.isForwardLeftCritical or wall.isForwardRightCritical)
+    local useContextSteering = (currentMode == "OvertakeDynamic" or 
+                                currentMode == "AvoidCollision" or 
+                                (opp.count > 0) or 
+                                isWallDanger)
+
+    -- [[ VISUALIZATION FIX ]]
+    -- Run calculation if we need it OR if Debugging is enabled
+    if useContextSteering or VISUALIZE_RAYS then
+        local bias, debugData = self:calculateContextBias(perceptionData)
+        self.latestDebugData = debugData -- Send lines to client
+        
+        -- Only apply the steering bias if we are actually in a "Danger" mode
+        -- Otherwise, let the smooth PID race line handle it.
+        if useContextSteering then
+            return bias
+        end
+    end
+
+    if self.isCornering then 
+        return self.targetBias 
+    end
+
+    if currentMode == "Drafting" then return 0.0 end
+    if currentMode == "Yield" then return self:getYieldBias(perceptionData) end
+    if currentMode == "DefendLine" then
+        if nav.longCurveDirection ~= 0 then return nav.longCurveDirection * DEFENSE_BIAS_FACTOR end
+        return DEFENSE_BIAS_FACTOR * self.Driver.carAggression * getSign(nav.trackPositionBias or 0.01)
+    end
+    
+    return (self.Driver.carAggression - 0.5) * 0.8 
+end
+
+function DecisionModule.getFinalTargetBias_old(self, perceptionData)
+    local nav = perceptionData.Navigation
+    local opp = perceptionData.Opponents
+    local wall = perceptionData.WallAvoidance 
+    local currentMode = self.currentMode 
+    
+    if self.pitState and self.pitState > 0 then return 0.0 end
+    
     -- overrides
     if currentMode == "Formation" or currentMode == "Caution" then
         local b, _ = self:getStructuredModeTargets(perceptionData, currentMode)
