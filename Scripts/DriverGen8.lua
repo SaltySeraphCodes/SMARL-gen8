@@ -3,6 +3,7 @@ dofile("PerceptionModule.lua")
 dofile("DecisionModule.lua")
 dofile("ActionModule.lua")
 dofile("TuningOptimizer.lua")
+dofile("TuningOptimizer.lua")
 dofile("globals.lua")
 
 DriverGen8 = class(nil)

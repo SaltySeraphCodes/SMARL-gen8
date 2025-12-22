@@ -82,7 +82,7 @@ function DecisionModule.server_init(self,driver)
     self.cornerDirection = 0
 
     self.speedUpdateTimer = 0 
-    
+    self.trackPositionBias = 0.0 -- or 1.0, depending on your logic
     self.smoothedRadius = 1000.0
     self.radiusHoldTimer = 0.0
     self.cachedDist = 0.0

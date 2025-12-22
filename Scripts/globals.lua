@@ -285,6 +285,8 @@ function getDirectionOffset(shapeList,direction,origin)
 end
 
 
+
+
 -- Helpers
 function get_los(camera, driver)
     if not camera or not driver or not driver.shape then return false end

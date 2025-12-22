@@ -21,7 +21,7 @@ function CameraManager.client_onDestroy(self)
     print("Camera manager destroy")
     self.trackedRacer = nil
     self.trackedRacers = {}
-    -- Or is this already reset in client_init?
+    self:exitCamera()
 end
 
 

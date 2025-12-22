@@ -18,8 +18,9 @@ local CRITICAL_WALL_MARGIN = 0.5
 local WALL_LOOKAHEAD_DIST = 10.0 
 
 function PerceptionModule.server_init(self,driver)
-    self.Driver = driver 
-    
+    self.Driver = driver
+    self.Driver.carDimensions = self:scanCarDimensions()
+
     local aabb_min, aabb_max = self.Driver.body:getWorldAabb()
     local dimensions = aabb_max - aabb_min
     self.carHalfWidth = math.max(dimensions.x, dimensions.y) / 2.0
@@ -32,6 +33,45 @@ function PerceptionModule.server_init(self,driver)
     }
     self.chain = nil 
     self.currentNode = nil 
+end
+
+function PerceptionModule.scanCarDimensions(self)
+    -- Generates the front/rear/left/right offsets using Global helpers
+    local body = self.Driver.shape:getBody()
+    local shapes = body:getCreationShapes()
+    local origin = self.Driver.shape:getWorldPosition()
+    
+    local at = self.Driver.shape:getAt()
+    local right = self.Driver.shape:getRight()
+    
+    -- Use globals.lua helper: getDirectionOffset(shapeList, direction, origin)
+    local front = getDirectionOffset(shapes, at, origin)
+    local rear = getDirectionOffset(shapes, at * -1, origin)
+    local left = getDirectionOffset(shapes, right * -1, origin)
+    local rightVec = getDirectionOffset(shapes, right, origin)
+    
+    -- Calculate Center (Midpoint logic)
+    local frontLeft = origin + front + left
+    local rearRight = origin + rightVec + rear
+    local center = getMidpoint(frontLeft, rearRight) -- Global helper
+    
+    local centerOffset = center - origin
+    
+    -- Calculate center rotation/length relative to car
+    local centerLen = centerOffset:length()
+    local centerRot = sm.vec3.new(0,0,0)
+    if centerLen > 0.001 then
+        centerRot = sm.vec3.getRotation(at, centerOffset:normalize())
+    end
+    
+    -- Returns the exact table structure CameraManager expects
+    return {
+        front = front,
+        rear = rear,
+        left = left,
+        right = rightVec,
+        center = { rotation = centerRot, length = centerLen }
+    }
 end
 
 function PerceptionModule:findClosestNodeFallback(chain, carLocation)
@@ -170,6 +210,7 @@ end
 function PerceptionModule.build_telemetry_data(self)
     local driverBody = self.Driver.shape:getBody()
     local telemetryData = {} 
+    telemetryData.carDimensions = self.Driver.carDimensions or self:scanCarDimensions()
     telemetryData.velocity = driverBody:getVelocity()
     telemetryData.angularVelocity = driverBody:getAngularVelocity()
     telemetryData.angularSpeed = telemetryData.angularVelocity:length() 
