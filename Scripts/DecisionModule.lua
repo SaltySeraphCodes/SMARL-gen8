@@ -502,6 +502,9 @@ end
 function DecisionModule.calculateSteering(self, perceptionData)
     local telemetry = perceptionData.Telemetry
     local nav = perceptionData.Navigation
+    if not nav or not nav.trackPositionBias then
+        return 0.0
+    end
     local speed = telemetry.speed or 0
     
     -- 1. Dynamic Gain Scaling

@@ -270,6 +270,9 @@ end
 function PerceptionModule.calculateNavigationInputs(self, navigation_data)
     local telemetry_data = self.perceptionData.Telemetry or {}
     local nav = navigation_data or {}
+    nav.trackPositionBias = 0.0 
+    nav.nodeGoalDirection = sm.vec3.new(0, 1, 0)
+    
     if not navigation_data.closestPointData then return nav end
     
     local closestPointData = navigation_data.closestPointData

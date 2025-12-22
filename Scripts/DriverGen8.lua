@@ -47,6 +47,7 @@ function DriverGen8.server_onDestroy(self) if ALL_DRIVERS then for k, v in pairs
 function DriverGen8.server_init(self)
     print("Driver: Initializing Gen 8 AI System...")
     self.id = self.shape.id
+    self.carType = "Generic"
     self.body = self.shape:getBody()
     self.interactable = self.shape:getInteractable()
     self.isRacing = false
