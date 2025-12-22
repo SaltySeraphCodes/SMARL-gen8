@@ -68,6 +68,9 @@ function RaceControl.server_init(self)
     self:sv_init_track_data()
     self:sv_export_map_for_overlay() 
     
+    -- [NEW] Sync Flag
+    self.needsSync = false
+
     -- Initial Sync
     self:sv_syncRaceData()
 end
@@ -99,7 +102,6 @@ end
 -- --- MAIN LOOP ---
 
 function RaceControl.server_onFixedUpdate(self, dt)
-    -- [FIX] Tick the reset timer
     if self.resetCarTimer then self.resetCarTimer:tick() end
 
     if self.RaceManager then self.RaceManager:server_onFixedUpdate(dt) end
@@ -113,6 +115,12 @@ function RaceControl.server_onFixedUpdate(self, dt)
     if self.dataOutputTimer >= 0.1 and self.outputRealTime then 
         self:sv_output_data()
         self.dataOutputTimer = 0
+    end
+
+    -- [NEW] Handle Deferred Network Syncs
+    if self.needsSync then
+        self:sv_syncRaceData()
+        self.needsSync = false
     end
 end
 
@@ -293,12 +301,12 @@ function RaceControl.sv_import_league(self, league_id)
 end
 
 -- --- COMMAND ROUTING ---
-
 function RaceControl.sv_recieveCommand(self, command)
     if self.RaceManager then self.RaceManager:handleCommand(command) end
     if command.type == "lap_cross" and self.Leaderboard then
         self.Leaderboard:onLapCross(command.car, command.value, command.lapTime)
-        self:sv_syncRaceData()
+        -- [FIX] Don't sync immediately (causes Sandbox Error). Defer it.
+        self.needsSync = true 
     end
 end
 

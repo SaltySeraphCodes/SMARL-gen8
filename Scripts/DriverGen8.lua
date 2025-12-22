@@ -620,6 +620,7 @@ function DriverGen8.client_onUpdate(self, dt)
     -- Initialize Pool if missing
     if not self.effectPool then self.effectPool = {} end
 
+    if self.shape then self.location = self.shape:getWorldPosition() end
     -- Active dot counter
     local activeDots = 0
 

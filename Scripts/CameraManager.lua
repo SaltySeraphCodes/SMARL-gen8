@@ -326,21 +326,34 @@ function CameraManager.cl_resetDroneArrays(self)
 
     self.droneCameraArr = {} -- Clear the history!
     self.droneCameraDirArr = {} -- Also clear the direction history
+    
     if self.trackedRacer then
-        local nextLocation = self.trackedRacer.location + self.raceControl.droneOffset
-        for i=1, self.droneCamSmoothness do -- Fill the array with the starting position to prevent lag/jump
-            table.insert(self.droneCameraArr, nextLocation)
-        end
-        local droneCameraPos = nextLocation -- Get the actual camera position
-        local targetPos = self.trackingLocation
-        local lookDirection = (targetPos - droneCameraPos):normalize()
-        if lookDirection ~= nil then
-            for i=1, self.droneCamDirSmoothness do -- Fill the array with the starting position to prevent lag/jump
-                table.insert(self.droneCameraDirArr, lookDirection)
+        -- [FIX] Robust Location Check: Try .location -> shape -> body
+        local carPos = self.trackedRacer.location 
+        if not carPos and self.trackedRacer.shape then carPos = self.trackedRacer.shape:getWorldPosition() end
+        if not carPos and self.trackedRacer.body then carPos = self.trackedRacer.body:getWorldPosition() end
+        
+        -- Only proceed if we found a valid position
+        if carPos and self.raceControl and self.raceControl.droneOffset then
+            local nextLocation = carPos + self.raceControl.droneOffset
+            for i=1, self.droneCamSmoothness do 
+                table.insert(self.droneCameraArr, nextLocation)
             end
+            
+            local droneCameraPos = nextLocation 
+            local targetPos = self.trackingLocation or carPos -- Fallback to carPos if tracking is nil
+            
+            local lookDirection = (targetPos - droneCameraPos):normalize()
+            if lookDirection ~= nil then
+                for i=1, self.droneCamDirSmoothness do 
+                    table.insert(self.droneCameraDirArr, lookDirection)
+                end
+            end
+        else
+            -- Optional: Print warning if still nil
+            -- print("CameraManager: Could not find valid position for racer", self.trackedRacer.id)
         end
     end
-
 end
 
 function CameraManager.cl_updateDroneCamPosition(self,dt) 
