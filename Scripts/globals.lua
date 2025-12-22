@@ -369,4 +369,63 @@ function cl_checkHover(shape)
     return false
 end
 
+
+-- Tuning Optimization ---
+function generatePhysicsFingerprint(driver)
+    -- 1. Get Telemetry
+    -- We need to check for 'dimensions' specifically now
+    if not driver.perceptionData or 
+       not driver.perceptionData.Telemetry or 
+       not driver.perceptionData.Telemetry.dimensions or
+       driver.perceptionData.Telemetry.isOnLift then 
+        return "INIT_WAIT" 
+    end
+    
+    local tel = driver.perceptionData.Telemetry
+    
+    -- 2. Mass Bucket (Nearest 250kg)
+    local rawMass = tel.mass or 1000
+    local massBucket = math.floor((rawMass / 250) + 0.5) * 250
+    
+    -- 3. Downforce Bucket (Nearest 500 units)
+    local rawDownforce = tel.downforce or 0
+    if driver.Spoiler_Angle then
+        rawDownforce = rawDownforce + (driver.Spoiler_Angle * 20) 
+    end
+    local dfBucket = math.floor((rawDownforce / 500) + 0.5) * 500
+    
+    -- 4. Dimension Sorting (Rotation Invariant)
+    -- We assume the car is longer than it is wide.
+    local dims = tel.dimensions -- Calculated in PerceptionModule
+    local dimA = dims.x
+    local dimB = dims.y
+    
+    local length = math.max(dimA, dimB) -- The larger one is Length
+    local width = math.min(dimA, dimB)  -- The smaller one is Width
+    
+    local lengthBucket = math.floor((length / 0.5) + 0.5) * 0.5 
+    local widthBucket = math.floor((width / 0.5) + 0.5) * 0.5
+    
+    -- 5. Engine Profile
+    local engineTag = "STD"
+    if driver.engine and driver.engine.engineStats then
+        local stats = driver.engine.engineStats
+        if stats.TYPE == "custom" then
+             local speedBucket = math.floor((stats.MAX_SPEED / 25) + 0.5) * 25
+             engineTag = "C" .. speedBucket
+        else
+             engineTag = stats.TYPE or "STD"
+        end
+    end
+
+    -- 6. Construct ID (e.g., M1500_DF500_L5.0_W2.5_sports)
+    local fingerprint = string.format("M%d_DF%d_L%.1f_W%.1f_%s", 
+        massBucket, dfBucket, lengthBucket, widthBucket, engineTag)
+        
+    return fingerprint
+end
+
+
+
+
 print("Globals Loaded (Gen 8)")

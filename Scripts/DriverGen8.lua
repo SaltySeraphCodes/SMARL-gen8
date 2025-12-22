@@ -2,6 +2,7 @@
 dofile("PerceptionModule.lua")
 dofile("DecisionModule.lua")
 dofile("ActionModule.lua")
+dofile("TuningOptimizer.lua")
 dofile("globals.lua")
 
 DriverGen8 = class(nil)
@@ -100,6 +101,8 @@ function DriverGen8.server_init(self)
     self.Decision:server_init(self)
     self.Action = ActionModule()
     self.Action:server_init(self)
+    self.Optimizer = TuningOptimizer()
+    self.Optimizer:init(self)
     
     self:sv_loadTrackData()
     self.raceControlError = true
@@ -133,6 +136,9 @@ function DriverGen8.server_onFixedUpdate(self, dt)
         if perceptionData.Telemetry and perceptionData.Telemetry.dimensions then
             self.carDimensions = perceptionData.Telemetry.dimensions
         end
+    end
+    if perceptionData and self.Optimizer then
+        self.Optimizer:recordFrame(perceptionData)
     end
 
     -- 2. LOGIC (PIT & RACE)
@@ -589,9 +595,20 @@ function DriverGen8.checkSectorCross(self)
     if currentNav and currentNav.closestPointData then
         local currentSector = currentNav.closestPointData.baseNode.sectorID
         if self.lastSectorID ~= currentSector then
+             -- Calculate time taken for previous sector
+             -- TRIGGER OPTIMIZER
+             if self.Optimizer then
+                -- Calc duration
+                local now = sm.game.getServerTick() / 40.0
+                local last = self.lastSectorTime or now
+                self.Optimizer:onSectorComplete(self.lastSectorID, now - last)
+                self.lastSectorTime = now
+            end
+
+             self.lastSectorTime = now
              self.lastSectorID = currentSector
              self.currentSector = currentSector
-             self:sv_sendCommand({ car = self.id, type = "sector_cross", value = currentSector, time = sm.game.getServerTick() / 40.0 })
+             self:sv_sendCommand({ car = self.id, type = "sector_cross", value = currentSector, time = now })
         end
     end
 end

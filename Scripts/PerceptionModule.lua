@@ -171,11 +171,14 @@ function PerceptionModule.build_telemetry_data(self)
     local driverBody = self.Driver.shape:getBody()
     local telemetryData = {} 
     telemetryData.velocity = driverBody:getVelocity()
-    telemetryData.angularVelocity = self.Driver.body:getAngularVelocity()
+    telemetryData.angularVelocity = driverBody:getAngularVelocity()
     telemetryData.angularSpeed = telemetryData.angularVelocity:length() 
     telemetryData.speed = telemetryData.velocity:length() 
-    telemetryData.mass = self.Driver.body:getMass()
-    telemetryData.worldAabb = self.Driver.body:getWorldAabb()
+    telemetryData.mass = driverBody:getMass()
+    local aabb_min, aabb_max = driverBody:getWorldAabb()
+    telemetryData.worldAabb = { min = aabb_min, max = aabb_max } -- Store table if needed, or just keep internal
+    local dims = aabb_max - aabb_min
+    telemetryData.dimensions = dims
     telemetryData.carHalfWidth = self.carHalfWidth 
     telemetryData.location = self.Driver.body:getWorldPosition() 
     telemetryData.isOnLift = self.Driver.body:isStatic()
@@ -223,52 +226,67 @@ function PerceptionModule.findClosestPointOnTrack(self,location,chain)
     return closestPoint
 end
 
-function PerceptionModule.calculateNavigationInputs(self,navigation_data)
+function PerceptionModule.calculateNavigationInputs(self, navigation_data)
     local telemetry_data = self.perceptionData.Telemetry or {}
     local nav = navigation_data or {}
     if not navigation_data.closestPointData then return nav end
+    
     local closestPointData = navigation_data.closestPointData
+    local baseNode = closestPointData.baseNode
+    
+    -- 1. Lookahead Logic
     local baseLookahead = 5 
     local speedFactor = 0.6   
     local lookaheadDist = baseLookahead + telemetry_data.speed * speedFactor 
     local lookaheadTarget = self:getPointInDistance(
-        closestPointData.baseNode, 
+        baseNode, 
         closestPointData.tOnSegment, 
         lookaheadDist,
         self.chain 
     )
     nav.nodeGoalDirection = (lookaheadTarget - telemetry_data.location):normalize() 
-    local node = navigation_data.closestPointData.baseNode
-    if node.mid and node.perp and node.width then
+
+    -- 2. Robust Track Position Bias Calculation
+    -- Get the NEXT node to define the actual segment direction
+    local node1 = baseNode
+    local node2 = getNextItem(self.chain, node1.id, 1)
+
+    if node1 and node2 and node1.width then
+        -- Calculate the actual segment perpendicular (more robust than static node.perp)
         local segmentDir = (node2.location - node1.location):normalize()
         local segmentPerp = sm.vec3.new(-segmentDir.y, segmentDir.x, 0)
-        local offsetVector = telemetry_data.location - node.location -- Use optimized racing line
-        local lateralOffset = offsetVector:dot(node.perp)
-        -- If perp points Left: 
-        -- Car on Left -> Dot is Positive. We want BIAS to be Negative.
-        -- Car on Right -> Dot is Negative. We want BIAS to be Positive.
-        nav.trackPositionBias = -math.min(math.max(lateralOffset / (node.width / 2), -1.0), 1.0)
+        
+        -- Calculate how far the car is from the racing line (node.location)
+        local offsetVector = telemetry_data.location - node1.location
+        local lateralOffset = offsetVector:dot(segmentPerp)
+        
+        -- Logic Check: 
+        -- In SM, if segmentPerp points Left, a positive dot means the car is on the LEFT.
+        -- Since we want Bias -1.0 for Left, we negate the final result.
+        local halfWidth = node1.width / 2
+        nav.trackPositionBias = -math.min(math.max(lateralOffset / halfWidth, -1.0), 1.0)
     else
         nav.trackPositionBias = 0.0
     end
-    local node = navigation_data.closestPointData.baseNode
-    if node.perp and node.mid and node.width then
-        local perpVector = node.perp:normalize() 
-        local halfWidth = node.width / 2
-        local desired_bias_left = -LANE_SLOT_WIDTH
-        local desired_bias_right = LANE_SLOT_WIDTH
+
+    -- 3. Visual/Navigation Targets
+    if node1.perp and node1.width then
+        local perpVector = node1.perp:normalize() 
+        local halfWidth = node1.width / 2
+        
         nav.centerlineTarget = lookaheadTarget 
-        local target_mid_loc = node.location + (lookaheadTarget - closestPointData.point) 
-        nav.lookaheadTargetLeft = target_mid_loc + perpVector * (halfWidth * (desired_bias_left - CAR_WIDTH_BIAS))
-        nav.lookaheadTargetRight = target_mid_loc + perpVector * (halfWidth * (desired_bias_right + CAR_WIDTH_BIAS))
+        local target_mid_loc = node1.location + (lookaheadTarget - closestPointData.point) 
+        
+        nav.lookaheadTargetLeft = target_mid_loc + perpVector * (halfWidth * (-LANE_SLOT_WIDTH - CAR_WIDTH_BIAS))
+        nav.lookaheadTargetRight = target_mid_loc + perpVector * (halfWidth * (LANE_SLOT_WIDTH + CAR_WIDTH_BIAS))
     else
         nav.centerlineTarget = lookaheadTarget
         nav.lookaheadTargetLeft = lookaheadTarget
         nav.lookaheadTargetRight = lookaheadTarget
     end
+
     return nav
 end
-
 function PerceptionModule.build_navigation_data(self) 
     local navigationData = {}
     navigationData.closestPointData = self:findClosestPointOnTrack(nil, self.chain) 
@@ -311,42 +329,42 @@ function PerceptionModule.calculateWallAvoidance(self)
     local nav = self.perceptionData.Navigation or {}
     local wallData = {}
     local CAR_HALF_WIDTH_ACTUAL = self.carHalfWidth 
+    
     if not nav.closestPointData then 
         wallData.marginLeft = math.huge
         wallData.marginRight = math.huge
         return wallData
     end
+    
     local node = nav.closestPointData.baseNode
-    local trackWidth = node.width
-    local trackBias = nav.trackPositionBias 
-    local halfWidth = trackWidth / 2
-    wallData.marginLeft = (1.0 + trackBias) * halfWidth - CAR_HALF_WIDTH_ACTUAL 
+    local halfWidth = node.width / 2
+    local trackBias = nav.trackPositionBias -- Uses the fixed -1 to 1 bias
+    
+    -- LATERAL CALCULATIONS (Current Position)
+    -- If Bias is -1 (Left), marginLeft should be 0.
+    -- If Bias is 1 (Right), marginRight should be 0.
+    wallData.marginLeft = (1.0 + trackBias) * halfWidth - CAR_HALF_WIDTH_ACTUAL
     wallData.marginRight = (1.0 - trackBias) * halfWidth - CAR_HALF_WIDTH_ACTUAL
-    local forwardNodeLocation = self:getPointInDistance(
-        node, 
-        nav.closestPointData.tOnSegment, 
-        WALL_LOOKAHEAD_DIST, 
-        self.chain
-    )
-    local closestPointForward = self:findClosestPointOnTrack(forwardNodeLocation, self.chain)
-    if closestPointForward and closestPointForward.baseNode then
-        local forwardLookaheadNode = closestPointForward.baseNode
-        local forwardHalfWidth = forwardLookaheadNode.width / 2
-        local forwardMid = forwardLookaheadNode.mid
-        local forwardPerp = forwardLookaheadNode.perp:normalize()
-        local offsetVector = forwardNodeLocation - forwardMid
-        local forwardLateralOffset = offsetVector:dot(forwardPerp)
-        local forwardBias = math.min(math.max(forwardLateralOffset / forwardHalfWidth, -1.0), 1.0)
-        wallData.forwardMarginLeft = (1.0 + forwardBias) * forwardHalfWidth - CAR_HALF_WIDTH_ACTUAL
-        wallData.forwardMarginRight = (1.0 - forwardBias) * forwardHalfWidth - CAR_HALF_WIDTH_ACTUAL
+    
+    -- LOOKAHEAD CALCULATIONS (Predictive)
+    -- Optimized: Instead of a full search, we peek forward in the chain
+    local forwardNode = getNextItem(self.chain, node.id, 3) -- Peak ~12m ahead
+    if forwardNode then
+        -- We estimate forward bias based on current trajectory to save CPU
+        local forwardHalfWidth = forwardNode.width / 2
+        wallData.forwardMarginLeft = (1.0 + trackBias) * forwardHalfWidth - CAR_HALF_WIDTH_ACTUAL
+        wallData.forwardMarginRight = (1.0 - trackBias) * forwardHalfWidth - CAR_HALF_WIDTH_ACTUAL
     else
         wallData.forwardMarginLeft = wallData.marginLeft
         wallData.forwardMarginRight = wallData.marginRight
     end
+    
+    -- CRITICAL FLAGS
     wallData.isLeftCritical = wallData.marginLeft <= CRITICAL_WALL_MARGIN
     wallData.isRightCritical = wallData.marginRight <= CRITICAL_WALL_MARGIN
     wallData.isForwardLeftCritical = wallData.forwardMarginLeft <= CRITICAL_WALL_MARGIN
     wallData.isForwardRightCritical = wallData.forwardMarginRight <= CRITICAL_WALL_MARGIN
+    
     return wallData
 end
 

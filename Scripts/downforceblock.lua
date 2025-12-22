@@ -1,11 +1,14 @@
 -- Copyright (c) 2019 Seraph --
---dofile "../Libs/GameImprovements/interactable.lua"
--- read in maps
-if  sm.isHost then -- Just avoid anythign that isnt the host for now
-	dofile "globals.lua"
-end
--- Reverse Lights
--- Turns on when car starts braking
+dofile "globals.lua"
+
+-- Purpose, add an artificial downforce to vehicles, saves to block and blueprint
+-- Usage: Place block on vehicle, interact to increase downforce, crouch+interact to decrease downforce
+-- Downforce is applied only when vehicle is relatively flat, not when going up or down steep inclines
+-- TODO: Consider vehicle speed and parts for more realistic downforce application
+-- TODO: Integrate with driver AI to detect and adjust for downforce effects
+-- TODO: Add visual indicators for downforce level (when debug mode is enabled (onTinker)
+-- TODO: Have downforce able to be toggled by logic blocks (eg a sensor or gate/switch)
+
 DownforceBlock = class( nil )
 DownforceBlock.maxChildCount = -1
 DownforceBlock.maxParentCount = 0

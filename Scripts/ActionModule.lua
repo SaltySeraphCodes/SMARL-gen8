@@ -12,10 +12,11 @@ local MIN_ADJUSTMENT = 3.0
 local ADJUSTMENT_SPEED_REF = 50.0 
 
 function ActionModule.server_init(self,driver)
-    self.Driver = driver 
-    self.steeringOut = 0 
+    self.Driver = driver
+    self.steeringOut = 0
     self.throttleOut = 0
-    self.curGear = 1 
+    self.curGear = 1
+    self.shiftTimer = 0.0 -- New: Prevents rapid shifting
 end
 
 function ActionModule.shiftGear(self,gear) 
@@ -25,8 +26,11 @@ function ActionModule.shiftGear(self,gear)
     self.Driver.engine:setGear(gear)
 end
 
-function ActionModule.updateGearing(self)
+function ActionModule.updateGearing(self, dt)
     if self.Driver.engine == nil or self.Driver.engine.engineStats == nil then return end
+    
+    self.shiftTimer = math.max(0, self.shiftTimer - dt)
+    if self.shiftTimer > 0 then return end -- Wait for current gear to settle
 
     local engine = self.Driver.engine
     local vrpm = engine.curVRPM 
@@ -34,33 +38,45 @@ function ActionModule.updateGearing(self)
     local highestGear = #engine.engineStats.GEARING
     local ai_throttle = self.decisionData.throttle
     local ai_brake = self.decisionData.brake
-    local currentSpeed = self.Driver.perceptionData.Telemetry.speed or 0.0
+    local telemetry = self.Driver.perceptionData.Telemetry
+    local currentSpeed = telemetry.speed or 0.0
+    local yawRate = math.abs(telemetry.angularVelocity:dot(telemetry.rotations.up))
+    
     local nextGear = self.curGear
     
     if self.Driver.racing or self.Driver.isRacing then
-        if ai_throttle > 0.3 then 
-            if self.curGear <= 0 then 
-                nextGear = 1 
-            elseif vrpm >= revLimit * 0.95 then 
-                if self.curGear < highestGear then
-                    nextGear = self.curGear + 1 
-                end
+        -- UPSHIFT LOGIC
+        if ai_throttle > 0.5 and vrpm >= revLimit * 0.92 then 
+            if self.curGear < highestGear then
+                nextGear = self.curGear + 1 
             end
         end
 
-        if currentSpeed < 10.0 and self.curGear > 1 and vrpm < revLimit * 0.2 then
-             nextGear = self.curGear - 1 
-        elseif ai_brake > 0.4 and self.curGear > 1 and vrpm < revLimit * 0.35 then
-             nextGear = self.curGear - 1
+        -- DOWNSHIFT LOGIC (Protected)
+        -- Only downshift if we aren't mid-slide (yawRate check)
+        if yawRate < 1.5 then 
+            if ai_brake > 0.5 and self.curGear > 1 then
+                -- Downshift earlier during heavy braking to use engine braking, 
+                -- but only if VRPM is safe to avoid wheel lock.
+                if vrpm < revLimit * 0.4 then
+                    nextGear = self.curGear - 1
+                end
+            elseif currentSpeed < 5.0 and self.curGear > 1 then
+                nextGear = 1 -- Reset to 1st when nearly stopped
+            end
         end
 
+        -- REVERSE LOGIC
         if currentSpeed < 1.0 and ai_brake > 0.8 and self.curGear >= 0 then
             nextGear = -1
+        elseif self.curGear == -1 and ai_throttle > 0.5 then
+            nextGear = 1
         end
     end
 
     if nextGear ~= self.curGear then
         self:shiftGear(nextGear)
+        self.shiftTimer = 0.4 -- Lock shifting for 0.4s (adjust based on engine response)
     end
 end
 

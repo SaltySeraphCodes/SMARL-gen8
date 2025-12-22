@@ -275,10 +275,8 @@ function DecisionModule:calculateContextBias(perceptionData)
 
     local chosenAngle = rayAngles[bestIndex]
     
-    -- [FIX] Context Sign Flip
-    -- Positive Angle (Left) -> Positive Bias (Left Lane). 
-    -- So Bias = Angle. No negative sign.
-    local targetBias = (chosenAngle / 45.0) 
+    
+    local targetBias = -(chosenAngle / 45.0) 
     
     return math.min(math.max(targetBias, -1.0), 1.0), debugData
 end
@@ -531,7 +529,7 @@ function DecisionModule.calculateSteering(self, perceptionData)
     -- Damping (dTerm) uses Yaw Rate to actively counter the car's spin
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
     
-    local pTerm = (lateralError * LATERAL_Kp) + (angleErrorRad / MAX_WHEEL_ANGLE_RAD)
+    local pTerm = (lateralError * LATERAL_Kp) - (angleErrorRad / MAX_WHEEL_ANGLE_RAD)    
     local dTerm = -yawRate * dynamicKd
     
     local rawSteer = (pTerm * dynamicKp) + dTerm
@@ -587,7 +585,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     
     local currentBias = nav and nav.trackPositionBias or 0.0
 
-    local tel = perceptionData
+    local tel = perceptionData.Telemetry
     local velocity = tel.velocity
     local yawRate = tel.angularVelocity:dot(tel.rotations.up)
     
