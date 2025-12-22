@@ -477,7 +477,7 @@ function CameraManager.cl_calculateHoodPos(self,racer)
     if self.trackedRacer == nil or getDriverFromId(self.trackedRacer.id) == nil then return end
 
     local racerShape = self.trackedRacer.shape
-    -- [FIX] Guard against nil shape (e.g. car destroyed or not streamed in)
+    -- [FIX 1/3] Guard against nil shape (e.g. car destroyed or not streamed in)
     if not racerShape or not sm.exists(racerShape) then return nil end
 
     local carDir = racerShape:getAt()
@@ -500,14 +500,19 @@ function CameraManager.cl_resetOnboardArrays(self)
     -- Fill the array with the starting position to prevent lag/jump
     if self.trackedRacer then
         local startLocation = self:cl_calculateHoodPos(self.trackedRacer)
-        for i=1, self.onboardCamPosSmooth do
-            table.insert(self.onboardCameraPosArr, startLocation)
+        if startLocation then -- Guard against nil start pos
+            for i=1, self.onboardCamPosSmooth do
+                table.insert(self.onboardCameraPosArr, startLocation)
+            end
         end
+
         local racerShape = self.trackedRacer.shape
+        -- [FIX 2/3] Robust Check for Reset
+        if not racerShape or not sm.exists(racerShape) then return end
+        
         local carDir = racerShape:getAt()
-        if carDir == nil then
-            return
-        end
+        if carDir == nil then return end
+        
         for i=1, self.onboardCamDirSmooth do
             table.insert(self.onboardCameraDirArr, carDir)
         end
@@ -528,20 +533,24 @@ function CameraManager.cl_updateOnboardCamPosition(self,dt)
         if newHoodPos == nil then -- Move to velocity??
             newHoodPos = self.onboardCameraPosArr[#self.onboardCameraPosArr]
         end
-        table.insert(self.onboardCameraPosArr,newHoodPos)
+        
+        -- Guard against nil newHoodPos if array is empty (first frame error)
+        if newHoodPos then 
+            table.insert(self.onboardCameraPosArr,newHoodPos)
 
-        if #self.onboardCameraPosArr > self.onboardCamPosSmooth then
-            table.remove(self.onboardCameraPosArr,1)
+            if #self.onboardCameraPosArr > self.onboardCamPosSmooth then
+                table.remove(self.onboardCameraPosArr,1)
+            end
+            local avg = sm.vec3.new(0,0,0)
+            for _,x in pairs(self.onboardCameraPosArr) do
+                --print(x)
+                avg = avg + x
+            end
+            avg = avg/self.onboardCamPosSmooth
+            self.onboardCameraPos = avg-- directly pull this value onUpdate
         end
-        local avg = sm.vec3.new(0,0,0)
-        for _,x in pairs(self.onboardCameraPosArr) do
-            --print(x)
-            avg = avg + x
-        end
-        avg = avg/self.onboardCamPosSmooth
-        self.onboardCameraPos = avg-- directly pull this value onUpdate
-    else -- todo get correlation between current camera pos and next avg and dt to detect lag spikes/camera jumps, anomalies, etc
-        --use a default car? go to frozen?
+    else 
+        -- use a default car? go to frozen?
     end
 
 end
@@ -551,10 +560,21 @@ function CameraManager.cl_updateOnboardCamDirection(self,dt)
 
     if self.trackedRacer then -- also use trackedRacer??
         local racerShape = self.trackedRacer.shape
-        local carDir = racerShape:getAt()
-        if carDir == nil then -- Move to velocity??
-            carDir = self.onboardCameraDirArr[#self.onboardCameraDirArr]
+        local carDir = nil
+        
+        -- [FIX 3/3] Robust Check for Update Direction
+        if racerShape and sm.exists(racerShape) then
+            carDir = racerShape:getAt()
         end
+        
+        if carDir == nil then -- Fallback to history or default
+            if #self.onboardCameraDirArr > 0 then
+                carDir = self.onboardCameraDirArr[#self.onboardCameraDirArr]
+            else
+                carDir = sm.vec3.new(0, 1, 0) -- Safe Default
+            end
+        end
+        
         table.insert(self.onboardCameraDirArr,carDir)
 
         if #self.onboardCameraDirArr > self.onboardCamDirSmooth then
