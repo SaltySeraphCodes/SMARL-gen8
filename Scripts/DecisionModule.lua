@@ -27,8 +27,6 @@ local SPEED_Kp = 0.1
 local SPEED_Ki = 0.01 
 local SPEED_Kd = 0.08 
 local MAX_I_TERM_SPEED = 10.0 
-local speedFactor = 1.0 / (1.0 + (speed * 0.05)) -- More aggressive reduction at speed
-local STEER_FACTOR_REDUCE = 0.0001 
 
 -- [[ RACING LOGIC ]]
 local PASSING_DISTANCE_LIMIT = 10.0 
