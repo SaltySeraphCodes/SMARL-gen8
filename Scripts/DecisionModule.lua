@@ -396,13 +396,19 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     end
 
     local isWallDanger = (wall.isLeftCritical or wall.isRightCritical or wall.isForwardLeftCritical or wall.isForwardRightCritical)
-    local useContextSteering = (currentMode == "OvertakeDynamic" or currentMode == "AvoidCollision" or (opp.count > 0) or isWallDanger)
+    local useContextSteering = (currentMode == "OvertakeDynamic" or 
+                                currentMode == "AvoidCollision" or 
+                                (opp.count > 0) or 
+                                isWallDanger)
 
-    -- Force calculation for visualization
     if useContextSteering or VISUALIZE_RAYS then
         local bias, debugData = self:calculateContextBias(perceptionData)
         self.latestDebugData = debugData
-        if useContextSteering then return bias end
+        
+        if useContextSteering then 
+            self.currentMode = "Context" -- [[ FIX: Update Label for Logs ]]
+            return bias 
+        end
     end
 
     if self.isCornering then return self.targetBias end
@@ -527,8 +533,17 @@ function DecisionModule.calculateSteering(self,perceptionData)
     local MAX_I_TERM = 5.0
     self.integralSteeringError = math.min(math.max(self.integralSteeringError, -MAX_I_TERM), MAX_I_TERM)
     local iTerm = self.integralSteeringError * STEERING_Ki
-    local steerInput = -(pTerm * STEERING_Kp) + iTerm + dTerm
-    return math.min(math.max(steerInput, -1.0), 1.0)
+    local rawSteer = -(pTerm * STEERING_Kp) + iTerm + dTerm
+    
+    -- [[ NEW: SPEED SENSITIVITY ]]
+    -- Reduce steering lock at high speeds to prevent oscillation
+    -- At 0 speed = 1.0 factor. At 100 speed = 0.33 factor.
+    local speed = telemetry.speed or 0
+    local speedFactor = 1.0 / (1.0 + (speed * 0.02)) 
+    
+    local finalSteer = rawSteer * speedFactor
+    
+    return math.min(math.max(finalSteer, -1.0), 1.0)
 end
 
 function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
@@ -575,22 +590,22 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local spd = perceptionData.Telemetry.speed or 0 
     local tick = sm.game.getServerTick()
 
-    -- Get Track Position Data
-    local currentBias = 0.0
-    if perceptionData.Navigation and perceptionData.Navigation.trackPositionBias then
-        currentBias = perceptionData.Navigation.trackPositionBias
+    -- Get Track ID info
+    local nav = perceptionData.Navigation
+    local trackInfo = "N/A"
+    if nav and nav.closestPointData and nav.closestPointData.baseNode then
+        trackInfo = string.format("N:%d|S:%d", nav.closestPointData.baseNode.id, nav.closestPointData.baseNode.sectorID)
     end
-
-    if spd > 10 and self.dbg_Radius and  tick % 3 == 0 then 
+    
+    if spd > 10 and self.dbg_Radius and tick % 3 == 0 then 
         print(string.format(
-            "[%s] S:%.0f | R:%.0f | M:%s | BIAS: %.2f->%.2f | STR: %.2f | P:%d",
+            "[%s] S:%.0f | %s | M:%s | BIAS: %.2f | STR: %.2f | P:%d",
             tostring(self.Driver.id % 100), 
             spd, 
-            self.dbg_Radius or 0, 
-            self.currentMode:sub(1,4), -- Short mode name (Race/Corn)
-            currentBias,               -- Where we ARE
-            self.targetBias,           -- Where we WANT to be
-            controls.steer,            -- Steering Output
+            trackInfo, -- Shows Node ID and Sector ID
+            self.currentMode:sub(1,4), 
+            self.targetBias, -- Use the smoothed target bias if you made it a class variable
+            controls.steer,            
             self.cornerPhase or 0
         ))
     end
