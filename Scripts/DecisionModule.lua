@@ -13,10 +13,10 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
--- [FIX] Renamed to DEFAULT so we can distinguish from the instance variables
-local DEFAULT_STEERING_Kp = 0.18  
+-- [FIX] Lower Kp from 0.18 to 0.12 to reduce oscillation on spawn
+local DEFAULT_STEERING_Kp = 0.12  
 local DEFAULT_STEERING_Kd = 0.55  
-local LATERAL_Kp = 0.45        
+local LATERAL_Kp = 0.45    
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
 

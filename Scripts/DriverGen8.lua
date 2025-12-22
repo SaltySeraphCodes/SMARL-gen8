@@ -386,8 +386,10 @@ function DriverGen8.resetCar(self, force)
             end
             
             if not success then 
-                -- Log failure to help debug
-                print(self.id, "Reset Failed: Collision. Nearest Node:", bestNode.id) 
+                -- [FIX] Add a cooldown if placement failed so we don't spam 40 times a second
+                -- Setting this to 5.0 means it will wait 0.5 seconds (via the <10 check at the top) before trying again
+                self.resetPosTimeout = 5.0 
+                print(self.id, "Reset Failed (Collision). Retrying...") 
             end
         end
         

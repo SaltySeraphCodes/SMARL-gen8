@@ -18,7 +18,7 @@ function TuningOptimizer:init(driver)
     self.tickCount = 0
     self.yawAccumulator = 0
     self.yawHistory = {}
-    print("TuningOptimizer: Initialized [" .. (self.driver.carType or "Generic") .. "] for Racer " .. self.driver.id)
+    print("TuningOptimizer: Initialized [" .. (self.fingerprint or "Generic") .. "] for Racer " .. self.driver.id)
 end
 
 function TuningOptimizer:checkFingerprint()
@@ -89,7 +89,7 @@ function TuningOptimizer:saveProfile(kp, kd)
     if not success or type(data) ~= "table" then data = {} end
     
     -- Update only our specific car type
-    data[self.carType] = {
+    data[self.fingerprint] = {
         kp = kp,
         kd = kd,
         updated = os.time()
@@ -97,7 +97,7 @@ function TuningOptimizer:saveProfile(kp, kd)
     
     -- Write back to disk
     sm.json.save(data, TUNING_FILE)
-    print("Optimizer: Saved improved profile for " .. self.carType)
+    print("Optimizer: Saved improved profile for " .. self.fingerprint)
 end
 
 function TuningOptimizer:recordFrame(perceptionData)
