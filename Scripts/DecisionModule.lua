@@ -8,14 +8,14 @@ local STUCK_SPEED_THRESHOLD = 1.0
 local STUCK_TIME_LIMIT = 4.0 
 local BASE_MAX_SPEED = 1000 
 local MIN_CORNER_SPEED = 12
-local GRIP_FACTOR = 0.9 
+local GRIP_FACTOR = 0.8            -- [TUNED] Lowered from 0.9 to 0.8 to make the AI drive slightly safer
 local MIN_RADIUS_FOR_MAX_SPEED = 130.0 
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local STEERING_Kp = 0.35 
+local STEERING_Kp = 0.25           -- [TUNED] Lowered from 0.35 to 0.25 (Softer reactions)
 local STEERING_Ki = 0.005 
-local STEERING_Kd = 0.12 
+local STEERING_Kd = 0.40           -- [TUNED] Increased from 0.12 to 0.40 (Heavy damping to stop fishtailing)
 local LATERAL_Kp = 0.6 
 
 -- [[ TUNING - SPEED PID ]]
@@ -40,7 +40,7 @@ local GAP_STICKINESS = 0.2
 
 -- [[ CORNERING STRATEGY ]]
 local CORNER_RADIUS_THRESHOLD = 120.0  
-local CORNER_ENTRY_BIAS = 0.85         
+local CORNER_ENTRY_BIAS = 0.60         -- [TUNED] Reduced from 0.85 (Stay off the wall!)
 local CORNER_APEX_BIAS = 0.35          
 local CORNER_EXIT_BIAS = 0.60          
 local CORNER_PHASE_DURATION = 0.3      
@@ -49,15 +49,13 @@ local CORNER_PHASE_DURATION = 0.3
 local NUM_RAYS = 17            
 local VIEW_ANGLE = 120         
 local LOOKAHEAD_RANGE = 45.0   
-local SAFETY_WEIGHT = 4.0      -- [TUNED] Lowered from 6.0 to 4.0 to stop panic steering
-local INTEREST_WEIGHT = 1.5    -- [TUNED] Restored to 1.5 to keep forward focus
-local WALL_AVOID_DIST = 4.0    -- [TUNED] Start reacting earlier but softer
+local SAFETY_WEIGHT = 4.0      
+local INTEREST_WEIGHT = 1.5    
+local WALL_AVOID_DIST = 4.0    
 local VISUALIZE_RAYS = true    
 
-
-
 -- [[ BRAKING PHYSICS ]]
-local BRAKING_POWER_FACTOR = 0.9
+local BRAKING_POWER_FACTOR = 0.9 
 local SCAN_DISTANCE = 120.0       
 
 function DecisionModule.server_init(self,driver)
@@ -131,20 +129,16 @@ function DecisionModule:updateTrackState(perceptionData)
     
     -- 2. Smooth the Radius (The "Memory" Logic)
     if rawRadius < self.smoothedRadius then
-        -- Found a tighter corner? React immediately.
         self.smoothedRadius = rawRadius
-        self.radiusHoldTimer = 1.0 -- Hold this thought for 1 second
+        self.radiusHoldTimer = 1.0 
     else
-        -- Track opening up? Wait before believing it.
         if self.radiusHoldTimer > 0 then
             self.radiusHoldTimer = self.radiusHoldTimer - (1.0/40.0) 
         else
-            -- Slowly release the memory (5 units per tick)
             self.smoothedRadius = self.smoothedRadius + 5.0 
         end
     end
     
-    -- Cap it
     if self.smoothedRadius > rawRadius then self.smoothedRadius = rawRadius end
     if self.smoothedRadius > 1000.0 then self.smoothedRadius = 1000.0 end
     
@@ -153,7 +147,6 @@ function DecisionModule:updateTrackState(perceptionData)
 end
 
 function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
-    -- Use the smoothed radius calculated in updateTrackState
     local effectiveRadius = self.smoothedRadius
     local distToCorner = self.cachedDist or 0.0
 
@@ -200,7 +193,6 @@ function DecisionModule:calculateContextBias(perceptionData)
 
     local preferredBias = 0.0 
     if self.currentMode == "DefendLine" then preferredBias = self.targetBias end 
-    -- [VISUAL] Point interest toward lane center
     local currentPos = nav.trackPositionBias or 0.0
     local centeringAngle = currentPos * 25.0 
     if self.currentMode == "DefendLine" then centeringAngle = -(preferredBias * 45.0) end
@@ -240,15 +232,10 @@ function DecisionModule:calculateContextBias(perceptionData)
     end
 
     if wall then
-        -- SOFT WALL REPULSION
-        -- Instead of blocking rays entirely, we apply a gradient penalty.
         local avoidanceMargin = WALL_AVOID_DIST 
         
-        -- Left Wall
         if wall.marginLeft < avoidanceMargin then
-            -- 0m = 1.0 urgency, 4m = 0.0 urgency
             local urgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
-            -- Cubing the urgency makes it start gentle and get strong ONLY when very close
             urgency = urgency * urgency * urgency 
             
             local blockAngle = -5.0 + (urgency * -30.0) 
@@ -259,10 +246,9 @@ function DecisionModule:calculateContextBias(perceptionData)
             end
         end
 
-        -- Right Wall
         if wall.marginRight < avoidanceMargin then
             local urgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin)
-            urgency = urgency * urgency * urgency -- Cubic curve for smoothness
+            urgency = urgency * urgency * urgency 
             
             local blockAngle = 5.0 + (urgency * 30.0)
             for i = 1, NUM_RAYS do
@@ -325,7 +311,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local curveDir = nav.longCurveDirection 
     local distToApex = self.cachedDist or 0.0 
 
-    -- ENTRY TRIGGER
     if self.isCornering == false and radius < CORNER_RADIUS_THRESHOLD then
         self.isCornering = true
         self.cornerPhase = 1 
@@ -334,22 +319,19 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
     end
     
-    -- STATE MACHINE
     if self.isCornering == true then
         self.currentMode = "Cornering" 
         
         -- PHASE 1: ENTRY (Setup)
         if self.cornerPhase == 1 then
-            -- [[ FIX: GRADUAL ENTRY ]]
-            -- Don't jerk to the outside wall at 120m. Slide over smoothly.
-            -- 100m+ away = 0% bias. 30m away = 100% bias.
+            -- SMOOTH ENTRY: Slide to outside gently
             local entryIntensity = 1.0 - math.min(math.max((distToApex - 30.0) / 70.0, 0.0), 1.0)
             self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
             
-            -- [[ FIX: DYNAMIC TURN-IN POINT ]]
-            -- Turn in earlier if we are going fast to account for latency/slip
+            -- [FIX] DYNAMIC TURN-IN: Turn earlier at high speeds
+            -- Speed 30 -> Turn at 41m. Speed 10 -> Turn at 27m.
             local currentSpeed = perceptionData.Telemetry.speed or 0
-            local switchDist = 15.0 + (currentSpeed * 0.5) 
+            local switchDist = 20.0 + (currentSpeed * 0.7) 
             
             if distToApex < switchDist then 
                 self.cornerPhase = 2 
@@ -384,7 +366,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         end
     end
     
-    -- SAFETY EXIT
     if self.isCornering and radius > 5 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
@@ -417,7 +398,7 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
         self.latestDebugData = debugData
         
         if useContextSteering then 
-            self.currentMode = "Context" -- [[ FIX: Update Label for Logs ]]
+            self.currentMode = "Context" 
             return bias 
         end
     end
@@ -546,9 +527,6 @@ function DecisionModule.calculateSteering(self,perceptionData)
     local iTerm = self.integralSteeringError * STEERING_Ki
     local rawSteer = -(pTerm * STEERING_Kp) + iTerm + dTerm
     
-    -- [[ NEW: SPEED SENSITIVITY ]]
-    -- Reduce steering lock at high speeds to prevent oscillation
-    -- At 0 speed = 1.0 factor. At 100 speed = 0.33 factor.
     local speed = telemetry.speed or 0
     local speedFactor = 1.0 / (1.0 + (speed * 0.02)) 
     
@@ -595,7 +573,6 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         controls.throttle, controls.brake = self:calculateSpeedControl(perceptionData, controls.steer)
     end
 
-    -- [[ SUPER DEBUG LOGGING ]]
     local spd = perceptionData.Telemetry.speed or 0 
     local tick = sm.game.getServerTick()
     
@@ -612,7 +589,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
             "[%s] SPD:%03.0f/%03.0f | RAD:%03.0f | DIST:%03.0f | T:%.1f B:%.1f | STR:%+.2f | BIAS:%+.2f->%+.2f | %s | P:%d",
             tostring(self.Driver.id % 100), 
             spd, 
-            self.dbg_Allowable or 0, -- Limit is back!
+            self.dbg_Allowable or 0, 
             self.dbg_Radius or 0, 
             self.cachedDist or 0, 
             controls.throttle,         
@@ -629,7 +606,6 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     return controls
 end
 
--- [Visualizations for Debugging (findBestOvertakeGap / getYieldBias) kept as is]
 function DecisionModule.findBestOvertakeGap(self, perceptionData)
     local opp = perceptionData.Opponents
     local obstacles = {}
