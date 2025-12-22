@@ -8,14 +8,14 @@ local STUCK_SPEED_THRESHOLD = 1.0
 local STUCK_TIME_LIMIT = 4.0 
 local BASE_MAX_SPEED = 1000 
 local MIN_CORNER_SPEED = 12
-local GRIP_FACTOR = 0.8            -- [TUNED] Lowered from 0.9 to 0.8 to make the AI drive slightly safer
+local GRIP_FACTOR = 0.8            
 local MIN_RADIUS_FOR_MAX_SPEED = 130.0 
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local STEERING_Kp = 0.25           -- [TUNED] Lowered from 0.35 to 0.25 (Softer reactions)
+local STEERING_Kp = 0.25           
 local STEERING_Ki = 0.005 
-local STEERING_Kd = 0.40           -- [TUNED] Increased from 0.12 to 0.40 (Heavy damping to stop fishtailing)
+local STEERING_Kd = 0.40           
 local LATERAL_Kp = 0.6 
 
 -- [[ TUNING - SPEED PID ]]
@@ -40,9 +40,9 @@ local GAP_STICKINESS = 0.2
 
 -- [[ CORNERING STRATEGY ]]
 local CORNER_RADIUS_THRESHOLD = 120.0  
-local CORNER_ENTRY_BIAS = 0.60         -- [TUNED] Reduced from 0.85 (Stay off the wall!)
-local CORNER_APEX_BIAS = 0.35          
-local CORNER_EXIT_BIAS = 0.60          
+local CORNER_ENTRY_BIAS = 0.60         
+local CORNER_APEX_BIAS = 0.60          -- [TUNED] Increased to hug inside line tighter
+local CORNER_EXIT_BIAS = 0.40          
 local CORNER_PHASE_DURATION = 0.3      
 
 -- [[ CONTEXT STEERING ]]
@@ -83,6 +83,7 @@ function DecisionModule.server_init(self,driver)
     self.smoothedRadius = 1000.0
     self.radiusHoldTimer = 0.0
     self.cachedDist = 0.0
+    self.smoothedBias = 0.0 -- Init smoothed bias
 
     self:calculateCarPerformance()
 end
@@ -117,9 +118,7 @@ function DecisionModule.calculateCarPerformance(self)
     self.dynamicMaxSpeed = dynamicMaxSpeed
 end
 
--- Centralized Track State Update
 function DecisionModule:updateTrackState(perceptionData)
-    -- 1. Scan the track (Throttled)
     local tick = sm.game.getServerTick()
     if tick % 4 == 0 or not self.cachedMinRadius then
          self.cachedMinRadius, self.cachedDist = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
@@ -127,7 +126,6 @@ function DecisionModule:updateTrackState(perceptionData)
     
     local rawRadius = self.cachedMinRadius or 1000.0
     
-    -- 2. Smooth the Radius (The "Memory" Logic)
     if rawRadius < self.smoothedRadius then
         self.smoothedRadius = rawRadius
         self.radiusHoldTimer = 1.0 
@@ -150,7 +148,6 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     local effectiveRadius = self.smoothedRadius
     local distToCorner = self.cachedDist or 0.0
 
-    -- 3. CALCULATE SPEED LIMIT
     local friction = self.dynamicGripFactor or 0.9
     local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * 2.8
     
@@ -165,13 +162,11 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
 
     local targetSpeed = math.min(self.dynamicMaxSpeed, allowableSpeed)
     
-    -- 4. CONTEXT MODIFIERS
     if self.currentMode == "Drafting" then targetSpeed = targetSpeed * 1.1 end
     if self.currentMode == "Caution" then targetSpeed = 15.0 end
     if self.pitState > 0 then targetSpeed = 15.0 end
     if self.pitState == 3 then targetSpeed = 5.0 end
 
-    -- 5. STEERING DRAG
     local steerFactor = math.abs(steerInput) * 0.1
     targetSpeed = targetSpeed * (1.0 - steerFactor)
 
@@ -316,7 +311,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         self.cornerPhase = 1 
         self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir 
-        self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
+        -- [FIX] Logic Inversion: Entry should target OUTSIDE (Positive for Left turn)
+        self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
     end
     
     if self.isCornering == true then
@@ -324,12 +320,10 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         
         -- PHASE 1: ENTRY (Setup)
         if self.cornerPhase == 1 then
-            -- SMOOTH ENTRY: Slide to outside gently
             local entryIntensity = 1.0 - math.min(math.max((distToApex - 30.0) / 70.0, 0.0), 1.0)
-            self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
+            -- [FIX] Target Outside
+            self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
             
-            -- [FIX] DYNAMIC TURN-IN: Turn earlier at high speeds
-            -- Speed 30 -> Turn at 41m. Speed 10 -> Turn at 27m.
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 20.0 + (currentSpeed * 0.7) 
             
@@ -340,7 +334,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             
         -- PHASE 2: APEX (Turn In)
         elseif self.cornerPhase == 2 then
-            self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
+            -- [FIX] Target Inside (Negative for Left turn)
+            self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
             self.cornerTimer = self.cornerTimer - dt
             
             if self.cornerTimer <= 0.0 then
@@ -354,7 +349,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             
         -- PHASE 3: EXIT (Track Out)
         elseif self.cornerPhase == 3 then
-            self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
+            -- [FIX] Target Outside
+            self.targetBias = self.cornerDirection * CORNER_EXIT_BIAS
             
             self.cornerTimer = self.cornerTimer - dt
             if self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
@@ -505,22 +501,24 @@ function DecisionModule.calculateSteering(self,perceptionData)
     local goalDir = navigation.nodeGoalDirection
     local carDir = telemetry.rotations.at 
     local angularVel = telemetry.angularVelocity 
+    
+    -- [BIAS SMOOTHING]
     local rawTargetBias = self:getFinalTargetBias(perceptionData)
     if not self.smoothedBias then self.smoothedBias = rawTargetBias end
-    -- Move smoothed bias 10% towards raw target per tick (Acts as a Low Pass Filter)
     self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.1
-    local targetBias = self.smoothedBias -- Use the smooth value!
+    local targetBias = self.smoothedBias
+
     local lateralError = targetBias - navigation.trackPositionBias
-    -- [FIX] INVERT LATERAL TERM
-    -- Previously: Positive Error (Go Right) -> Negative Steer (Left). BAD.
-    -- Now: We flip the sign so Positive Error -> Positive Steer (Right).
-    local lateralPTerm = -lateralError * LATERAL_Kp
+    -- [FIX] Invert PTerm sign (Error + means Go Right, Steering + means Go Right)
+    local lateralPTerm = lateralError * LATERAL_Kp 
+    
     local carDir2D = sm.vec3.new(carDir.x, carDir.y, 0):normalize()
     local goalDir2D = sm.vec3.new(goalDir.x, goalDir.y, 0):normalize()
     local crossZ = carDir2D.x * goalDir2D.y - carDir2D.y * goalDir2D.x
     local alignment = carDir2D:dot(goalDir2D) 
     local angleErrorRad = math.atan2(crossZ, alignment)
     local directionalPTerm = angleErrorRad / MAX_WHEEL_ANGLE_RAD
+    
     local pTerm = lateralPTerm + directionalPTerm
     local yawRate = angularVel:dot(telemetry.rotations.up) 
     local dTerm = -yawRate * STEERING_Kd 
@@ -528,11 +526,12 @@ function DecisionModule.calculateSteering(self,perceptionData)
     local MAX_I_TERM = 5.0
     self.integralSteeringError = math.min(math.max(self.integralSteeringError, -MAX_I_TERM), MAX_I_TERM)
     local iTerm = self.integralSteeringError * STEERING_Ki
-    local rawSteer = -(pTerm * STEERING_Kp) + iTerm + dTerm
+    
+    -- [FIX] REMOVED NEGATIVE SIGN ON PTERM
+    local rawSteer = (pTerm * STEERING_Kp) + iTerm + dTerm
     
     local speed = telemetry.speed or 0
     local speedFactor = 1.0 / (1.0 + (speed * 0.02)) 
-    
     local finalSteer = rawSteer * speedFactor
     
     return math.min(math.max(finalSteer, -1.0), 1.0)
