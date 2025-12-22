@@ -39,9 +39,9 @@ local CAR_WIDTH_BUFFER = 0.3
 local GAP_STICKINESS = 0.2 
 
 -- [[ CORNERING STRATEGY ]]
-local CORNER_RADIUS_THRESHOLD = 90.0   
-local CORNER_ENTRY_BIAS = 0.90         
-local CORNER_APEX_BIAS = 0.20          
+local CORNER_RADIUS_THRESHOLD = 120.0  -- [FIX] Increased from 90.0 to 120.0 to detect turns earlier
+local CORNER_ENTRY_BIAS = 0.85         -- [FIX] Reduced slightly to prevent running too wide on entry
+local CORNER_APEX_BIAS = 0.35          -- [FIX] Increased from 0.20 to 0.35 (Stay further from inside wall)
 local CORNER_EXIT_BIAS = 0.60          
 local CORNER_PHASE_DURATION = 0.3      
 
@@ -49,10 +49,10 @@ local CORNER_PHASE_DURATION = 0.3
 local NUM_RAYS = 17            
 local VIEW_ANGLE = 120         
 local LOOKAHEAD_RANGE = 45.0   
-local SAFETY_WEIGHT = 5.0      
-local INTEREST_WEIGHT = 1.5    
+local SAFETY_WEIGHT = 6.0      -- [FIX] Increased from 5.0 to 6.0 (More wall fear)
+local INTEREST_WEIGHT = 1.2    -- [FIX] Reduced Interest to prioritize safety
 local WALL_DANGER_DIST = 0.8   
-local VISUALIZE_RAYS = true    
+local VISUALIZE_RAYS = true
 
 -- [[ VISUALIZATION ]]
 local VIS_STEP_SIZE = 4.0      
@@ -184,7 +184,116 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     return targetSpeed
 end
 
+
 function DecisionModule:calculateContextBias(perceptionData)
+    local nav = perceptionData.Navigation
+    local opp = perceptionData.Opponents
+    local wall = perceptionData.WallAvoidance
+    local telemetry = perceptionData.Telemetry
+
+    local interestMap = {}
+    local dangerMap = {}
+    local rayAngles = {}
+    
+    local sectorStep = VIEW_ANGLE / (NUM_RAYS - 1)
+    local startAngle = -(VIEW_ANGLE / 2)
+
+    -- [[ BETTER INTEREST MAPPING ]]
+    -- Instead of always looking straight (0.0), look toward the racing line (Center = 0.0)
+    -- If we are on the Left (Pos > 0), look Right (Negative Angle).
+    local currentPos = nav.trackPositionBias or 0.0
+    local centeringAngle = currentPos * 25.0 -- Look 25 degrees toward center if at edge
+    
+    -- Override if defending
+    if self.currentMode == "DefendLine" then 
+        local preferredBias = self.targetBias 
+        centeringAngle = -(preferredBias * 45.0)
+    end 
+
+    for i = 1, NUM_RAYS do
+        local angle = startAngle + (i - 1) * sectorStep
+        rayAngles[i] = angle
+        dangerMap[i] = 0.0
+        
+        -- Gaussian curve peaking at the Centering Angle
+        local diff = math.abs(angle - centeringAngle)
+        local sigma = 30.0 
+        interestMap[i] = math.exp(-(diff * diff) / (2 * sigma * sigma))
+    end
+
+    -- [[ OPPONENT DETECTION ]]
+    if opp and opp.racers then
+        for _, racer in ipairs(opp.racers) do
+            if racer.isAhead and racer.distance < LOOKAHEAD_RANGE then
+                local toOp = racer.location - telemetry.location
+                local fwd = telemetry.rotations.at
+                local right = telemetry.rotations.right
+                
+                local dx = toOp:dot(right)
+                local dy = toOp:dot(fwd)
+                local oppAngle = math.deg(math.atan2(dx, dy))
+                local carWidthDeg = math.deg(math.atan2(2.0, racer.distance)) * 2.0 
+                
+                for i = 1, NUM_RAYS do
+                    local diff = math.abs(rayAngles[i] - oppAngle)
+                    if diff < carWidthDeg then
+                        local severity = 1.0 - (racer.distance / LOOKAHEAD_RANGE)
+                        if racer.closingSpeed < -5.0 then severity = severity * 1.5 end
+                        dangerMap[i] = math.max(dangerMap[i], severity)
+                    end
+                end
+            end
+        end
+    end
+
+    -- [[ WALL AVOIDANCE ]]
+    if wall then
+        local avoidanceMargin = 3.5 
+        if wall.marginLeft < avoidanceMargin then
+            local urgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
+            local blockAngle = -5.0 + (urgency * -20.0) 
+            for i = 1, NUM_RAYS do
+                if rayAngles[i] < 5 and rayAngles[i] < blockAngle then
+                    dangerMap[i] = math.max(dangerMap[i], urgency)
+                end
+            end
+        end
+        if wall.marginRight < avoidanceMargin then
+            local urgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin)
+            local blockAngle = 5.0 + (urgency * 20.0)
+            for i = 1, NUM_RAYS do
+                if rayAngles[i] > -5 and rayAngles[i] > blockAngle then
+                    dangerMap[i] = math.max(dangerMap[i], urgency)
+                end
+            end
+        end
+    end
+
+    -- [[ SOLVER ]]
+    local bestScore = -math.huge
+    local bestIndex = math.ceil(NUM_RAYS/2)
+
+    for i = 1, NUM_RAYS do
+        local score = (interestMap[i] * INTEREST_WEIGHT) - (dangerMap[i] * SAFETY_WEIGHT)
+        if score > bestScore then
+            bestScore = score
+            bestIndex = i
+        end
+    end
+
+    -- [[ VISUALIZATION DATA GENERATION ]]
+    local debugData = nil
+    if VISUALIZE_RAYS then
+        debugData = self:getDebugLines(rayAngles, interestMap, dangerMap, bestIndex, NUM_RAYS)
+    end
+
+    local chosenAngle = rayAngles[bestIndex]
+    local targetBias = (chosenAngle / 45.0) 
+    
+    return math.min(math.max(targetBias, -1.0), 1.0), debugData
+end
+
+function DecisionModule:calculateContextBias_old(perceptionData)
     local nav = perceptionData.Navigation
     local opp = perceptionData.Opponents
     local wall = perceptionData.WallAvoidance
@@ -580,7 +689,6 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     controls.resetCar = self:checkUtility(perceptionData,dt)
 
     if controls.resetCar then
-        print(self.Driver.id,"resetting car")
         controls.steer = 0.0
         controls.throttle = 0.0
         controls.brake = 0.0

@@ -153,7 +153,7 @@ function DriverGen8.server_onFixedUpdate(self, dt)
         if self.Decision.latestDebugData then
              -- Throttle: Send only every 3 ticks to save bandwidth
              local tick = sm.game.getServerTick()
-             if tick % 3 == 0 then
+             if tick % 4 == 0 then
                  self.network:sendToClients("cl_updateDebugRays", self.Decision.latestDebugData)
              end
         end
