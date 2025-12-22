@@ -573,46 +573,45 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local controls = {}
     controls.resetCar = self:checkUtility(perceptionData,dt)
 
-    -- [FIX] Centralized State Update
     self:updateTrackState(perceptionData)
 
     if controls.resetCar then
         print(self.Driver.id,"resetting car")
-        controls.steer = 0.0
-        controls.throttle = 0.0
-        controls.brake = 0.0
+        controls.steer = 0.0; controls.throttle = 0.0; controls.brake = 0.0
     else
         self:determineStrategy(perceptionData, dt) 
         controls.steer = self:calculateSteering(perceptionData)
         controls.throttle, controls.brake = self:calculateSpeedControl(perceptionData, controls.steer)
     end
 
+    -- [[ SUPER DEBUG LOGGING ]]
     local spd = perceptionData.Telemetry.speed or 0 
     local tick = sm.game.getServerTick()
-
-    -- Get Track ID info
+    
+    -- Track Position Info
     local nav = perceptionData.Navigation
-    local trackInfo = "N/A"
+    local trackInfo = "N:0|S:0"
     if nav and nav.closestPointData and nav.closestPointData.baseNode then
         trackInfo = string.format("N:%d|S:%d", nav.closestPointData.baseNode.id, nav.closestPointData.baseNode.sectorID)
     end
-    -- Get Track Position Data
-    local currentBias = 0.0
-    if nav and nav.trackPositionBias then
-        currentBias = nav.trackPositionBias
-    end
     
-    if spd > 10 and self.dbg_Radius and tick % 3 == 0 then 
+    local currentBias = nav and nav.trackPositionBias or 0.0
+    
+    -- Only print if moving (reduce spam)
+    if spd > 5 and self.dbg_Radius and tick % 4 == 0 then 
         print(string.format(
-            "[%s] S:%.0f | %s | M:%s | BIAS: %.2f->%.2f | STR: %.2f | P:%d",
+            "[%s] SPD:%03.0f/%03.0f | RAD:%03.0f | ACT: T:%.1f B:%.1f | STR: %+.2f | BIAS: %+.2f->%+.2f | %s | %s",
             tostring(self.Driver.id % 100), 
-            spd, 
-            trackInfo, -- Shows Node ID and Sector ID
-            self.currentMode:sub(1,4),
-            currentBias, -- where we are
-            self.smoothedBias or 0, -- where we want to be
-            controls.steer,            
-            self.cornerPhase or 0
+            spd,                       -- Current Speed
+            self.dbg_Allowable or 0,   -- Calculated Speed Limit (Physics)
+            self.dbg_Radius or 0,      -- Corner Radius (Vision)
+            controls.throttle,         -- Gas
+            controls.brake,            -- Brake
+            controls.steer,            -- Steering Output
+            currentBias,               -- Current Lane
+            self.targetBias or 0,      -- Target Lane
+            self.currentMode:sub(1,4), -- Mode (Race/Corn)
+            trackInfo                  -- Map Location
         ))
     end
 
