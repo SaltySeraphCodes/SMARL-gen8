@@ -263,17 +263,14 @@ function DriverGen8.updatePitBehavior(self, dt)
     end
 end
 
-
 function DriverGen8.resetCar(self, force)
     local isOnLift = self.perceptionData and self.perceptionData.Telemetry and self.perceptionData.Telemetry.isOnLift
     
-    -- 1. TIMEOUT CHECK
     if self.resetPosTimeout < 10 and not isOnLift and not force then
         self.resetPosTimeout = self.resetPosTimeout + 0.1
         return 
     end
 
-    -- 2. RACE CONTROL CHECK
     if not self.raceControlError then
         local rc = getRaceControl()
         if rc and not rc:sv_checkReset() then return end 
@@ -282,23 +279,19 @@ function DriverGen8.resetCar(self, force)
     
     if isOnLift then return end
 
-    -- 3. EXECUTE RESET
     if not self.liftPlaced and (self.racing or force) then
         local bodies = self.body:getCreationBodies()
         local carPos = self.body:getWorldPosition()
         
-        -- A. RESCUE SEARCH: Find the absolute closest node, ignoring Z-height constraints
-        -- We don't trust self.Perception.currentNode because the car might be lost/off-track.
+        -- RESCUE SEARCH: Find closest node ignoring height
         local bestNode = nil
         local bestDistSq = math.huge
         
         if self.nodeChain then
             for _, node in ipairs(self.nodeChain) do
-                -- Calculate horizontal distance only (ignore Z for search)
                 local dx = carPos.x - node.location.x
                 local dy = carPos.y - node.location.y
                 local distSq = (dx*dx) + (dy*dy)
-                
                 if distSq < bestDistSq then
                     bestDistSq = distSq
                     bestNode = node
@@ -306,72 +299,51 @@ function DriverGen8.resetCar(self, force)
             end
         end
         
-        -- Fallback if search failed
-        if not bestNode then 
-            bestNode = self.Perception and self.Perception.currentNode
-        end
-        if not bestNode and self.nodeChain and #self.nodeChain > 4 then 
-            bestNode = self.nodeChain[4] 
-        end
+        -- Fallback
+        if not bestNode then bestNode = self.Perception and self.Perception.currentNode end
+        if not bestNode and self.nodeChain and #self.nodeChain > 4 then bestNode = self.nodeChain[4] end
 
-        -- B. VALIDATION LOOP: Try to find a valid spawn spot
+        -- SPAWN ATTEMPT LOOP
         if bestNode and bestNode.outVector then
             local spawnAttemptNode = bestNode
             local success = false
             
-            -- Try this node, then the next 5 nodes if blocked
             for i = 0, 5 do
                 if not spawnAttemptNode then break end
                 
-                -- Calculate Position: Center of node + Height Buffer
                 local loc = spawnAttemptNode.mid or spawnAttemptNode.location
-                -- Align rotation with track direction
                 local rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.75)
                 if rot == -1 then rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.45) end
                 
-                -- Spawn 2.5m above the track node to clear ground
+                -- Spawn high enough to clear ground
                 local spawnPos = sm.vec3.new(loc.x, loc.y, loc.z + 2.5)
                 
-                -- Check Collision (Is the lift Green?)
                 local valid, liftLevel = sm.tool.checkLiftCollision(bodies, spawnPos, rot)
-                
-                if valid then
-                    -- FOUND A SPOT! Place it.
-                    if self.player then
-                        sm.player.placeLift(self.player, bodies, spawnPos, liftLevel, rot)
-                        self.liftPlaced = true
-                        self.resetPosTimeout = 0
-                        print(self.id, "Reset Success at Node:", spawnAttemptNode.id)
-                        
-                        -- Reset AI Internal State so it doesn't throttle immediately
-                        if self.Decision then
-                            self.Decision.stuckTimer = 0
-                            self.Decision.isStuck = false
-                            self.Decision.smoothedRadius = 1000 -- Reset corner memory
-                        end
-                        
-                        success = true
-                        break
+                if valid and self.player then
+                    sm.player.placeLift(self.player, bodies, spawnPos, liftLevel, rot)
+                    self.liftPlaced = true
+                    self.resetPosTimeout = 0
+                    print(self.id, "Reset Success at Node:", spawnAttemptNode.id)
+                    
+                    if self.Decision then
+                        self.Decision.stuckTimer = 0
+                        self.Decision.isStuck = false
+                        self.Decision.smoothedRadius = 1000 
                     end
+                    success = true
+                    break
                 end
                 
-                -- If blocked, move to the next node in the chain
+                -- Move to next node if blocked
                 local nextIdx = spawnAttemptNode.id + 1
-                -- Handle loop around track (assuming sequential IDs)
-                if self.nodeChain[nextIdx] then
-                    spawnAttemptNode = self.nodeChain[nextIdx]
-                else
-                    spawnAttemptNode = self.nodeChain[1]
-                end
+                if self.nodeChain[nextIdx] then spawnAttemptNode = self.nodeChain[nextIdx]
+                else spawnAttemptNode = self.nodeChain[1] end
             end
             
-            if not success then
-                print(self.id, "Reset Failed: Could not find clear spawn point.")
-            end
+            if not success then print(self.id, "Reset Failed: Blocked") end
         end
         
     elseif self.liftPlaced and self.player then
-        -- Remove lift if it was already placed
         sm.player.removeLift(self.player)
         self.liftPlaced = false
     end

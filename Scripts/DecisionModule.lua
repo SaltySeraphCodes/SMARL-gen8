@@ -2,33 +2,30 @@
 dofile("globals.lua") 
 DecisionModule = class(nil)
 
+-- [[ TUNING - PHYSICS ]]
 local MAX_TILT_RAD = 1.047 
-local STUCK_SPEED_THRESHOLD = 1.0 -- Increased slightly to prevent resets while creeping
-local STUCK_TIME_LIMIT = 4.0      -- [FIX] Increased from 2.0s to 4.0s to stop panic resets
+local STUCK_SPEED_THRESHOLD = 1.0 
+local STUCK_TIME_LIMIT = 4.0 
 local BASE_MAX_SPEED = 1000 
-local MIN_CORNER_SPEED = 15 
+local MIN_CORNER_SPEED = 12  -- [TUNED] Lowered slightly
 local GRIP_FACTOR = 0.9 
 local MIN_RADIUS_FOR_MAX_SPEED = 130.0 
-local FORMATION_SPEED = 20.0 
-local FORMATION_DISTANCE = 5.0 
-local FORMATION_BIAS_OUTSIDE = 0.6 
-local FORMATION_BIAS_INSIDE = -0.6 
-local CAUTION_SPEED = 15.0 
-local CAUTION_DISTANCE = 8.0 
-local PIT_SPEED_LIMIT = 15.0 
 
+-- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local STEERING_Kp = 0.6 
+local STEERING_Kp = 0.35     -- [TUNED] Was 0.6. Lowered to reduce twitchiness/fishtailing
 local STEERING_Ki = 0.005 
-local STEERING_Kd = 0.01 
+local STEERING_Kd = 0.12     -- [TUNED] Was 0.01. Increased 12x to dampen oscillations (stops the waggle)
 local LATERAL_Kp = 0.6 
 
+-- [[ TUNING - SPEED PID ]]
 local SPEED_Kp = 0.1 
 local SPEED_Ki = 0.01 
 local SPEED_Kd = 0.08 
 local MAX_I_TERM_SPEED = 10.0 
 local STEER_FACTOR_REDUCE = 0.0001 
 
+-- [[ RACING LOGIC ]]
 local PASSING_DISTANCE_LIMIT = 10.0 
 local PASSING_EXIT_DISTANCE = 15.0 
 local MIN_CLOSING_SPEED = -1.0 
@@ -40,31 +37,31 @@ local YIELD_BIAS_OFFSET = 0.7
 local WALL_STEERING_BIAS = 0.9 
 local CAR_WIDTH_BUFFER = 0.3 
 local GAP_STICKINESS = 0.2 
-local BANKING_SPEED_BOOST = 1.2
 
--- CORNERING CONSTANTS
+-- [[ CORNERING STRATEGY ]]
 local CORNER_RADIUS_THRESHOLD = 90.0   
-local CORNER_ENTRY_BIAS = 0.90         -- [FIX] Reduced slightly (was 0.95) to stay further from outer wall
-local CORNER_APEX_BIAS = 0.20          -- [FIX] Increased (was 0.15) to give more room at Apex
+local CORNER_ENTRY_BIAS = 0.90         
+local CORNER_APEX_BIAS = 0.20          
 local CORNER_EXIT_BIAS = 0.60          
 local CORNER_PHASE_DURATION = 0.3      
 
--- CONTEXT STEERING
+-- [[ CONTEXT STEERING ]]
 local NUM_RAYS = 17            
 local VIEW_ANGLE = 120         
 local LOOKAHEAD_RANGE = 45.0   
-local SAFETY_WEIGHT = 5.0      -- [FIX] Increased Safety Weight to fear walls more
+local SAFETY_WEIGHT = 5.0      
 local INTEREST_WEIGHT = 1.5    
 local WALL_DANGER_DIST = 0.8   
 local VISUALIZE_RAYS = true    
 
--- VISUALIZATION
+-- [[ VISUALIZATION ]]
 local VIS_STEP_SIZE = 4.0      
 local VIS_RAY_HEIGHT = 0.5     
 local VIS_EFFECT = "paint_smoke" 
 local VIS_STEP = 3.0
 local VIS_HEIGHT = 1.0
 
+-- [[ BRAKING PHYSICS ]]
 local BRAKING_POWER_FACTOR = 0.6 
 local SCAN_DISTANCE = 80.0       
 
@@ -90,7 +87,6 @@ function DecisionModule.server_init(self,driver)
 
     self.speedUpdateTimer = 0 
     
-    -- [FIX] Radius Memory
     self.smoothedRadius = 1000.0
     self.radiusHoldTimer = 0.0
 
@@ -139,37 +135,34 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     local rawRadius = self.cachedMinRadius or 1000.0
     local distToCorner = self.cachedDist or 0.0
 
-    -- [[ FIX: RADIUS MEMORY ]]
-    -- Prevents the car from accelerating if the scanner momentarily misses the corner
+    -- 2. RADIUS MEMORY
     if rawRadius < self.smoothedRadius then
-        -- Found a tighter corner? React immediately.
         self.smoothedRadius = rawRadius
-        self.radiusHoldTimer = 1.0 -- Remember this corner for 1 second
+        self.radiusHoldTimer = 1.0 
     else
-        -- Track opening up? Wait before believing it.
         if self.radiusHoldTimer > 0 then
-            self.radiusHoldTimer = self.radiusHoldTimer - (1.0/40.0) -- Count down
+            self.radiusHoldTimer = self.radiusHoldTimer - (1.0/40.0) 
         else
-            -- Slowly release the memory
             self.smoothedRadius = self.smoothedRadius + 2.0 
         end
     end
-    -- Limit the smoothed radius to reality (don't hold it FOREVER)
     if self.smoothedRadius > rawRadius then self.smoothedRadius = rawRadius end
     
     local effectiveRadius = self.smoothedRadius
     
-    -- Debug Logs
     self.dbg_Radius = effectiveRadius
     self.dbg_Dist = distToCorner
 
-    -- 2. CALCULATE SPEED
+    -- 3. CALCULATE SPEED LIMIT
     local friction = self.dynamicGripFactor or 0.9
-    local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * 3.5
+    
+    -- [TUNED] Changed multiplier from 3.5 to 2.8 for more realistic grip limits
+    local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * 2.8
     
     maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
     maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
     
+    -- Physics Braking: v_now = sqrt(v_corner^2 + 2*a*d)
     local brakingForce = 25.0 * BRAKING_POWER_FACTOR
     local allowableSpeed = math.sqrt((maxCornerSpeed * maxCornerSpeed) + (2 * brakingForce * distToCorner))
     
@@ -178,13 +171,13 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
 
     local targetSpeed = math.min(self.dynamicMaxSpeed, allowableSpeed)
     
-    -- 5. CONTEXT MODIFIERS
+    -- 4. CONTEXT MODIFIERS
     if self.currentMode == "Drafting" then targetSpeed = targetSpeed * 1.1 end
     if self.currentMode == "Caution" then targetSpeed = 15.0 end
     if self.pitState > 0 then targetSpeed = 15.0 end
     if self.pitState == 3 then targetSpeed = 5.0 end
 
-    -- 6. STEERING DRAG
+    -- 5. STEERING DRAG (Slow down when turning hard)
     local steerFactor = math.abs(steerInput) * 0.1
     targetSpeed = targetSpeed * (1.0 - steerFactor)
 
@@ -329,14 +322,27 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     
     if self.isCornering == true then
         self.cornerTimer = self.cornerTimer - dt
+        
+        -- PHASE 1: ENTRY
         if self.cornerPhase == 1 and self.cornerTimer <= 0.0 then
             self.cornerPhase = 2 
             self.cornerTimer = CORNER_PHASE_DURATION
             self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
+            
+        -- PHASE 2: APEX (With Latch)
         elseif self.cornerPhase == 2 and self.cornerTimer <= 0.0 then
-            self.cornerPhase = 3 
-            self.cornerTimer = CORNER_PHASE_DURATION
-            self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
+            -- [FIX] Do not leave Apex phase if radius is still tight
+            if radius < CORNER_RADIUS_THRESHOLD * 0.8 then
+                -- Still in turn, hold Apex
+                self.cornerTimer = 0.1 
+            else
+                -- Exit to Phase 3
+                self.cornerPhase = 3 
+                self.cornerTimer = CORNER_PHASE_DURATION
+                self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
+            end
+            
+        -- PHASE 3: EXIT
         elseif self.cornerPhase == 3 and (self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD) then
             self.isCornering = false
             self.cornerPhase = 0
@@ -345,7 +351,7 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         end
     end
     
-    -- [FIX] Increased threshold so it doesn't bail out on a single flicker
+    -- Safety Reset
     if self.isCornering and radius > 5 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
@@ -368,10 +374,7 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
         return b
     end
 
-    -- [[ CRITICAL PRIORITY FIX ]] 
-    -- Safety (Context Steering) MUST check first, even before Cornering Strategy.
-    -- If there is a wall at the apex, we must avoid it, not ram it.
-    
+    -- Safety First
     local isWallDanger = (wall.isLeftCritical or wall.isRightCritical or wall.isForwardLeftCritical or wall.isForwardRightCritical)
     
     if currentMode == "OvertakeDynamic" or 
@@ -384,7 +387,6 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
         return bias
     end
 
-    -- If safe, THEN apply Cornering Strategy
     if self.isCornering then 
         return self.targetBias 
     end
