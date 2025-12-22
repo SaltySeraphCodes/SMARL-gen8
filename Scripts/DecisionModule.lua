@@ -41,7 +41,7 @@ local GAP_STICKINESS = 0.2
 -- [[ CORNERING STRATEGY ]]
 local CORNER_RADIUS_THRESHOLD = 120.0  
 local CORNER_ENTRY_BIAS = 0.60         
-local CORNER_APEX_BIAS = 0.60          -- [TUNED] Increased to hug inside line tighter
+local CORNER_APEX_BIAS = 0.60          
 local CORNER_EXIT_BIAS = 0.40          
 local CORNER_PHASE_DURATION = 0.3      
 
@@ -83,7 +83,7 @@ function DecisionModule.server_init(self,driver)
     self.smoothedRadius = 1000.0
     self.radiusHoldTimer = 0.0
     self.cachedDist = 0.0
-    self.smoothedBias = 0.0 -- Init smoothed bias
+    self.smoothedBias = 0.0 
 
     self:calculateCarPerformance()
 end
@@ -311,8 +311,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         self.cornerPhase = 1 
         self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir 
-        -- [FIX] Logic Inversion: Entry should target OUTSIDE (Positive for Left turn)
-        self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
+        -- [FIX] Logic Correction: Go Negative (Right) for Left Turn Entry
+        self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
     end
     
     if self.isCornering == true then
@@ -322,7 +322,7 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         if self.cornerPhase == 1 then
             local entryIntensity = 1.0 - math.min(math.max((distToApex - 30.0) / 70.0, 0.0), 1.0)
             -- [FIX] Target Outside
-            self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
+            self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
             
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 20.0 + (currentSpeed * 0.7) 
@@ -334,8 +334,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             
         -- PHASE 2: APEX (Turn In)
         elseif self.cornerPhase == 2 then
-            -- [FIX] Target Inside (Negative for Left turn)
-            self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
+            -- [FIX] Target Inside (Positive for Left Turn)
+            self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
             self.cornerTimer = self.cornerTimer - dt
             
             if self.cornerTimer <= 0.0 then
@@ -350,7 +350,7 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         -- PHASE 3: EXIT (Track Out)
         elseif self.cornerPhase == 3 then
             -- [FIX] Target Outside
-            self.targetBias = self.cornerDirection * CORNER_EXIT_BIAS
+            self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
             
             self.cornerTimer = self.cornerTimer - dt
             if self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
@@ -502,14 +502,12 @@ function DecisionModule.calculateSteering(self,perceptionData)
     local carDir = telemetry.rotations.at 
     local angularVel = telemetry.angularVelocity 
     
-    -- [BIAS SMOOTHING]
     local rawTargetBias = self:getFinalTargetBias(perceptionData)
     if not self.smoothedBias then self.smoothedBias = rawTargetBias end
     self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.1
     local targetBias = self.smoothedBias
 
     local lateralError = targetBias - navigation.trackPositionBias
-    -- [FIX] Invert PTerm sign (Error + means Go Right, Steering + means Go Right)
     local lateralPTerm = lateralError * LATERAL_Kp 
     
     local carDir2D = sm.vec3.new(carDir.x, carDir.y, 0):normalize()
@@ -527,8 +525,8 @@ function DecisionModule.calculateSteering(self,perceptionData)
     self.integralSteeringError = math.min(math.max(self.integralSteeringError, -MAX_I_TERM), MAX_I_TERM)
     local iTerm = self.integralSteeringError * STEERING_Ki
     
-    -- [FIX] REMOVED NEGATIVE SIGN ON PTERM
-    local rawSteer = (pTerm * STEERING_Kp) + iTerm + dTerm
+    -- [FIX] RESTORE NEGATIVE SIGN - Steering = -Error
+    local rawSteer = -(pTerm * STEERING_Kp) + iTerm + dTerm
     
     local speed = telemetry.speed or 0
     local speedFactor = 1.0 / (1.0 + (speed * 0.02)) 
