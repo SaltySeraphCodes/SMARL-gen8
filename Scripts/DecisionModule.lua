@@ -139,7 +139,8 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     
     local minRadius = self.cachedMinRadius
     local distToCorner = self.cachedDist
-    
+    self.dbg_Radius = minRadius
+    self.dbg_Dist = distToCorner
     -- 2. CALCULATE MAX CORNER SPEED (Physics: v = sqrt(r * g * friction))
     -- 9.8 * 1.5 (Grip) approx 15.0. 
     -- We multiply by a tuning factor (3.5) to match SM physics units
@@ -159,7 +160,8 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     -- Calculate the maximum speed we can have RIGHT NOW to still survive the upcoming corner
     -- V_allowable = sqrt(V_corner^2 + 2 * a * d)
     local allowableSpeed = math.sqrt((maxCornerSpeed * maxCornerSpeed) + (2 * brakingForce * distToCorner))
-    
+    self.dbg_MaxCorner = maxCornerSpeed
+    self.dbg_Allowable = allowableSpeed
     -- 4. DECISION
     -- If we are going faster than allowable, LIMIT the target speed to force braking
     local targetSpeed = math.min(self.dynamicMaxSpeed, allowableSpeed)
@@ -787,6 +789,23 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         self:determineStrategy(perceptionData, dt) 
         controls.steer = self:calculateSteering(perceptionData)
         controls.throttle, controls.brake = self:calculateSpeedControl(perceptionData, controls.steer)
+    end
+
+    local spd = perceptionData.Telemetry.speed or 0 -- logging
+    local tick = sm.game.getServerTick()
+    if spd > 2 and self.dbg_Radius and  tick % 3 == 0 then -- Only log when moving and every 3 ticks
+        print(string.format(
+            "[%s] SPD: %.0f/%.0f | RAD: %.0f (Dist: %.0f) | LIMIT: %.0f | ACT: T:%.1f B:%.1f | MODE: %s",
+            tostring(self.Driver.id % 100), -- Short ID
+            spd,                            -- Current Speed
+            self.dbg_Allowable or 0,        -- The speed the physics says is safe
+            self.dbg_Radius or 0,           -- The tightest turn seen
+            self.dbg_Dist or 0,             -- Distance to that turn
+            self.dbg_MaxCorner or 0,        -- The max speed for that turn
+            controls.throttle,              -- Throttle Output
+            controls.brake,                 -- Brake Output
+            self.currentMode                -- AI State
+        ))
     end
 
     self.controls = controls
