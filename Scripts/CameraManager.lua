@@ -477,6 +477,9 @@ function CameraManager.cl_calculateHoodPos(self,racer)
     if self.trackedRacer == nil or getDriverFromId(self.trackedRacer.id) == nil then return end
 
     local racerShape = self.trackedRacer.shape
+    -- [FIX] Guard against nil shape (e.g. car destroyed or not streamed in)
+    if not racerShape or not sm.exists(racerShape) then return nil end
+
     local carDir = racerShape:getAt()
     local carUp = racerShape:getUp() -- Use the 'Up' vector for vertical offset
     local centerPosition = racerShape:getWorldPosition()
