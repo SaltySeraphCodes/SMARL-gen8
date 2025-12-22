@@ -511,7 +511,10 @@ function DecisionModule.calculateSteering(self,perceptionData)
     self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.1
     local targetBias = self.smoothedBias -- Use the smooth value!
     local lateralError = targetBias - navigation.trackPositionBias
-    local lateralPTerm = lateralError * LATERAL_Kp
+    -- [FIX] INVERT LATERAL TERM
+    -- Previously: Positive Error (Go Right) -> Negative Steer (Left). BAD.
+    -- Now: We flip the sign so Positive Error -> Positive Steer (Right).
+    local lateralPTerm = -lateralError * LATERAL_Kp
     local carDir2D = sm.vec3.new(carDir.x, carDir.y, 0):normalize()
     local goalDir2D = sm.vec3.new(goalDir.x, goalDir.y, 0):normalize()
     local crossZ = carDir2D.x * goalDir2D.y - carDir2D.y * goalDir2D.x
