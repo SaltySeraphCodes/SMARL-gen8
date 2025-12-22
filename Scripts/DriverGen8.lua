@@ -281,14 +281,44 @@ function DriverGen8.resetCar(self, force)
 
     if not self.liftPlaced and (self.racing or force) then
         local bodies = self.body:getCreationBodies()
-        local carPos = self.body:getWorldPosition()
         
-        -- RESCUE SEARCH: Find closest node ignoring height
+        -- SMART RESCUE: Find closest node logic
         local bestNode = nil
-        local bestDistSq = math.huge
         
-        if self.nodeChain then
-            for _, node in ipairs(self.nodeChain) do
+        -- Strategy 1: Use last known valid node as anchor
+        local anchorNode = self.Perception and self.Perception.currentNode 
+        
+        if self.nodeChain and anchorNode then
+            local anchorIdx = anchorNode.id
+            local bestDistSq = math.huge
+            
+            -- Search window: +/- 30 nodes from last known position
+            -- This handles loops/bridges by only looking at the relevant segment
+            local chainLen = #self.nodeChain
+            local carPos = self.body:getWorldPosition()
+            
+            for i = -30, 30 do
+                local idx = ((anchorIdx + i - 1) % chainLen) + 1
+                local node = self.nodeChain[idx]
+                if node then
+                    -- Ignore Z for distance check
+                    local dx = carPos.x - node.location.x
+                    local dy = carPos.y - node.location.y
+                    local distSq = (dx*dx) + (dy*dy)
+                    
+                    if distSq < bestDistSq then
+                        bestDistSq = distSq
+                        bestNode = node
+                    end
+                end
+            end
+        end
+        
+        -- Strategy 2: Fallback (Global Search) if lost
+        if not bestNode and self.nodeChain then
+             local bestDistSq = math.huge
+             local carPos = self.body:getWorldPosition()
+             for _, node in ipairs(self.nodeChain) do
                 local dx = carPos.x - node.location.x
                 local dy = carPos.y - node.location.y
                 local distSq = (dx*dx) + (dy*dy)
@@ -296,14 +326,9 @@ function DriverGen8.resetCar(self, force)
                     bestDistSq = distSq
                     bestNode = node
                 end
-            end
+             end
         end
-        
-        -- Fallback
-        if not bestNode then bestNode = self.Perception and self.Perception.currentNode end
-        if not bestNode and self.nodeChain and #self.nodeChain > 4 then bestNode = self.nodeChain[4] end
 
-        -- SPAWN ATTEMPT LOOP
         if bestNode and bestNode.outVector then
             local spawnAttemptNode = bestNode
             local success = false
@@ -315,7 +340,7 @@ function DriverGen8.resetCar(self, force)
                 local rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.75)
                 if rot == -1 then rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.45) end
                 
-                -- Spawn high enough to clear ground
+                -- Spawn high enough
                 local spawnPos = sm.vec3.new(loc.x, loc.y, loc.z + 2.5)
                 
                 local valid, liftLevel = sm.tool.checkLiftCollision(bodies, spawnPos, rot)
@@ -334,10 +359,8 @@ function DriverGen8.resetCar(self, force)
                     break
                 end
                 
-                -- Move to next node if blocked
-                local nextIdx = spawnAttemptNode.id + 1
-                if self.nodeChain[nextIdx] then spawnAttemptNode = self.nodeChain[nextIdx]
-                else spawnAttemptNode = self.nodeChain[1] end
+                local nextIdx = (spawnAttemptNode.id % #self.nodeChain) + 1
+                spawnAttemptNode = self.nodeChain[nextIdx]
             end
             
             if not success then print(self.id, "Reset Failed: Blocked") end
