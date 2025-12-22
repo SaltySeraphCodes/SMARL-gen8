@@ -596,15 +596,21 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     if nav and nav.closestPointData and nav.closestPointData.baseNode then
         trackInfo = string.format("N:%d|S:%d", nav.closestPointData.baseNode.id, nav.closestPointData.baseNode.sectorID)
     end
+    -- Get Track Position Data
+    local currentBias = 0.0
+    if nav and nav.trackPositionBias then
+        currentBias = nav.trackPositionBias
+    end
     
     if spd > 10 and self.dbg_Radius and tick % 3 == 0 then 
         print(string.format(
-            "[%s] S:%.0f | %s | M:%s | BIAS: %.2f | STR: %.2f | P:%d",
+            "[%s] S:%.0f | %s | M:%s | BIAS: %.2f->%.2f | STR: %.2f | P:%d",
             tostring(self.Driver.id % 100), 
             spd, 
             trackInfo, -- Shows Node ID and Sector ID
-            self.currentMode:sub(1,4), 
-            self.targetBias, -- Use the smoothed target bias if you made it a class variable
+            self.currentMode:sub(1,4),
+            currentBias, -- where we are
+            self.smoothedBias or 0, -- where we want to be
             controls.steer,            
             self.cornerPhase or 0
         ))
