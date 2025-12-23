@@ -593,10 +593,10 @@ function DecisionModule.calculateSteering(self, perceptionData)
     local pTerm = (lateralError * LATERAL_Kp) - (angleErrorRad / MAX_WHEEL_ANGLE_RAD)
     
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-    
+
     -- Negative Yaw (Left Turn) -> Must produce Positive Steering (Right) to Dampen.
     -- Positive Yaw (Right Turn) -> Must produce Negative Steering (Left) to Dampen.
-    local dTerm = -yawRate * dynamicKd
+    local dTerm = yawRate * dynamicKd
     local rawSteer = (pTerm * dynamicKp) + dTerm
     
     return math.min(math.max(rawSteer, -1.0), 1.0)
