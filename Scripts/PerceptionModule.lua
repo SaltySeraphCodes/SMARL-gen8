@@ -228,28 +228,39 @@ function PerceptionModule.build_telemetry_data(self)
     return telemetryData
 end
 
-function PerceptionModule.findClosestPointOnTrack(self,location,chain)
+function PerceptionModule.findClosestPointOnTrack(self, location, chain)
     local telemetry_data = self.perceptionData.Telemetry or {}
-    local carLocation = location or telemetry_data.location or self.Driver.body:getWorldPosition() 
+    -- Default to current car position if no specific location is provided
+    local carLocation = location or telemetry_data.location or self.Driver.body:getWorldPosition()
+    
+    -- Find a starting point for the search (optimization)
     local segmentStartNode = self.currentNode or self:findClosestNodeFallback(chain, carLocation) 
     if not segmentStartNode then return nil end
+    
     local searchWindow = 10 
     local closestPoint = nil
     local bestDistanceSq = math.huge
+    
+    -- Search locally around the last known node
     for i = -5, searchWindow - 6 do 
         local node1 = getNextItem(chain, segmentStartNode.id, i)
         local node2 = getNextItem(chain, node1.id, 1) 
         if not node1 or not node2 then break end
+        
         local segmentVector = node2.location - node1.location
         local carVector = carLocation - node1.location
         local segmentLengthSq = segmentVector:length2()
+        
+        -- Project car position onto the track segment line
         local t = 0
         if segmentLengthSq > 0.001 then
             t = carVector:dot(segmentVector) / segmentLengthSq
         end
         local clamped_t = math.max(0, math.min(1, t))
+        
         local pointOnSegment = node1.location + segmentVector * clamped_t
         local distanceSq = (carLocation - pointOnSegment):length2()
+        
         if distanceSq < bestDistanceSq then
             bestDistanceSq = distanceSq
             closestPoint = {
@@ -261,9 +272,21 @@ function PerceptionModule.findClosestPointOnTrack(self,location,chain)
             }
         end
     end
+    
+    -- [UPDATED LOGIC]
     if closestPoint and not location then
         self.currentNode = closestPoint.baseNode
+        
+        -- MEMORY UPDATE:
+        -- Update the Driver's memory of the last confirmed valid node.
+        -- 'baseNode' is the start of the current segment (the node behind the car).
+        -- We only update this if we are doing a real-time scan (not location is nil),
+        -- ensuring we don't overwrite memory when doing hypothetical checks.
+        if self.Driver then
+            self.Driver.lastPassedNode = closestPoint.baseNode
+        end
     end
+    
     return closestPoint
 end
 

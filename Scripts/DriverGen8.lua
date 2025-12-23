@@ -304,40 +304,49 @@ end
 function DriverGen8.resetCar(self, force)
     local isOnLift = self.perceptionData and self.perceptionData.Telemetry and self.perceptionData.Telemetry.isOnLift
     
-    -- 1. WAIT FOR TIMER (Prevents spamming the code while waiting)
+    -- 1. WAIT FOR TIMER
+    -- Prevents code spamming. If waiting (timeout < 10) and not on lift, just tick up and exit.
     if self.resetPosTimeout < 10 and not isOnLift and not force then
-        self.resetPosTimeout = self.resetPosTimeout + 0.1
+        self.resetPosTimeout = self.resetPosTimeout + 0.5
         return 
     end
 
+    -- 2. RACE CONTROL CHECK
     if not self.raceControlError then
         local rc = getRaceControl()
+        -- If RC says "No Reset Allowed" (e.g. race hasn't started), abort.
         if rc and not rc:sv_checkReset() then return end 
+        -- Tell RC we are resetting (so it can flag us/penalize us if needed)
         if rc then rc:sv_resetCar() end
     end
     
-    if isOnLift then return end
+    -- Only return if on a lift AND we (the script) didn't put it there.
+    -- This allows players to manually lift cars without the script fighting them,
+    -- but allows the script to continue processing if IT placed the lift.
+    if isOnLift and not self.liftPlaced then return end
 
+    -- 3. EXECUTE RESET
     if not self.liftPlaced and (self.racing or force) then
         local bodies = self.body:getCreationBodies()
         
-        -- 2. SECTOR-BASED SEARCH
-        -- Only look for nodes that match our current race sector (or adjacent ones)
-        -- This prevents snapping to a bridge above us or a hairpin next to us.
-        local bestNode = nil
-        local bestDistSq = math.huge
-        local carPos = self.body:getWorldPosition()
-        local mySector = self.currentSector or 1
+        -- PRIORITY TARGET: The last node we explicitly drove over.
+        -- This is much safer than searching by distance, which can snap to the wrong track section.
+        local bestNode = self.lastPassedNode or self.resetNode
         
-        if self.nodeChain then
+        -- FALLBACK: If memory is empty (start of race?), search by proximity
+        if not bestNode and self.nodeChain then
+            local bestDistSq = math.huge
+            local carPos = self.body:getWorldPosition()
+            
             for _, node in ipairs(self.nodeChain) do
-                -- Filter: Allow Current Sector, Previous, or Next (Handle wrap around 1->End later)
-                local diff = math.abs(node.sectorID - mySector)
-                if diff <= 1 or diff > 10 then -- (>10 assumes large track wrap-around)
-                    
-                    -- Ignore Height (Z) for the search
-                    local dx = carPos.x - node.location.x
-                    local dy = carPos.y - node.location.y
+                -- We only check nodes in our current (or adjacent) sector to save CPU
+                local diff = math.abs(node.sectorID - (self.currentSector or 1))
+                if diff <= 1 or diff > 10 then 
+                    -- Convert Grid to World for accurate distance check
+                    local nodeWorldX = node.location.x * 4
+                    local nodeWorldY = node.location.y * 4
+                    local dx = carPos.x - nodeWorldX
+                    local dy = carPos.y - nodeWorldY
                     local distSq = (dx*dx) + (dy*dy)
                     
                     if distSq < bestDistSq then
@@ -348,29 +357,46 @@ function DriverGen8.resetCar(self, force)
             end
         end
 
+        -- 4. ATTEMPT PLACEMENT
         if bestNode and bestNode.outVector then
             local spawnAttemptNode = bestNode
             local success = false
             
-            -- Try 10 nodes forward
+            -- LOOKAHEAD LOOP:
+            -- If the best node is blocked (e.g., by another car or debris),
+            -- try the next 10 nodes in the chain until we find a clear spot.
             for i = 0, 10 do
                 if not spawnAttemptNode then break end
                 
+                -- Support both 'mid' (legacy) and 'location' keys
                 local loc = spawnAttemptNode.mid or spawnAttemptNode.location
+                
+                -- Calculate Rotation
                 local rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.75)
                 if rot == -1 then rot = getRotationIndexFromVector(spawnAttemptNode.outVector, 0.45) end
                 if rot == -1 then rot = 0 end 
                 
-                -- Spawn 3.0m up
-                local spawnPos = sm.vec3.new(loc.x, loc.y, loc.z + 3.0)
+                -- [[ CRITICAL FIX ]]: COORDINATE SCALING
+                -- The "Working" function multiplied by 4. The broken one didn't.
+                -- We restore the multiplier here to convert Grid Units to World Meters.
+                local worldX = loc.x * 4
+                local worldY = loc.y * 4
+                -- Lift the car 4.5 blocks up to clear terrain irregularities
+                local worldZ = (loc.z * 4) + 4.5 
+
+                local spawnPos = sm.vec3.new(worldX, worldY, worldZ)
                 
+                -- Check for collision before placing
                 local valid, liftLevel = sm.tool.checkLiftCollision(bodies, spawnPos, rot)
+                
                 if valid and self.player then
+                    print(self.id, "Resetting to Node:", spawnAttemptNode.id, "at", spawnPos)
                     sm.player.placeLift(self.player, bodies, spawnPos, liftLevel, rot)
+                    
                     self.liftPlaced = true
                     self.resetPosTimeout = 0
-                    print(self.id, "Reset Success at Node:", spawnAttemptNode.id, "Sector:", spawnAttemptNode.sectorID)
                     
+                    -- Reset decision module stuck flags so we don't immediately think we are stuck again
                     if self.Decision then
                         self.Decision.stuckTimer = 0
                         self.Decision.isStuck = false
@@ -380,30 +406,29 @@ function DriverGen8.resetCar(self, force)
                     break
                 end
                 
-                -- Next node
+                -- If blocked, increment to the next node in the chain
                 local nextIdx = (spawnAttemptNode.id % #self.nodeChain) + 1
                 spawnAttemptNode = self.nodeChain[nextIdx]
             end
             
             if not success then 
-                -- [FIX] Add a cooldown if placement failed so we don't spam 40 times a second
-                -- Setting this to 5.0 means it will wait 0.5 seconds (via the <10 check at the top) before trying again
+                -- If all 10 nodes were blocked, wait 0.5s (5.0 / 0.1 tick rate) and try again
                 self.resetPosTimeout = 5.0 
                 print(self.id, "Reset Failed (Collision). Retrying...") 
             end
-        end
-        
-    elseif self.liftPlaced and self.player then
-        -- [FIX] Do not remove the lift instantly. 
-        -- Wait for the car to settle on the lift for 2 seconds (80 ticks)
-        self.resetPosTimeout = self.resetPosTimeout + 1
-        if self.resetPosTimeout > 20 then 
-            sm.player.removeLift(self.player)
-            self.liftPlaced = false
-            self.resetPosTimeout = 0 -- Reset timer for the next phase (driving)
+        else
+            print(self.id, "Reset Failed: No valid node found.")
         end
     end
+        
+    -- 5. LIFT REMOVAL (fires immediately after, no need for delay)
+    if self.liftPlaced and self.player then
+        sm.player.removeLift(self.player)
+        self.liftPlaced = false
+        self.resetPosTimeout = 0 
+    end
 end
+
 
 function DriverGen8.handleTireWear(self, dt)
     local rc = getRaceControl()

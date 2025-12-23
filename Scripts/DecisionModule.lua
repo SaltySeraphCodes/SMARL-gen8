@@ -566,6 +566,7 @@ function DecisionModule.calculateSteering(self, perceptionData)
     local dTerm = -yawRate * dynamicKd
     
     local rawSteer = (pTerm * dynamicKp) + dTerm
+    print("R:", rawSteer, "P:", pTerm * dynamicKp, "D:", dTerm)
     return math.min(math.max(rawSteer, -1.0), 1.0)
 end
 
@@ -624,7 +625,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     
     if spd > 0.5 and self.dbg_Radius and tick % 4 == 0 then 
         print(string.format(
-            "[%s] SPD:%03.0f/%03.0f | RAD:%03.0f | DIST:%03.0f | T:%.1f B:%.1f | STR:%+.2f | BIAS:%+.2f->%+.2f | %s | P:%d | YAW:%+.2f | ERR:%+.2f | V: (%.2f, %.2f, %.2f)",
+            "[%s] SPD:%03.0f/%03.0f | RAD:%03.0f | DIST:%03.0f | T:%.1f B:%.1f | STR:%+.2f | BIAS:%+.2f->%+.2f | %s | P:%d | YAW:%+.2f | ERR:%+.2f",
             tostring(self.Driver.id % 100), 
             spd, 
             self.dbg_Allowable or 0, 
@@ -638,9 +639,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
             self.currentMode:sub(1,4), 
             self.cornerPhase or 0,
             yawRate,
-            self.lateralError,
-            velocity.x, velocity.y, velocity.z
-        ))
+            self.lateralError))
         
     end
 
