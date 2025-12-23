@@ -725,19 +725,32 @@ function CameraManager.findClosestBattle(self, racers, battleThreshold)
     local minDistance = battleThreshold 
     local battleCars = nil
 
+    -- [FIX] Define helper function to get location safely
+    local function getRacerPos(racer)
+        if not racer then return nil end
+        if racer.location then return racer.location end
+        if racer.shape and sm.exists(racer.shape) then return racer.shape:getWorldPosition() end
+        if racer.body then return racer.body:getWorldPosition() end
+        return nil
+    end
+
     -- 1. Iterate through all pairs of racers
     for i, racerA in ipairs(racers) do
         for j, racerB in ipairs(racers) do
             if i < j then -- Check each unique pair once
                 -- 2. Calculate the distance between them (using length2 is faster)
-                local racerALoc = racerA.perceptionData.Telemetry.location or racerA.body:getWorldPosition()
-                local racerBLoc = racerB.perceptionData.Telemetry.location or racerB.body:getWorldPosition()
-                local distanceSq = (racerALoc - racerBLoc):length2()
+                -- [FIX] Use safe getter, do not access perceptionData
+                local racerALoc = getRacerPos(racerA)
+                local racerBLoc = getRacerPos(racerB)
                 
-                -- 3. Check if they are in a battle zone and it's the closest battle found so far
-                if distanceSq < (battleThreshold * battleThreshold) and distanceSq < minDistance then
-                    minDistance = distanceSq
-                    battleCars = {racerA, racerB}
+                if racerALoc and racerBLoc then
+                    local distanceSq = (racerALoc - racerBLoc):length2()
+                    
+                    -- 3. Check if they are in a battle zone and it's the closest battle found so far
+                    if distanceSq < (battleThreshold * battleThreshold) and distanceSq < minDistance then
+                        minDistance = distanceSq
+                        battleCars = {racerA, racerB}
+                    end
                 end
             end
         end

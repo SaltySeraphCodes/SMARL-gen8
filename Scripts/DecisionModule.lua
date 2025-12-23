@@ -232,28 +232,37 @@ function DecisionModule:calculateContextBias(perceptionData)
         end
     end
 
+    -- [FIX] Corrected Wall Avoidance Logic
     if wall then
         local avoidanceMargin = WALL_AVOID_DIST 
         
+        -- LEFT WALL Logic: If wall is on left, block Left rays (Negative angles)
         if wall.marginLeft < avoidanceMargin then
             local urgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
-            urgency = urgency * urgency * urgency 
+            urgency = urgency * urgency -- Non-linear scaling
             
-            local blockAngle = -5.0 + (urgency * -30.0) 
+            -- Cutoff moves from -90 (Safe) to +15 (Critical)
+            -- Any ray LESS than cutoff is blocked
+            local cutoff = -90.0 + (urgency * 105.0) 
+            
             for i = 1, NUM_RAYS do
-                if rayAngles[i] < 5 and rayAngles[i] < blockAngle then
+                if rayAngles[i] < cutoff then
                     dangerMap[i] = math.max(dangerMap[i], urgency)
                 end
             end
         end
 
+        -- RIGHT WALL Logic: If wall is on right, block Right rays (Positive angles)
         if wall.marginRight < avoidanceMargin then
             local urgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin)
-            urgency = urgency * urgency * urgency 
+            urgency = urgency * urgency
             
-            local blockAngle = 5.0 + (urgency * 30.0)
+            -- Cutoff moves from +90 (Safe) to -15 (Critical)
+            -- Any ray GREATER than cutoff is blocked
+            local cutoff = 90.0 - (urgency * 105.0)
+            
             for i = 1, NUM_RAYS do
-                if rayAngles[i] > -5 and rayAngles[i] > blockAngle then
+                if rayAngles[i] > cutoff then
                     dangerMap[i] = math.max(dangerMap[i], urgency)
                 end
             end
@@ -277,7 +286,6 @@ function DecisionModule:calculateContextBias(perceptionData)
     end
 
     local chosenAngle = rayAngles[bestIndex]
-    
     
     local targetBias = -(chosenAngle / 45.0) 
     
