@@ -13,8 +13,8 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local DEFAULT_STEERING_Kp = 0.18  
-local DEFAULT_STEERING_Kd = 0.15  
+local DEFAULT_STEERING_Kp = 0.18  -- [FIX] Increased for better turn-in
+local DEFAULT_STEERING_Kd = 0.15  -- [FIX] Lowered to reduce jitter
 local LATERAL_Kp = 0.45        
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
@@ -328,19 +328,25 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local radius = self.smoothedRadius or MIN_RADIUS_FOR_MAX_SPEED 
     local curveDir = nav.longCurveDirection 
     local distToApex = self.cachedDist or 0.0 
-
-    -- [FIX] Sign Logic for Left Turn (+1) / Right Turn (-1)
-    -- Coordinate System: Left = Negative (-), Right = Positive (+)
     
+    -- Local Radius (Where the car IS, not where it's looking)
+    local localRadius = nav.roadCurvatureRadius or 1000.0
+
     if self.isCornering == false and radius < CORNER_RADIUS_THRESHOLD then
         self.isCornering = true
-        self.cornerPhase = 1 
-        self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir 
         
-        -- ENTRY: Set up on the OUTSIDE (Opposite of turn direction)
-        -- Left Turn (+1) -> Target Right (+bias)
-        self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
+        -- [FIX] Intelligent Entry
+        -- If Local Radius is already tight, we are IN the corner. Skip setup.
+        if localRadius < CORNER_RADIUS_THRESHOLD then
+            self.cornerPhase = 2
+            self.cornerTimer = CORNER_PHASE_DURATION
+            self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
+        else
+            self.cornerPhase = 1 
+            self.cornerTimer = CORNER_PHASE_DURATION
+            self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
+        end
     end
     
     if self.isCornering == true then
@@ -348,27 +354,28 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         
         -- PHASE 1: ENTRY (Setup / Outside)
         if self.cornerPhase == 1 then
-            -- Left Turn (+1) -> Target Right (+0.6)
             self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
             
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 20.0 + (currentSpeed * 0.7) 
             
-            if distToApex < switchDist then 
+            -- [FIX] Force switch if we physically enter the turn (Local Radius drops)
+            -- OR if we reach the calculated distance.
+            if distToApex < switchDist or localRadius < CORNER_RADIUS_THRESHOLD then 
                 self.cornerPhase = 2 
                 self.cornerTimer = CORNER_PHASE_DURATION 
             end
             
         -- PHASE 2: APEX (Cut / Inside)
         elseif self.cornerPhase == 2 then
-            -- Left Turn (+1) -> Target Left (-0.6)
             self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
-            
             self.cornerTimer = self.cornerTimer - dt
             
+            -- Hold Phase 2 as long as the turn is tight
             if self.cornerTimer <= 0.0 then
-                if radius < CORNER_RADIUS_THRESHOLD * 0.8 then
-                    self.cornerTimer = 0.1 
+                -- [FIX] Use Local Radius to hold the Apex state
+                if localRadius < CORNER_RADIUS_THRESHOLD * 1.2 then
+                    self.cornerTimer = 0.2 -- Keep holding
                 else
                     self.cornerPhase = 3 
                     self.cornerTimer = CORNER_PHASE_DURATION
@@ -377,7 +384,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             
         -- PHASE 3: EXIT (Track Out / Outside)
         elseif self.cornerPhase == 3 then
-            -- Left Turn (+1) -> Target Right (+0.4)
             self.targetBias = self.cornerDirection * CORNER_EXIT_BIAS
             
             self.cornerTimer = self.cornerTimer - dt
@@ -390,7 +396,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         end
     end
     
-    -- Safety Exit
     if self.isCornering and radius > 6 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0

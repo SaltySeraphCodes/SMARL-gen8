@@ -3,10 +3,8 @@ dofile("globals.lua")
 PerceptionModule = class(nil)
 
 local Z_TOLERANCE_SQ = 25        
--- UPDATED: Increased lookahead spread to better detect macro-curve geometry
--- Previous 4.0/9.0 was too narrow, causing "straight line" detection on polyline segments.
-local LOOKAHEAD_DISTANCE_1 = 8.0 
-local LOOKAHEAD_DISTANCE_2 = 18.0 
+local LOOKAHEAD_DISTANCE_1 = 5.0 
+local LOOKAHEAD_DISTANCE_2 = 15.0 
 local MAX_CURVATURE_RADIUS = 1000.0 
 local LONG_LOOKAHEAD_DISTANCE = 60.0 -- Increased slightly to see further down straights
 
