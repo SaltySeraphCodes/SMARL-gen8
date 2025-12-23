@@ -13,7 +13,7 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local DEFAULT_STEERING_Kp = 0.10  -- [CHANGE] Lowered Kp to 0.10 for gentler steering on straights
+local DEFAULT_STEERING_Kp = 0.10  
 local DEFAULT_STEERING_Kd = 0.55  
 local LATERAL_Kp = 0.45        
 local Kp_MIN_FACTOR = 0.35     
@@ -49,8 +49,8 @@ local CORNER_PHASE_DURATION = 0.3
 local NUM_RAYS = 17            
 local VIEW_ANGLE = 120         
 local LOOKAHEAD_RANGE = 45.0   
-local SAFETY_WEIGHT = 5.0      
-local INTEREST_WEIGHT = 1.0   
+local SAFETY_WEIGHT = 10.0     -- [CHANGE] Increased weight to ensure obstacles are avoided
+local INTEREST_WEIGHT = 2.0    -- [CHANGE] Increased to keep car glued to racing line
 local WALL_AVOID_DIST = 4.0    
 local VISUALIZE_RAYS = true    
 
@@ -80,7 +80,6 @@ function DecisionModule.server_init(self,driver)
 
     self.speedUpdateTimer = 0 
     
-    -- Initialize Tuning Values
     self.STEERING_Kp_BASE = DEFAULT_STEERING_Kp
     self.STEERING_Kd_BASE = DEFAULT_STEERING_Kd
     
@@ -178,7 +177,10 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     return targetSpeed
 end
 
-function DecisionModule:calculateContextBias(perceptionData)
+-- [CRITICAL UPDATE] Now accepts a 'preferredBias'
+-- This forces the context system to try and stick to the Racing Line/Cornering strategy
+-- unless it is blocked by a wall or car.
+function DecisionModule:calculateContextBias(perceptionData, preferredBias)
     local nav = perceptionData.Navigation
     local opp = perceptionData.Opponents
     local wall = perceptionData.WallAvoidance
@@ -191,22 +193,24 @@ function DecisionModule:calculateContextBias(perceptionData)
     local sectorStep = VIEW_ANGLE / (NUM_RAYS - 1)
     local startAngle = -(VIEW_ANGLE / 2)
 
-    local preferredBias = 0.0 
-    if self.currentMode == "DefendLine" then preferredBias = self.targetBias end 
-    local currentPos = nav.trackPositionBias or 0.0
-    local centeringAngle = currentPos * 25.0 
-    if self.currentMode == "DefendLine" then centeringAngle = -(preferredBias * 45.0) end
+    -- [FIX 1] ALIGN COORDINATES (Left Bias = Left Angle)
+    -- Previous: local centeringAngle = -(preferredBias * 45.0)
+    -- New: Scale -1.0 (Left) directly to -45.0 (Left Angle)
+    -- Note: We use 55.0 to allow the car to look slightly wider than the track edge
+    local centeringAngle = preferredBias * 55.0 
 
     for i = 1, NUM_RAYS do
         local angle = startAngle + (i - 1) * sectorStep
         rayAngles[i] = angle
         dangerMap[i] = 0.0
         
+        -- Interest curve is bell-shaped centered on the Preferred Bias
         local diff = math.abs(angle - centeringAngle)
-        local sigma = 30.0 
+        local sigma = 20.0 
         interestMap[i] = math.exp(-(diff * diff) / (2 * sigma * sigma))
     end
 
+    -- POPULATE DANGER MAP (Opponents)
     if opp and opp.racers then
         for _, racer in ipairs(opp.racers) do
             if racer.isAhead and racer.distance < LOOKAHEAD_RANGE then
@@ -217,46 +221,36 @@ function DecisionModule:calculateContextBias(perceptionData)
                 local dx = toOp:dot(right)
                 local dy = toOp:dot(fwd)
                 local oppAngle = math.deg(math.atan2(dx, dy))
-                local carWidthDeg = math.deg(math.atan2(2.0, racer.distance)) * 2.0 
+                local carWidthDeg = math.deg(math.atan2(2.5, racer.distance)) * 2.5 -- Widened buffer
                 
                 for i = 1, NUM_RAYS do
                     local diff = math.abs(rayAngles[i] - oppAngle)
                     if diff < carWidthDeg then
                         local severity = 1.0 - (racer.distance / LOOKAHEAD_RANGE)
-                        if racer.closingSpeed < -5.0 then severity = severity * 1.5 end
-                        dangerMap[i] = math.max(dangerMap[i], severity)
+                        -- High danger if close
+                        dangerMap[i] = math.max(dangerMap[i], severity * 1.5) 
                     end
                 end
             end
         end
     end
 
-    -- [FIX] Corrected Wall Avoidance Logic
+    -- POPULATE DANGER MAP (Walls)
     if wall then
         local avoidanceMargin = WALL_AVOID_DIST 
-        -- LEFT WALL Logic: If wall is on left, block Left rays (Negative angles)
         if wall.marginLeft < avoidanceMargin then
             local urgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
-            urgency = urgency * urgency -- Non-linear scaling
             local cutoff = -90.0 + (urgency * 105.0) 
-            
             for i = 1, NUM_RAYS do
-                if rayAngles[i] < cutoff then
-                    dangerMap[i] = math.max(dangerMap[i], urgency)
-                end
+                if rayAngles[i] < cutoff then dangerMap[i] = math.max(dangerMap[i], urgency) end
             end
         end
 
-        -- RIGHT WALL Logic: If wall is on right, block Right rays (Positive angles)
         if wall.marginRight < avoidanceMargin then
             local urgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin)
-            urgency = urgency * urgency
             local cutoff = 90.0 - (urgency * 105.0)
-            
             for i = 1, NUM_RAYS do
-                if rayAngles[i] > cutoff then
-                    dangerMap[i] = math.max(dangerMap[i], urgency)
-                end
+                if rayAngles[i] > cutoff then dangerMap[i] = math.max(dangerMap[i], urgency) end
             end
         end
     end
@@ -278,8 +272,10 @@ function DecisionModule:calculateContextBias(perceptionData)
     end
 
     local chosenAngle = rayAngles[bestIndex]
-    
-    local targetBias = -(chosenAngle / 45.0) 
+    -- [FIX 2] DIRECT MAPPING
+    -- Previous: local targetBias = -(chosenAngle / 45.0)
+    -- New: Map Angle -45 (Left) back to Bias -0.8 (Left)
+    local targetBias = chosenAngle / 55.0 
     
     return math.min(math.max(targetBias, -1.0), 1.0), debugData
 end
@@ -319,34 +315,26 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         self.cornerPhase = 1 
         self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir 
-        -- Entry = Opposite of Turn. Left Turn (+1) -> Right Bias (-1).
         self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
     end
     
     if self.isCornering == true then
         self.currentMode = "Cornering" 
         
-        -- PHASE 1: ENTRY (Setup)
+        -- PHASE 1: ENTRY
         if self.cornerPhase == 1 then
-            -- [CHANGE] Removed "Entry Intensity" scaling.
-            -- If we are in Entry Phase, immediately target the optimal setup line.
-            -- The PID smoothing (self.smoothedBias) will handle the transition gracefully.
             self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
-            
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 20.0 + (currentSpeed * 0.7) 
-            
             if distToApex < switchDist then 
                 self.cornerPhase = 2 
                 self.cornerTimer = CORNER_PHASE_DURATION 
             end
             
-        -- PHASE 2: APEX (Turn In)
+        -- PHASE 2: APEX
         elseif self.cornerPhase == 2 then
-            -- Target Left (Positive)
             self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
             self.cornerTimer = self.cornerTimer - dt
-            
             if self.cornerTimer <= 0.0 then
                 if radius < CORNER_RADIUS_THRESHOLD * 0.8 then
                     self.cornerTimer = 0.1 
@@ -356,11 +344,9 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
                 end
             end
             
-        -- PHASE 3: EXIT (Track Out)
+        -- PHASE 3: EXIT
         elseif self.cornerPhase == 3 then
-            -- Target Right (Negative)
             self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
-            
             self.cornerTimer = self.cornerTimer - dt
             if self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
                 self.isCornering = false
@@ -371,7 +357,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         end
     end
     
-    if self.isCornering and radius > 5 * CORNER_RADIUS_THRESHOLD then
+    -- [TWEAK] Increased exit threshold slightly to prevent premature state exit
+    if self.isCornering and radius > 6 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
         self.currentMode = "RaceLine"
@@ -392,35 +379,56 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
         return b
     end
 
-    local isWallDanger = (wall.isLeftCritical or wall.isRightCritical or wall.isForwardLeftCritical or wall.isForwardRightCritical)
+    -- 1. DETERMINE IDEAL BIAS (What we WANT to do)
+    local idealBias = (self.Driver.carAggression - 0.5) * 0.8
     
-    -- [CHANGE] Removed implicit (opp.count > 0) override.
-    -- Racing lines (Cornering) are better than Raycasts unless we specifically 
-    -- need to avoid a collision (handled by currentMode) or a wall (isWallDanger).
-    local useContextSteering = (currentMode == "OvertakeDynamic" or 
-                                currentMode == "AvoidCollision" or 
-                                isWallDanger)
-
-    if useContextSteering or VISUALIZE_RAYS then
-        local bias, debugData = self:calculateContextBias(perceptionData)
-        self.latestDebugData = debugData
-        
-        if useContextSteering then 
-            self.currentMode = "Context" 
-            return bias 
+    if self.isCornering then
+        idealBias = self.targetBias
+    elseif currentMode == "Drafting" then
+        idealBias = 0.0
+    elseif currentMode == "Yield" then
+        idealBias = self:getYieldBias(perceptionData)
+    elseif currentMode == "DefendLine" then
+        if nav.longCurveDirection ~= 0 then 
+            idealBias = nav.longCurveDirection * DEFENSE_BIAS_FACTOR 
+        else
+            idealBias = DEFENSE_BIAS_FACTOR * self.Driver.carAggression * getSign(nav.trackPositionBias or 0.01)
         end
     end
 
-    if self.isCornering then return self.targetBias end
-
-    if currentMode == "Drafting" then return 0.0 end
-    if currentMode == "Yield" then return self:getYieldBias(perceptionData) end
-    if currentMode == "DefendLine" then
-        if nav.longCurveDirection ~= 0 then return nav.longCurveDirection * DEFENSE_BIAS_FACTOR end
-        return DEFENSE_BIAS_FACTOR * self.Driver.carAggression * getSign(nav.trackPositionBias or 0.01)
-    end
+    -- 2. DETERMINE NECESSITY OF CONTEXT CHECK
+    -- We check Context if there are walls nearby, or opponents nearby.
+    local isWallDanger = (wall.isLeftCritical or wall.isRightCritical or wall.isForwardLeftCritical or wall.isForwardRightCritical)
+    local isOpponentDanger = (opp.count > 0)
     
-    return (self.Driver.carAggression - 0.5) * 0.8 
+    local runContext = isWallDanger or isOpponentDanger or currentMode == "OvertakeDynamic"
+
+    -- 3. APPLY CONTEXT FILTER (Safety Check)
+    -- If running context, we feed it our 'idealBias'.
+    -- The system will try to match 'idealBias', but deviate if blocked.
+    if runContext or VISUALIZE_RAYS then
+        local safeBias, debugData = self:calculateContextBias(perceptionData, idealBias)
+        self.latestDebugData = debugData
+        
+        -- If we are cornering, we use the SAFE bias, but we do NOT change the mode string
+        -- This prevents the 'State Switching' bug that resets your timers.
+        if self.isCornering then
+             -- Only use safe bias if it deviates significantly (Collision Avoidance)
+             if math.abs(safeBias - idealBias) > 0.1 then
+                 return safeBias
+             else
+                 return idealBias
+             end
+        end
+
+        if runContext then
+            -- For straight line modes, we can switch the mode string for debugging
+            if not self.isCornering then self.currentMode = "Context" end
+            return safeBias 
+        end
+    end
+
+    return idealBias
 end
 
 function DecisionModule.getStructuredModeTargets(self, perceptionData, mode)
@@ -461,6 +469,7 @@ function DecisionModule.checkUtility(self,perceptionData, dt)
     else
         self.stuckTimer = 0.0 
     end
+    if self.isStuck then self.Driver.resetPosTimeout = 11.0 end -- Force reset if stuck
     if self.stuckTimer >= STUCK_TIME_LIMIT then self.isStuck = true else self.isStuck = false end
     if self.isFlipped or self.isStuck then resetFlag = true end
     return resetFlag
@@ -472,15 +481,27 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     local telemetry = perceptionData.Telemetry
     local wall = perceptionData.WallAvoidance 
     local aggressionFactor = self.Driver.carAggression
+    
+    -- Preserve Cornering Mode if active (Critical for consistency)
+    if self.isCornering then
+        self:handleCorneringStrategy(perceptionData, dt)
+        return
+    end
+
     self.currentMode = "RaceLine" 
+    
     if self.Driver.formation then self.currentMode = "Formation"; return
     elseif self.Driver.caution then self.currentMode = "Caution"; return end
+    
     if wall.isForwardLeftCritical then self.currentMode = "AvoidWallRight"; return
     elseif wall.isForwardRightCritical then self.currentMode = "AvoidWallLeft"; return end
+    
     if opp.collisionRisk and opp.collisionRisk.timeToCollision < 0.5 then self.currentMode = "AvoidCollision"; return end
     if opp.blueFlagActive then self.currentMode = "Yield"; return end
+    
     self:handleCorneringStrategy(perceptionData, dt)
     if self.isCornering then return end
+    
     local isStraight = nav.roadCurvatureRadius >= 500
     if opp.draftingTarget and telemetry.speed > 30 and isStraight and aggressionFactor >= 0.3 then self.currentMode = "Drafting"; return end
     if opp.count > 0 then
@@ -506,7 +527,6 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     end
 end
 
-
 function DecisionModule.calculateSteering(self, perceptionData)
     local telemetry = perceptionData.Telemetry
     local nav = perceptionData.Navigation
@@ -516,24 +536,20 @@ function DecisionModule.calculateSteering(self, perceptionData)
     local speed = telemetry.speed or 0
     local speedRatio = math.min(speed / self.dynamicMaxSpeed, 1.0)
     
-    -- Load gains
     local kp = self.STEERING_Kp_BASE or DEFAULT_STEERING_Kp
     local kd = self.STEERING_Kd_BASE or DEFAULT_STEERING_Kd
     
-    -- 1. Dynamic Factors
-    -- [SAFETY] Force gains to be positive to prevent sign-flipping bugs
     local absKp = math.abs(kp)
     local absKd = math.abs(kd)
 
     local dynamicKp = absKp * (1.0 - (speedRatio * (1.0 - Kp_MIN_FACTOR)))
     local dynamicKd = absKd * (1.0 + (speedRatio * (Kd_BOOST_FACTOR - 1.0)))
 
-    -- 2. Bias Smoothing
     local rawTargetBias = self:getFinalTargetBias(perceptionData)
     self.smoothedBias = self.smoothedBias or rawTargetBias
-    self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.15
+    -- [TWEAK] Faster smoothing reaction (0.25 vs 0.15) to help hit the Apex on time
+    self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.25
     
-    -- 3. Calculate P-Term
     local lateralError = self.smoothedBias - nav.trackPositionBias
     self.lateralError = lateralError
 
@@ -544,20 +560,10 @@ function DecisionModule.calculateSteering(self, perceptionData)
 
     local pTerm = (lateralError * LATERAL_Kp) - (angleErrorRad / MAX_WHEEL_ANGLE_RAD)
     
-    -- 4. Calculate D-Term (Yaw Damping)
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-    
-    -- [CRITICAL FIX]
-    -- We use the absolute value of dynamicKd.
-    -- We multiply by Positive Yaw to get Positive Steering (Right) -> Resists Left Turn
-    -- We multiply by Negative Yaw to get Negative Steering (Left) -> Resists Right Turn
     local dTerm = yawRate * dynamicKd 
 
-    -- 5. Summation
     local rawSteer = (pTerm * dynamicKp) + dTerm
-    
-    -- Debug Print: Check that D and Yaw have the SAME SIGN.
-    -- print("Yaw:", yawRate, "D:", dTerm, "Steer:", rawSteer)
     
     return math.min(math.max(rawSteer, -1.0), 1.0)
 end
