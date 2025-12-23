@@ -520,7 +520,6 @@ function DecisionModule.calculateSteering(self, perceptionData)
     local speed = telemetry.speed or 0
     
     -- 1. Dynamic Gain Scaling
-    -- Reduces Kp as speed increases to prevent high-speed fishtailing
     local speedRatio = math.min(speed / self.dynamicMaxSpeed, 1.0)
     
     -- [FIX] Use SELF variables so TuningOptimizer can adjust them
@@ -536,7 +535,6 @@ function DecisionModule.calculateSteering(self, perceptionData)
     self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.15
     
     -- 3. Lateral Error (Target - Current)
-    -- Car is Left (-0.5), Target is Center (0.0) -> Error = +0.5
     local lateralError = self.smoothedBias - nav.trackPositionBias
     self.lateralError = lateralError
 
@@ -548,22 +546,12 @@ function DecisionModule.calculateSteering(self, perceptionData)
 
     -- 5. PID Summation
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-    
-    -- [FIX] P-Term Logic: 
-    -- LateralError (+) = Car Left of Line -> Steer Right (+)
-    -- AngleError (+) = Car Right of Target Angle -> Steer Left (-)
-    local pTerm = (lateralError * LATERAL_Kp) - (angleErrorRad / MAX_WHEEL_ANGLE_RAD)
-    
-    -- [FIX] Damping Logic:
-    -- Yaw (+) = Spinning Left -> Steer Right (+) to Counter-Steer? 
-    -- NO. If we are spinning left, we want to resist that spin.
-    -- To resist Left Yaw, we need to create torque Right. 
-    -- However, in steering control, steering Right usually initiates a Right Turn (Negative Yaw).
-    -- So to Counter a Positive Yaw Rate, we steer Right.
-    -- Wait, previously 'yawRate' was positive, causing spin. That means Positive feedback.
-    -- We need Negative Feedback (Resistance).
-    -- So dTerm should be Negative.
     local dTerm = -yawRate * dynamicKd
+
+    -- P-Term Composition
+    -- Note: LATERAL_Kp is likely a static scalar (e.g. 1.5) to weigh Lateral vs Angle error.
+    -- We apply dynamicKp to the whole P-result.
+    local pTerm = (lateralError * LATERAL_Kp) - (angleErrorRad / MAX_WHEEL_ANGLE_RAD)
     
     local rawSteer = (pTerm * dynamicKp) + dTerm
     print("R:", rawSteer, "P:", pTerm * dynamicKp, "D:", dTerm)
