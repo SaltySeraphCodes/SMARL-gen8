@@ -239,24 +239,34 @@ function DecisionModule:calculateContextBias(perceptionData, preferredBias)
     if wall then
         local avoidanceMargin = WALL_AVOID_DIST 
         
-        -- [FIX] Ignore Inner Wall if we are Cornering
-        -- If we are aiming Left (Preferred < 0), ignore Left Wall danger
-        local ignoreLeft = (preferredBias < -0.3)
-        -- If we are aiming Right (Preferred > 0), ignore Right Wall danger
-        local ignoreRight = (preferredBias > 0.3)
+        -- [FIX] SMART WALL IGNORANCE
+        -- Only ignore the wall on the INSIDE of the turn.
+        -- Never ignore the outside wall (which we drift towards on exit).
+        
+        local ignoreLeft = false
+        local ignoreRight = false
 
+        if self.isCornering then
+            -- cornerDirection: 1 = Left Turn, -1 = Right Turn
+            if self.cornerDirection == 1 then
+                ignoreLeft = true   -- Ignore Inside (Left), Respect Outside (Right)
+            elseif self.cornerDirection == -1 then
+                ignoreRight = true  -- Ignore Inside (Right), Respect Outside (Left)
+            end
+        end
+
+        -- Left Wall Logic
         if wall.marginLeft < avoidanceMargin and not ignoreLeft then
             local urgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
-            -- Cutoff: Block Negative Angles (Left)
             local cutoff = -90.0 + (urgency * 105.0) 
             for i = 1, NUM_RAYS do
                 if rayAngles[i] < cutoff then dangerMap[i] = math.max(dangerMap[i], urgency) end
             end
         end
 
+        -- Right Wall Logic
         if wall.marginRight < avoidanceMargin and not ignoreRight then
             local urgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin)
-            -- Cutoff: Block Positive Angles (Right)
             local cutoff = 90.0 - (urgency * 105.0)
             for i = 1, NUM_RAYS do
                 if rayAngles[i] > cutoff then dangerMap[i] = math.max(dangerMap[i], urgency) end
@@ -319,31 +329,43 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local curveDir = nav.longCurveDirection 
     local distToApex = self.cachedDist or 0.0 
 
+    -- [FIX] Sign Logic for Left Turn (+1) / Right Turn (-1)
+    -- Coordinate System: Left = Negative (-), Right = Positive (+)
+    
     if self.isCornering == false and radius < CORNER_RADIUS_THRESHOLD then
         self.isCornering = true
         self.cornerPhase = 1 
         self.cornerTimer = CORNER_PHASE_DURATION
         self.cornerDirection = curveDir 
-        self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
+        
+        -- ENTRY: Set up on the OUTSIDE (Opposite of turn direction)
+        -- Left Turn (+1) -> Target Right (+bias)
+        self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
     end
     
     if self.isCornering == true then
         self.currentMode = "Cornering" 
         
-        -- PHASE 1: ENTRY
+        -- PHASE 1: ENTRY (Setup / Outside)
         if self.cornerPhase == 1 then
-            self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
+            -- Left Turn (+1) -> Target Right (+0.6)
+            self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
+            
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 20.0 + (currentSpeed * 0.7) 
+            
             if distToApex < switchDist then 
                 self.cornerPhase = 2 
                 self.cornerTimer = CORNER_PHASE_DURATION 
             end
             
-        -- PHASE 2: APEX
+        -- PHASE 2: APEX (Cut / Inside)
         elseif self.cornerPhase == 2 then
-            self.targetBias = self.cornerDirection * CORNER_APEX_BIAS
+            -- Left Turn (+1) -> Target Left (-0.6)
+            self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
+            
             self.cornerTimer = self.cornerTimer - dt
+            
             if self.cornerTimer <= 0.0 then
                 if radius < CORNER_RADIUS_THRESHOLD * 0.8 then
                     self.cornerTimer = 0.1 
@@ -353,9 +375,11 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
                 end
             end
             
-        -- PHASE 3: EXIT
+        -- PHASE 3: EXIT (Track Out / Outside)
         elseif self.cornerPhase == 3 then
-            self.targetBias = -self.cornerDirection * CORNER_EXIT_BIAS
+            -- Left Turn (+1) -> Target Right (+0.4)
+            self.targetBias = self.cornerDirection * CORNER_EXIT_BIAS
+            
             self.cornerTimer = self.cornerTimer - dt
             if self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
                 self.isCornering = false
@@ -366,7 +390,7 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         end
     end
     
-    -- [TWEAK] Increased exit threshold slightly to prevent premature state exit
+    -- Safety Exit
     if self.isCornering and radius > 6 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
@@ -389,12 +413,11 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     end
 
     -- 1. DETERMINE IDEAL BIAS (What we WANT to do)
-    local idealBias = (self.Driver.carAggression - 0.5) * 0.8
-    
+    local idealBias = nav.racingLineBias or 0.0    
     if self.isCornering then
         idealBias = self.targetBias
     elseif currentMode == "Drafting" then
-        idealBias = 0.0
+        idealBias = nav.racingLineBias -- Draft on the line? Or 0.0? Context dependent.
     elseif currentMode == "Yield" then
         idealBias = self:getYieldBias(perceptionData)
     elseif currentMode == "DefendLine" then
@@ -625,22 +648,32 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local tel = perceptionData.Telemetry
     local yawRate = tel.angularVelocity:dot(tel.rotations.up)
     
-    -- [UPDATED LOGGING]
+    -- [[ UPDATED DEBUG LOGGING ]]
+    -- Includes World Coordinates and Track Geometry Data
     if spd > 0.5 and self.dbg_Radius and tick % 4 == 0 then 
+        local carPos = tel.location
+        local nodePos = sm.vec3.new(0,0,0)
+        local nodeWidth = 0
+        
+        if nav.closestPointData and nav.closestPointData.baseNode then
+            nodePos = nav.closestPointData.baseNode.location
+            nodeWidth = nav.closestPointData.baseNode.width or 0
+        end
+
         print(string.format(
-            "[%s] SPD:%03.0f | RAD:%03.0f | STR:%+.2f | WALL:L%.1f/R%.1f | BIAS:%+.2f->%+.2f(ACT:%+.2f) | %s | YAW:%+.2f | ERR:%+.2f",
+            "[%s] S:%03.0f R:%03.0f STR:%+.2f | P:%+.2f->%+.2f(A:%+.2f) | W:L%.1f/R%.1f | POS:<%.1f,%.1f> NODE:<%.1f,%.1f> W:%.1f",
             tostring(self.Driver.id % 100), 
             spd, 
             self.dbg_Radius or 0, 
             controls.steer,
-            walls.marginLeft,          -- [NEW] Left Wall Dist
-            walls.marginRight,         -- [NEW] Right Wall Dist
-            currentBias,               -- Current Pos
-            self.targetBias or 0,      -- Strategy Target (What Cornering wants)
-            self.smoothedBias or 0,    -- [NEW] Actual Target (What PID is chasing)
-            self.currentMode:sub(1,4), 
-            yawRate,
-            self.lateralError))        -- PID Error
+            currentBias,               -- P (Position Bias)
+            self.targetBias or 0,      -- Target Bias
+            self.smoothedBias or 0,    -- A (Actual/Smoothed Bias)
+            walls.marginLeft,
+            walls.marginRight,
+            carPos.x, carPos.y,        -- Car World XY
+            nodePos.x, nodePos.y,      -- Node World XY
+            nodeWidth))                -- Track Width
     end
 
     self.controls = controls

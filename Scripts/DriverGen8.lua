@@ -303,7 +303,7 @@ end
 
 function DriverGen8.resetCar(self, force)
     local isOnLift = self.perceptionData and self.perceptionData.Telemetry and self.perceptionData.Telemetry.isOnLift
-    
+    print ("Driver:", self.id, "Reset Car Requested. On Lift:", tostring(isOnLift), "Force:", tostring(force))
     -- 1. WAIT FOR TIMER
     -- Prevents code spamming. If waiting (timeout < 10) and not on lift, just tick up and exit.
     if self.resetPosTimeout < 10 and not isOnLift and not force then
@@ -422,7 +422,7 @@ function DriverGen8.resetCar(self, force)
     end
         
     -- 5. LIFT REMOVAL (fires immediately after, no need for delay)
-    if self.liftPlaced and self.player then
+    if isOnLift and self.liftPlaced and self.player then
         sm.player.removeLift(self.player)
         self.liftPlaced = false
         self.resetPosTimeout = 0 
@@ -597,14 +597,13 @@ function DriverGen8.deserializeTrackNode(self, dataNode)
         return sm.vec3.new(t.x, t.y, t.z) 
     end
     
-    -- Map TrackScanner's "pointType" to Driver flags
     local pType = dataNode.pointType or 0
-    local isEntry = (pType == 2) -- Type 2 is Pit Entry in Scanner
+    local isEntry = (pType == 2) 
     
     return {
         id = dataNode.id, 
         location = toVec3(dataNode.pos), 
-        mid = toVec3(dataNode.pos),
+        mid = toVec3(dataNode.mid) or toVec3(dataNode.pos),
         width = dataNode.width, 
         bank = dataNode.bank, 
         incline = dataNode.incline,

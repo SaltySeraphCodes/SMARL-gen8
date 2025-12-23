@@ -294,6 +294,7 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
     local telemetry_data = self.perceptionData.Telemetry or {}
     local nav = navigation_data or {}
     nav.trackPositionBias = 0.0 
+    nav.racingLineBias = 0.0 -- [NEW]
     nav.nodeGoalDirection = sm.vec3.new(0, 1, 0)
     
     if not navigation_data.closestPointData then return nav end
@@ -314,26 +315,26 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
     nav.nodeGoalDirection = (lookaheadTarget - telemetry_data.location):normalize() 
 
     -- 2. Robust Track Position Bias Calculation
-    -- Get the NEXT node to define the actual segment direction
     local node1 = baseNode
     local node2 = getNextItem(self.chain, node1.id, 1)
 
     if node1 and node2 and node1.width then
-        -- Calculate the actual segment perpendicular (more robust than static node.perp)
         local segmentDir = (node2.location - node1.location):normalize()
         local segmentPerp = sm.vec3.new(-segmentDir.y, segmentDir.x, 0)
-        
-        -- Calculate how far the car is from the racing line (node.location)
-        local offsetVector = telemetry_data.location - node1.location
-        local lateralOffset = offsetVector:dot(segmentPerp)
-        
-        -- Logic Check: 
-        -- In SM, if segmentPerp points Left, a positive dot means the car is on the LEFT.
-        -- Since we want Bias -1.0 for Left, we negate the final result.
         local halfWidth = node1.width / 2
+
+        -- [FIX] Calculate Car Bias relative to MID (Center)
+        local offsetVector = telemetry_data.location - node1.mid 
+        local lateralOffset = offsetVector:dot(segmentPerp)
         nav.trackPositionBias = -math.min(math.max(lateralOffset / halfWidth, -1.0), 1.0)
+
+        -- [NEW] Calculate Racing Line Bias relative to MID
+        local racingOffset = node1.location - node1.mid
+        local racingLateral = racingOffset:dot(segmentPerp)
+        nav.racingLineBias = -math.min(math.max(racingLateral / halfWidth, -1.0), 1.0)
     else
         nav.trackPositionBias = 0.0
+        nav.racingLineBias = 0.0
     end
 
     -- 3. Visual/Navigation Targets
