@@ -13,22 +13,46 @@ end
 function Leaderboard.updateRealTimePositions(self)
     local allDrivers = getAllDrivers()
     if #allDrivers == 0 then return end
+    
     table.sort(allDrivers, function(a, b)
-        if a.currentLap ~= b.currentLap then return a.currentLap > b.currentLap end
-        local scoreA = a.perceptionData and a.perceptionData.Navigation and a.perceptionData.Navigation.continuousPositionScore or 0
-        local scoreB = b.perceptionData and b.perceptionData.Navigation and b.perceptionData.Navigation.continuousPositionScore or 0
+        -- [FIX] Safety Checks: Default nil laps to 0
+        local lapA = a.currentLap or 0
+        local lapB = b.currentLap or 0
+        
+        if lapA ~= lapB then return lapA > lapB end
+        
+        -- [FIX] Safety Checks: Deep nil checks for navigation score
+        local scoreA = 0
+        if a.perceptionData and a.perceptionData.Navigation then
+            scoreA = a.perceptionData.Navigation.continuousPositionScore or 0
+        end
+        
+        local scoreB = 0
+        if b.perceptionData and b.perceptionData.Navigation then
+            scoreB = b.perceptionData.Navigation.continuousPositionScore or 0
+        end
+        
         if scoreA ~= scoreB then return scoreA > scoreB end
-        return false
+        
+        -- Fallback: Sort by ID if scores are identical (prevents jitter)
+        return (a.id or 0) > (b.id or 0)
     end)
+    
     local leaderScore = 0
-    if allDrivers[1] then leaderScore = allDrivers[1].perceptionData and allDrivers[1].perceptionData.Navigation and allDrivers[1].perceptionData.Navigation.continuousPositionScore or 0 end
+    if allDrivers[1] and allDrivers[1].perceptionData and allDrivers[1].perceptionData.Navigation then 
+        leaderScore = allDrivers[1].perceptionData.Navigation.continuousPositionScore or 0 
+    end
+    
     for rank, driver in ipairs(allDrivers) do
         driver.racePosition = rank
         if rank == 1 then 
             self.leaderID = driver.id 
             driver.raceSplit = 0.0
         else
-            local score = driver.perceptionData and driver.perceptionData.Navigation and driver.perceptionData.Navigation.continuousPositionScore or 0
+            local score = 0
+            if driver.perceptionData and driver.perceptionData.Navigation then
+                score = driver.perceptionData.Navigation.continuousPositionScore or 0
+            end
             driver.raceSplit = (leaderScore - score) * 1.5 
         end
     end
