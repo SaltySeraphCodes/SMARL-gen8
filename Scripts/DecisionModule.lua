@@ -510,51 +510,59 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     end
 end
 
+
 function DecisionModule.calculateSteering(self, perceptionData)
     local telemetry = perceptionData.Telemetry
     local nav = perceptionData.Navigation
     
-    -- [SAFETY CHECK]
     if not nav or not nav.trackPositionBias then return 0.0 end
     
     local speed = telemetry.speed or 0
-    
-    -- 1. Dynamic Gain Scaling
     local speedRatio = math.min(speed / self.dynamicMaxSpeed, 1.0)
     
-    -- [FIX] Use SELF variables so TuningOptimizer can adjust them
+    -- Load gains
     local kp = self.STEERING_Kp_BASE or DEFAULT_STEERING_Kp
     local kd = self.STEERING_Kd_BASE or DEFAULT_STEERING_Kd
     
-    local dynamicKp = kp * (1.0 - (speedRatio * (1.0 - Kp_MIN_FACTOR)))
-    local dynamicKd = kd * (1.0 + (speedRatio * (Kd_BOOST_FACTOR - 1.0)))
+    -- 1. Dynamic Factors
+    -- [SAFETY] Force gains to be positive to prevent sign-flipping bugs
+    local absKp = math.abs(kp)
+    local absKd = math.abs(kd)
 
-    -- 2. Bias Calculation
+    local dynamicKp = absKp * (1.0 - (speedRatio * (1.0 - Kp_MIN_FACTOR)))
+    local dynamicKd = absKd * (1.0 + (speedRatio * (Kd_BOOST_FACTOR - 1.0)))
+
+    -- 2. Bias Smoothing
     local rawTargetBias = self:getFinalTargetBias(perceptionData)
     self.smoothedBias = self.smoothedBias or rawTargetBias
     self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.15
     
-    -- 3. Lateral Error (Target - Current)
+    -- 3. Calculate P-Term
     local lateralError = self.smoothedBias - nav.trackPositionBias
     self.lateralError = lateralError
 
-    -- 4. Heading Error (Angle)
     local carDir = telemetry.rotations.at 
     local goalDir = nav.nodeGoalDirection
     local crossZ = carDir.x * goalDir.y - carDir.y * goalDir.x
     local angleErrorRad = math.atan2(crossZ, carDir:dot(goalDir))
 
-    -- 5. PID Summation
-    local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-    local dTerm = -yawRate * dynamicKd
-
-    -- P-Term Composition
-    -- Note: LATERAL_Kp is likely a static scalar (e.g. 1.5) to weigh Lateral vs Angle error.
-    -- We apply dynamicKp to the whole P-result.
     local pTerm = (lateralError * LATERAL_Kp) - (angleErrorRad / MAX_WHEEL_ANGLE_RAD)
     
+    -- 4. Calculate D-Term (Yaw Damping)
+    local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
+    
+    -- [CRITICAL FIX]
+    -- We use the absolute value of dynamicKd.
+    -- We multiply by Positive Yaw to get Positive Steering (Right) -> Resists Left Turn
+    -- We multiply by Negative Yaw to get Negative Steering (Left) -> Resists Right Turn
+    local dTerm = yawRate * dynamicKd 
+
+    -- 5. Summation
     local rawSteer = (pTerm * dynamicKp) + dTerm
-    print("R:", rawSteer, "P:", pTerm * dynamicKp, "D:", dTerm)
+    
+    -- Debug Print: Check that D and Yaw have the SAME SIGN.
+    -- print("Yaw:", yawRate, "D:", dTerm, "Steer:", rawSteer)
+    
     return math.min(math.max(rawSteer, -1.0), 1.0)
 end
 
