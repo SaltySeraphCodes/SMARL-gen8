@@ -13,8 +13,8 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local DEFAULT_STEERING_Kp = 0.10  
-local DEFAULT_STEERING_Kd = 0.30  
+local DEFAULT_STEERING_Kp = 0.18  
+local DEFAULT_STEERING_Kd = 0.15  
 local LATERAL_Kp = 0.45        
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
@@ -417,7 +417,11 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     if self.isCornering then
         idealBias = self.targetBias
     elseif currentMode == "Drafting" then
-        idealBias = nav.racingLineBias -- Draft on the line? Or 0.0? Context dependent.
+        -- [UPDATED] Target the opponent to maximize slipstream
+        -- The Safety Filter below will ensure we don't draft into a wall
+        if opp.draftingTarget then
+            idealBias = opp.draftingTarget.opponentBias
+        end
     elseif currentMode == "Yield" then
         idealBias = self:getYieldBias(perceptionData)
     elseif currentMode == "DefendLine" then
