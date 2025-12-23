@@ -20,7 +20,7 @@ local Kp_MIN_FACTOR = 0.35
 local Kd_BOOST_FACTOR = 1.2    
 
 -- [[ TUNING - SPEED PID ]]
-local SPEED_Kp = 0.1 
+local SPEED_Kp = 0.4 
 local SPEED_Ki = 0.01 
 local SPEED_Kd = 0.08 
 local MAX_I_TERM_SPEED = 10.0 
@@ -42,7 +42,7 @@ local GAP_STICKINESS = 0.2
 local CORNER_RADIUS_THRESHOLD = 120.0  
 local CORNER_ENTRY_BIAS = 0.60         
 local CORNER_APEX_BIAS = 0.85          
-local CORNER_EXIT_BIAS = 0.0 -- Can change to alter when cornering stops
+local CORNER_EXIT_BIAS = 0.40          
 local CORNER_PHASE_DURATION = 0.3      
 
 -- [[ CONTEXT STEERING ]]
@@ -153,13 +153,11 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     local distToCorner = self.cachedDist or 0.0
 
     local friction = self.dynamicGripFactor or 0.9
-    -- [FIX] Reduced multiplier from 2.8 to 2.0 to force lower cornering speeds
     local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * 2.0
     
     maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
     maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
     
-    -- [FIX] Increased base braking force from 25.0 to 35.0 to encourage earlier braking
     local brakingForce = 35.0 * BRAKING_POWER_FACTOR
     local allowableSpeed = math.sqrt((maxCornerSpeed * maxCornerSpeed) + (2 * brakingForce * distToCorner))
     
@@ -309,7 +307,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local radius = self.smoothedRadius or MIN_RADIUS_FOR_MAX_SPEED 
     local curveDir = nav.longCurveDirection 
     local distToApex = self.cachedDist or 0.0 
-    
     local localRadius = nav.roadCurvatureRadius or 1000.0
 
     if self.isCornering == false and radius < CORNER_RADIUS_THRESHOLD then
@@ -333,10 +330,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         -- PHASE 1: ENTRY
         if self.cornerPhase == 1 then
             self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
-            
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 30.0 + (currentSpeed * 1.0) 
-            
             if distToApex < switchDist or localRadius < CORNER_RADIUS_THRESHOLD then 
                 self.cornerPhase = 2 
                 self.cornerTimer = CORNER_PHASE_DURATION 
@@ -346,7 +341,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         elseif self.cornerPhase == 2 then
             self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
             self.cornerTimer = self.cornerTimer - dt
-            
             if self.cornerTimer <= 0.0 then
                 if localRadius < CORNER_RADIUS_THRESHOLD * 1.2 then
                     self.cornerTimer = 0.2 
@@ -358,10 +352,8 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             
         -- PHASE 3: EXIT
         elseif self.cornerPhase == 3 then
-            -- [FIX] Target CENTER (0.0) instead of OUTSIDE.
-            -- This allows the car's momentum to drift it wide naturally
-            -- while the steering fights to straighten it out, preventing wall crashes.
-            self.targetBias = CORNER_EXIT_BIAS 
+            local currentPos = nav.trackPositionBias or 0.0
+            self.targetBias = currentPos * 0.9 
             
             self.cornerTimer = self.cornerTimer - dt
             if self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
@@ -595,14 +587,99 @@ function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
     local controlSignal = pTerm + iTerm + dTerm
     if controlSignal > 0 then throttle = math.min(controlSignal, 1.0); brake = 0.0
     elseif controlSignal < 0 then brake = math.min(math.abs(controlSignal), 1.0); throttle = 0.0
-    else throttle = 0.1; brake = 0.0 end
+    else throttle = 0.0; brake = 0.0 end
     if self.isCornering and self.cornerPhase == 1 and currentSpeed > targetSpeed * 1.05 then
          brake = math.max(brake, self.Driver.carAggression * 0.4)
     end
     return throttle, brake
 end
+-- DecisionModule.lua (Only the updated function)
 
 function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
+    local controls = {}
+    controls.resetCar = self:checkUtility(perceptionData,dt)
+
+    self:updateTrackState(perceptionData)
+
+    if controls.resetCar then
+        print(self.Driver.id,"resetting car")
+        controls.steer = 0.0; controls.throttle = 0.0; controls.brake = 0.0
+    else
+        self:determineStrategy(perceptionData, dt) 
+        controls.steer = self:calculateSteering(perceptionData)
+        controls.throttle, controls.brake = self:calculateSpeedControl(perceptionData, controls.steer)
+    end
+
+    -- [[ VISUALIZATION LOGIC ]]
+    -- Calculate the exact 3D point the car is trying to hit
+    local nav = perceptionData.Navigation
+    local visualTarget = nil
+    
+    if nav and nav.closestPointData and nav.closestPointData.baseNode then
+        local node = nav.closestPointData.baseNode
+        -- Use the same Lookahead Target the Perception module calculated
+        local centerTarget = nav.centerlineTarget or node.location
+        
+        -- Apply the Bias Offset (Smoothed) to find the actual drive point
+        if node.perp then
+            local halfWidth = (node.width or 20.0) / 2.0
+            -- Note: Bias is -1 (Left) to 1 (Right). 
+            -- Check PerceptionModule: segmentPerp is Left Vector? 
+            -- Perception says: segmentPerp = (-y, x). Usually Left.
+            -- If trackPositionBias calculation used -offset, then +Bias is Right.
+            -- Let's trust the bias direction matches the steering logic.
+            local biasOffset = (node.perp:normalize() * -1) * (self.smoothedBias * halfWidth)
+            visualTarget = centerTarget + biasOffset
+        end
+    end
+
+    -- Send Data to Driver (Client)
+    -- We piggyback on the Context Ray data if it exists, or create a new packet
+    local debugPacket = self.latestDebugData or {}
+    if visualTarget then
+        debugPacket.targetPoint = visualTarget
+    end
+    -- Send to client (Throttled in Driver, but we update the ref here)
+    self.latestDebugData = debugPacket
+
+
+    -- [[ CONSOLE LOGGING ]]
+    local spd = perceptionData.Telemetry.speed or 0 
+    local tick = sm.game.getServerTick()
+    local currentBias = nav and nav.trackPositionBias or 0.0
+    local walls = perceptionData.WallAvoidance or {marginLeft=99, marginRight=99}
+    local tel = perceptionData.Telemetry
+    local yawRate = tel.angularVelocity:dot(tel.rotations.up)
+    
+    if spd > 0.5 and self.dbg_Radius and tick % 4 == 0 then 
+        local carPos = tel.location
+        local tgtStr = "N/A"
+        if visualTarget then 
+            tgtStr = string.format("<%.1f,%.1f>", visualTarget.x, visualTarget.y)
+        end
+
+        print(string.format(
+            "[%s] S:%03.0f STR:%+.2f T:%.2f B:%.2f | YAW:%+.2f | P:%+.2f->%+.2f(A:%+.2f) | W:L%.1f/R%.1f | POS:<%.1f,%.1f> TGT:%s",
+            tostring(self.Driver.id % 100), 
+            spd, 
+            controls.steer,
+            controls.throttle, -- [FIX] Added Throttle
+            controls.brake,    -- [FIX] Added Brake
+            yawRate,
+            currentBias,               
+            self.targetBias or 0,      
+            self.smoothedBias or 0,    
+            walls.marginLeft,
+            walls.marginRight,
+            carPos.x, carPos.y,        
+            tgtStr)) -- [FIX] Added 3D Target Point
+    end
+
+    self.controls = controls
+    return controls
+end
+
+function DecisionModule.server_onFixedUpdate_old(self,perceptionData,dt)
     local controls = {}
     controls.resetCar = self:checkUtility(perceptionData,dt)
 
@@ -638,11 +715,13 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         end
 
         print(string.format(
-            "[%s] S:%03.0f R:%03.0f STR:%+.2f | YAW:%+.2f | P:%+.2f->%+.2f(A:%+.2f) | W:L%.1f/R%.1f | POS:<%.1f,%.1f> NODE:<%.1f,%.1f> W:%.1f",
+            "[%s] S:%03.0f R:%03.0f STR:%+.2f T:%.2f B:%.2f | YAW:%+.2f | P:%+.2f->%+.2f(A:%+.2f) | W:L%.1f/R%.1f | POS:<%.1f,%.1f> NODE:<%.1f,%.1f> W:%.1f",
             tostring(self.Driver.id % 100), 
-            spd, 
+            spd,
             self.dbg_Radius or 0, 
             controls.steer,
+            controls.throttle,
+            controls.brake,
             yawRate,
             currentBias,               
             self.targetBias or 0,      

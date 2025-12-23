@@ -753,6 +753,91 @@ function DriverGen8.client_onUpdate(self, dt)
 
     if self.shape then self.location = self.shape:getWorldPosition() end
 
+    -- [[ TARGET POINT VISUALIZER ]]
+    -- Draws a Magenta Orb where the Decision Module wants to go
+    if self.clientDebugRays and self.clientDebugRays.targetPoint then
+        if not self.TargetEffect then
+            self.TargetEffect = sm.effect.createEffect("Loot - GlowItem", nil)
+            self.TargetEffect:setScale(sm.vec3.new(0,0,0))
+            self.TargetEffect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+            -- Magenta Color for Target
+            self.TargetEffect:setParameter("Color", sm.color.new(1, 0, 1, 1)) 
+            self.TargetEffect:start()
+        end
+        self.TargetEffect:setPosition(self.clientDebugRays.targetPoint)
+    elseif self.TargetEffect then
+        self.TargetEffect:stop()
+    end
+
+    -- [[ CoM VISUALIZER ]]
+    if self.body and self.shape then 
+        if self.CoMDebugEffect then
+            if not self.CoMDebugEffect:isPlaying() then self.CoMDebugEffect:start() end
+            self.CoMDebugEffect:setPosition(self.body.centerOfMassPosition)
+        else
+            local comWorld = self.body.centerOfMassPosition 
+            -- Blue Dot for Center of Mass
+            local effect = sm.effect.createEffect("Loot - GlowItem", nil)
+            effect:setScale(sm.vec3.new(0,0,0))
+            effect:setPosition(comWorld)
+            effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+            effect:setParameter("Color", sm.color.new(0, 0, 1, 1))
+            if not effect:isPlaying() then effect:start() end
+            self.CoMDebugEffect = effect
+        end
+    end
+
+    -- [[ CONTEXT RAYS VISUALIZER ]]
+    local activeDots = 0
+
+    if self.clientDebugRays then
+        -- Process Lines (Context Rays)
+        for _, line in ipairs(self.clientDebugRays) do
+            -- ... (Existing Context Ray Loop - No Changes Needed) ...
+            -- Copy/Paste your existing loop here
+            local color = sm.color.new(0,1,0,1) 
+            if line.c == 2 then color = sm.color.new(1,1,0,1) end 
+            if line.c == 3 then color = sm.color.new(1,0,0,1) end 
+            if line.c == 4 then color = sm.color.new(0,1,1,1) end 
+            
+            local dir = (line.e - line.s)
+            local length = dir:length()
+            local step = 1.5 
+            local normDir = dir:normalize()
+            
+            for d = 0, length, step do
+                activeDots = activeDots + 1
+                local worldPos = line.s + (normDir * d)
+                
+                local effect = self.effectPool[activeDots]
+                if not effect then
+                    effect = sm.effect.createEffect("Loot - GlowItem", nil)
+                    effect:setScale(sm.vec3.new(0,0,0)) 
+                    effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+                    effect:setParameter("Color", color)
+                    table.insert(self.effectPool, effect)
+                end
+                
+                if not effect:isPlaying() then effect:start() end
+                effect:setPosition(worldPos)
+                effect:setParameter("Color", color)
+            end
+        end
+    end
+
+    -- Cleanup
+    for i = activeDots + 1, #self.effectPool do
+        local effect = self.effectPool[i]
+        if effect:isPlaying() then effect:stop() end
+    end
+end
+
+function DriverGen8.client_onUpdate_old(self, dt)
+    -- Initialize Pool if missing
+    if not self.effectPool then self.effectPool = {} end
+
+    if self.shape then self.location = self.shape:getWorldPosition() end
+
     -- [[ CoM VISUALIZER ]]
     if self.body and self.shape then -- todo add flag so only when enabled
         if self.CoMDebugEffect then
