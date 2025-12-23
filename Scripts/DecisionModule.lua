@@ -14,7 +14,7 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
 local DEFAULT_STEERING_Kp = 0.10  
-local DEFAULT_STEERING_Kd = 0.55  
+local DEFAULT_STEERING_Kd = 0.30  
 local LATERAL_Kp = 0.45        
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
@@ -514,7 +514,7 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     local wall = perceptionData.WallAvoidance 
     local aggressionFactor = self.Driver.carAggression
     
-    -- Preserve Cornering Mode if active (Critical for consistency)
+    -- Preserve Cornering Mode if active
     if self.isCornering then
         self:handleCorneringStrategy(perceptionData, dt)
         return
@@ -535,7 +535,20 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     if self.isCornering then return end
     
     local isStraight = nav.roadCurvatureRadius >= 500
-    if opp.draftingTarget and telemetry.speed > 30 and isStraight and aggressionFactor >= 0.3 then self.currentMode = "Drafting"; return end
+    
+    -- [UPDATED DRAFTING LOGIC]
+    -- 1. Must be on a straight
+    -- 2. Must be fast enough (>30)
+    -- 3. Must have a target (Within 30m, In Front)
+    -- 4. CRITICAL: Must be further away than the Passing Limit (10m)
+    if opp.draftingTarget and telemetry.speed > 30 and isStraight and aggressionFactor >= 0.3 then 
+        if opp.draftingTarget.distance > PASSING_DISTANCE_LIMIT then
+            self.currentMode = "Drafting"
+            return 
+        end
+        -- If distance <= 10m, we fall through to the Overtake Logic below
+    end
+
     if opp.count > 0 then
         local closestOpponent = opp.racers[1]
         if closestOpponent and not closestOpponent.isAhead and closestOpponent.distance < 15 then
@@ -663,11 +676,12 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         end
 
         print(string.format(
-            "[%s] S:%03.0f R:%03.0f STR:%+.2f | P:%+.2f->%+.2f(A:%+.2f) | W:L%.1f/R%.1f | POS:<%.1f,%.1f> NODE:<%.1f,%.1f> W:%.1f",
+            "[%s] S:%03.0f R:%03.0f STR:%+.2f | YAW:%+.2f | P:%+.2f->%+.2f(A:%+.2f) | W:L%.1f/R%.1f | POS:<%.1f,%.1f> NODE:<%.1f,%.1f> W:%.1f",
             tostring(self.Driver.id % 100), 
             spd, 
             self.dbg_Radius or 0, 
             controls.steer,
+            yawRate,
             currentBias,               -- P (Position Bias)
             self.targetBias or 0,      -- Target Bias
             self.smoothedBias or 0,    -- A (Actual/Smoothed Bias)
