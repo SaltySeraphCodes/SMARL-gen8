@@ -41,7 +41,7 @@ local GAP_STICKINESS = 0.2
 -- [[ CORNERING STRATEGY ]]
 local CORNER_RADIUS_THRESHOLD = 120.0  
 local CORNER_ENTRY_BIAS = 0.60         
-local CORNER_APEX_BIAS = 0.60          
+local CORNER_APEX_BIAS = 0.85          
 local CORNER_EXIT_BIAS = 0.40          
 local CORNER_PHASE_DURATION = 0.3      
 
@@ -153,7 +153,8 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     local distToCorner = self.cachedDist or 0.0
 
     local friction = self.dynamicGripFactor or 0.9
-    local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * 2.8
+    -- Change 2.8 to 2.2 to be more conservative
+    local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * 2.2
     
     maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
     maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
@@ -357,8 +358,7 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
             
             local currentSpeed = perceptionData.Telemetry.speed or 0
-            local switchDist = 20.0 + (currentSpeed * 0.7) 
-            
+            local switchDist = 30.0 + (currentSpeed * 1.0)            
             -- [FIX] Force switch if we physically enter the turn (Local Radius drops)
             -- OR if we reach the calculated distance.
             if distToApex < switchDist or localRadius < CORNER_RADIUS_THRESHOLD then 
