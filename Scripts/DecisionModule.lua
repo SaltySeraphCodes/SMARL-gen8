@@ -51,7 +51,7 @@ local VIEW_ANGLE = 120
 local LOOKAHEAD_RANGE = 45.0   
 local SAFETY_WEIGHT = 10.0     -- [CHANGE] Increased weight to ensure obstacles are avoided
 local INTEREST_WEIGHT = 2.0    -- [CHANGE] Increased to keep car glued to racing line
-local WALL_AVOID_DIST = 4.0    
+local WALL_AVOID_DIST = 1.5    
 local VISUALIZE_RAYS = true    
 
 -- [[ BRAKING PHYSICS ]]
@@ -238,16 +238,25 @@ function DecisionModule:calculateContextBias(perceptionData, preferredBias)
     -- POPULATE DANGER MAP (Walls)
     if wall then
         local avoidanceMargin = WALL_AVOID_DIST 
-        if wall.marginLeft < avoidanceMargin then
+        
+        -- [FIX] Ignore Inner Wall if we are Cornering
+        -- If we are aiming Left (Preferred < 0), ignore Left Wall danger
+        local ignoreLeft = (preferredBias < -0.3)
+        -- If we are aiming Right (Preferred > 0), ignore Right Wall danger
+        local ignoreRight = (preferredBias > 0.3)
+
+        if wall.marginLeft < avoidanceMargin and not ignoreLeft then
             local urgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
+            -- Cutoff: Block Negative Angles (Left)
             local cutoff = -90.0 + (urgency * 105.0) 
             for i = 1, NUM_RAYS do
                 if rayAngles[i] < cutoff then dangerMap[i] = math.max(dangerMap[i], urgency) end
             end
         end
 
-        if wall.marginRight < avoidanceMargin then
+        if wall.marginRight < avoidanceMargin and not ignoreRight then
             local urgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin)
+            -- Cutoff: Block Positive Angles (Right)
             local cutoff = 90.0 - (urgency * 105.0)
             for i = 1, NUM_RAYS do
                 if rayAngles[i] > cutoff then dangerMap[i] = math.max(dangerMap[i], urgency) end
@@ -610,6 +619,53 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local tick = sm.game.getServerTick()
     
     local nav = perceptionData.Navigation
+    local currentBias = nav and nav.trackPositionBias or 0.0
+    local walls = perceptionData.WallAvoidance or {marginLeft=99, marginRight=99}
+
+    local tel = perceptionData.Telemetry
+    local yawRate = tel.angularVelocity:dot(tel.rotations.up)
+    
+    -- [UPDATED LOGGING]
+    if spd > 0.5 and self.dbg_Radius and tick % 4 == 0 then 
+        print(string.format(
+            "[%s] SPD:%03.0f | RAD:%03.0f | STR:%+.2f | WALL:L%.1f/R%.1f | BIAS:%+.2f->%+.2f(ACT:%+.2f) | %s | YAW:%+.2f | ERR:%+.2f",
+            tostring(self.Driver.id % 100), 
+            spd, 
+            self.dbg_Radius or 0, 
+            controls.steer,
+            walls.marginLeft,          -- [NEW] Left Wall Dist
+            walls.marginRight,         -- [NEW] Right Wall Dist
+            currentBias,               -- Current Pos
+            self.targetBias or 0,      -- Strategy Target (What Cornering wants)
+            self.smoothedBias or 0,    -- [NEW] Actual Target (What PID is chasing)
+            self.currentMode:sub(1,4), 
+            yawRate,
+            self.lateralError))        -- PID Error
+    end
+
+    self.controls = controls
+    return controls
+end
+
+function DecisionModule.server_onFixedUpdate_old(self,perceptionData,dt)
+    local controls = {}
+    controls.resetCar = self:checkUtility(perceptionData,dt)
+
+    self:updateTrackState(perceptionData)
+
+    if controls.resetCar then
+        print(self.Driver.id,"resetting car")
+        controls.steer = 0.0; controls.throttle = 0.0; controls.brake = 0.0
+    else
+        self:determineStrategy(perceptionData, dt) 
+        controls.steer = self:calculateSteering(perceptionData)
+        controls.throttle, controls.brake = self:calculateSpeedControl(perceptionData, controls.steer)
+    end
+
+    local spd = perceptionData.Telemetry.speed or 0 
+    local tick = sm.game.getServerTick()
+    
+    local nav = perceptionData.Navigation
     local trackInfo = "N:0|S:0"
     if nav and nav.closestPointData and nav.closestPointData.baseNode then
         trackInfo = string.format("N:%d|S:%d", nav.closestPointData.baseNode.id, nav.closestPointData.baseNode.sectorID)
@@ -633,7 +689,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
             controls.brake,            
             controls.steer,            
             currentBias,               
-            self.targetBias or 0,      
+            self.smoothedBias or 0,      
             self.currentMode:sub(1,4), 
             self.cornerPhase or 0,
             yawRate,
