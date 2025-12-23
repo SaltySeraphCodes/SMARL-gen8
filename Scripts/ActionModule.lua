@@ -7,9 +7,10 @@ dofile("globals.lua")
 ActionModule = class(nil)
 
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local MAX_ADJUSTMENT = 10.0 
-local MIN_ADJUSTMENT = 3.0  
-local ADJUSTMENT_SPEED_REF = 50.0 
+local MAX_ADJUSTMENT = 15.0  -- [TWEAK] Increased from 10.0 for faster low-speed response
+local MIN_ADJUSTMENT = 8.0   -- [FIX] Increased from 3.0. 
+                             -- Prevents steering lag at high speed which causes oscillation.
+local ADJUSTMENT_SPEED_REF = 50.0
 
 function ActionModule.server_init(self,driver)
     self.Driver = driver
