@@ -14,11 +14,12 @@ ENGINE_GEN8_UUID = "e7d83a24-c998-43fe-9690-1575c38c89f6"
 DOWNFORCE_BLOCK_UUID = "1e3b7ff3-d066-4b8b-9cb1-fa4a6ad8cc7c"
 
 -- Paths
-TWITCH_DATA = MOD_FOLDER .. "TwitchPlays/"
-TWITCH_BLUEPRINTS_PATH = TWITCH_DATA .. "Blueprints/"
-RACER_DATA_PATH = MOD_FOLDER .. "JsonData/RacerData/"
 TRACK_DATA_CHANNEL = "SM_AutoRacers_TrackData"
-
+OUTPUT_DATA = "$CONTENT_DATA/SMARL_Manager/JsonData/RaceOutput/raceData.json"
+MAP_DATA_PATH = "$CONTENT_DATA/SMARL_Manager/JsonData/TrackData/current_map.json"
+RACER_DATA_PATH = "$CONTENT_DATA/SMARL_Manager/JsonData/RacerData/"
+TWITCH_BLUEPRINTS_PATH = "$CONTENT_DATA/SMARL_Manager/TwitchPlays/Blueprints/"
+TUNING_PROFILES ="$CONTENT_DATA/SMARL_Manager/JsonData/tuning_profiles.json"
 -- Physics Defaults
 DEFAULT_GRAVITY = 10
 DEFAULT_FRICTION = 0.0006

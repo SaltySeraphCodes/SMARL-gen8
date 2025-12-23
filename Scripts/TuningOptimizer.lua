@@ -1,25 +1,28 @@
 -- TuningOptimizer.lua
 -- Self-Tuning Module with Persistence Layer
+dofile("globals.lua")
 TuningOptimizer = class(nil)
 
 local STABILITY_THRESHOLD = 0.8 
 local LEARNING_RATE = 0.01      
 local MIN_DATA_SAMPLES = 40    
-local TUNING_FILE = MOD_FOLDER .. "JsonData/tuning_profiles.json"
+local TUNING_FILE = TUNING_PROFILES -- located in globals.lua
 
 function TuningOptimizer:init(driver)
     self.driver = driver
     self.history = {} 
-    
     self.fingerprint = "CALCULATING" 
     self.retryTimer = 0
 
-    -- Current Sector Tracking
+    -- [NEW] Physics Learning Params
+    self.cornerLimit = 2.0 -- Start with default multiplier
+    self.understeerEvents = 0
+    
     self.tickCount = 0
     self.yawAccumulator = 0
     self.yawHistory = {}
     
-    print("TuningOptimizer: Initialized [" .. (self.fingerprint or "Generic") .. "] for Racer " .. self.driver.id)
+    print("TuningOptimizer: Initialized.")
 end
 
 function TuningOptimizer:checkFingerprint()
@@ -77,10 +80,11 @@ function TuningOptimizer:applyProfile(profile)
     if profile.kp and profile.kd then
         decision.STEERING_Kp_BASE = profile.kp
         decision.STEERING_Kd_BASE = profile.kd
-        
-        -- If we loaded a partial match, we might want to save it as a new Exact Match 
-        -- immediately so this specific car has its own record for future refinement.
-        self:saveProfile(profile.kp, profile.kd)
+    end
+    -- [NEW] Load learned cornering limit
+    if profile.cornerLimit then
+        self.cornerLimit = profile.cornerLimit
+        print("Optimizer: Loaded Corner Limit: ", self.cornerLimit)
     end
 end
 
@@ -96,6 +100,7 @@ function TuningOptimizer:saveProfile(kp, kd)
     data[typeKey] = {
         kp = kp,
         kd = kd,
+        cornerLimit = self.cornerLimit,
         updated = os.time()
     }
     
@@ -103,6 +108,12 @@ function TuningOptimizer:saveProfile(kp, kd)
     sm.json.save(data, TUNING_FILE)
     print("Optimizer: Saved improved profile for " .. typeKey)
 end
+
+function TuningOptimizer:reportUndersteer()
+    -- Called by DecisionModule when the car slides wide
+    self.understeerEvents = self.understeerEvents + 1
+end
+
 
 function TuningOptimizer:recordFrame(perceptionData)
     if self.fingerprint == "CALCULATING" then
@@ -140,6 +151,20 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
     local improved = false
 
     -- 3. Optimization Logic
+
+    -- [NEW] Corner Speed Optimization
+    if self.understeerEvents > 5 then
+        -- We crashed/slid too much. Slow down.
+        self.cornerLimit = math.max(1.2, self.cornerLimit - 0.1)
+        print("Optimizer: Too much understeer ("..self.understeerEvents.."). Lowering Corner Limit to:", self.cornerLimit)
+        improved = true
+    elseif self.understeerEvents == 0 then
+        -- Perfect sector? Try pushing slightly harder.
+        self.cornerLimit = math.min(3.5, self.cornerLimit + 0.02)
+        print("Optimizer: Clean sector. Raising Corner Limit to:", self.cornerLimit)
+        -- Don't save on every tiny increase, only big changes
+    end
+
     if stabilityIndex > STABILITY_THRESHOLD then
         -- UNSTABLE: Emergency Damping
         newKd = currentKd + (LEARNING_RATE * 2)
@@ -197,4 +222,5 @@ function TuningOptimizer:reset()
     self.tickCount = 0
     self.yawAccumulator = 0
     self.yawHistory = {}
+    self.understeerEvents = 0 -- Reset counter
 end
