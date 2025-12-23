@@ -13,8 +13,7 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
--- [CHANGE] Lowered Kp to 0.10 for gentler steering on straights
-local DEFAULT_STEERING_Kp = 0.10  
+local DEFAULT_STEERING_Kp = 0.10  -- [CHANGE] Lowered Kp to 0.10 for gentler steering on straights
 local DEFAULT_STEERING_Kd = 0.55  
 local LATERAL_Kp = 0.45        
 local Kp_MIN_FACTOR = 0.35     
@@ -235,14 +234,10 @@ function DecisionModule:calculateContextBias(perceptionData)
     -- [FIX] Corrected Wall Avoidance Logic
     if wall then
         local avoidanceMargin = WALL_AVOID_DIST 
-        
         -- LEFT WALL Logic: If wall is on left, block Left rays (Negative angles)
         if wall.marginLeft < avoidanceMargin then
             local urgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
             urgency = urgency * urgency -- Non-linear scaling
-            
-            -- Cutoff moves from -90 (Safe) to +15 (Critical)
-            -- Any ray LESS than cutoff is blocked
             local cutoff = -90.0 + (urgency * 105.0) 
             
             for i = 1, NUM_RAYS do
@@ -256,9 +251,6 @@ function DecisionModule:calculateContextBias(perceptionData)
         if wall.marginRight < avoidanceMargin then
             local urgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin)
             urgency = urgency * urgency
-            
-            -- Cutoff moves from +90 (Safe) to -15 (Critical)
-            -- Any ray GREATER than cutoff is blocked
             local cutoff = 90.0 - (urgency * 105.0)
             
             for i = 1, NUM_RAYS do
@@ -336,9 +328,10 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         
         -- PHASE 1: ENTRY (Setup)
         if self.cornerPhase == 1 then
-            local entryIntensity = 1.0 - math.min(math.max((distToApex - 30.0) / 70.0, 0.0), 1.0)
-            -- Target Right (Negative)
-            self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS * entryIntensity
+            -- [CHANGE] Removed "Entry Intensity" scaling.
+            -- If we are in Entry Phase, immediately target the optimal setup line.
+            -- The PID smoothing (self.smoothedBias) will handle the transition gracefully.
+            self.targetBias = -self.cornerDirection * CORNER_ENTRY_BIAS 
             
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 20.0 + (currentSpeed * 0.7) 
@@ -400,9 +393,12 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     end
 
     local isWallDanger = (wall.isLeftCritical or wall.isRightCritical or wall.isForwardLeftCritical or wall.isForwardRightCritical)
+    
+    -- [CHANGE] Removed implicit (opp.count > 0) override.
+    -- Racing lines (Cornering) are better than Raycasts unless we specifically 
+    -- need to avoid a collision (handled by currentMode) or a wall (isWallDanger).
     local useContextSteering = (currentMode == "OvertakeDynamic" or 
                                 currentMode == "AvoidCollision" or 
-                                (opp.count > 0) or 
                                 isWallDanger)
 
     if useContextSteering or VISUALIZE_RAYS then

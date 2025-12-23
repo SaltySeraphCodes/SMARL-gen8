@@ -5,7 +5,7 @@ TuningOptimizer = class(nil)
 local STABILITY_THRESHOLD = 0.8 
 local LEARNING_RATE = 0.01      
 local MIN_DATA_SAMPLES = 40    
-local TUNING_FILE = "$CONTENT_DATA/JsonData/tuning_profiles.json"
+local TUNING_FILE = MOD_FOLDER .. "JsonData/tuning_profiles.json"
 
 function TuningOptimizer:init(driver)
     self.driver = driver
