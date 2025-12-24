@@ -80,11 +80,11 @@ TIRE_TYPES = {
 }
 
 ENGINE_TYPES = {
-   { TYPE = "road", COLOR = "222222ff", MAX_SPEED = 90, MAX_ACCEL = 0.5, MAX_BRAKE = 0.60, GEARING = {0.45,0.35,0.21,0.17,0.15} },
-   { TYPE = "sports", COLOR = "4a4a4aff", MAX_SPEED = 110, MAX_ACCEL = 0.5, MAX_BRAKE = 0.75, GEARING = {0.55,0.46,0.23,0.18,0.18} },
-   { TYPE = "formula", COLOR = "7f7f7fff", MAX_SPEED = 150, MAX_ACCEL = 0.7, MAX_BRAKE = 0.85, GEARING = {0.60,0.48,0.25,0.20,0.19} },
-   { TYPE = "insane", COLOR = "eeeeeeff", MAX_SPEED = 250, MAX_ACCEL = 1, MAX_BRAKE = 0.90, GEARING = {0.50,0.4,0.30,0.21,0.20} },
-   { TYPE = "custom", COLOR = "aaaa2f", MAX_SPEED = 250, MAX_ACCEL = 1, MAX_BRAKE = 0.85, GEARING = {0.48,0.45,0.50,0.5,0.15} }
+   { TYPE = "road", COLOR = "222222ff", MAX_SPEED = 90, MAX_ACCEL = 1, MAX_BRAKE = 0.80, GEARING = {0.45,0.35,0.21,0.17,0.15} },
+   { TYPE = "sports", COLOR = "4a4a4aff", MAX_SPEED = 110, MAX_ACCEL = 1, MAX_BRAKE = 0.80, GEARING = {0.55,0.46,0.23,0.18,0.18} },
+   { TYPE = "formula", COLOR = "7f7f7fff", MAX_SPEED = 150, MAX_ACCEL = 1, MAX_BRAKE = 0.80, GEARING = {0.60,0.48,0.25,0.20,0.19} },
+   { TYPE = "insane", COLOR = "eeeeeeff", MAX_SPEED = 250, MAX_ACCEL = 1, MAX_BRAKE = 0.80, GEARING = {0.50,0.4,0.30,0.21,0.20} },
+   { TYPE = "custom", COLOR = "aaaa2f", MAX_SPEED = 250, MAX_ACCEL = 1, MAX_BRAKE = 0.80, GEARING = {0.48,0.45,0.50,0.5,0.15} }
 }
 
 -- --- HELPER FUNCTIONS ---
@@ -373,60 +373,6 @@ function cl_checkHover(shape)
 end
 
 
--- Tuning Optimization ---
-function generatePhysicsFingerprint(driver)
-    -- 1. Get Telemetry
-    -- We need to check for 'dimensions' specifically now
-    if not driver.perceptionData or 
-       not driver.perceptionData.Telemetry or 
-       not driver.perceptionData.Telemetry.dimensions or
-       driver.perceptionData.Telemetry.isOnLift then 
-        return "INIT_WAIT" 
-    end
-    
-    local tel = driver.perceptionData.Telemetry
-    
-    -- 2. Mass Bucket (Nearest 250kg)
-    local rawMass = tel.mass or 1000
-    local massBucket = math.floor((rawMass / 250) + 0.5) * 250
-    
-    -- 3. Downforce Bucket (Nearest 500 units)
-    local rawDownforce = tel.downforce or 0
-    if driver.Spoiler_Angle then
-        rawDownforce = rawDownforce + (driver.Spoiler_Angle * 20) 
-    end
-    local dfBucket = math.floor((rawDownforce / 500) + 0.5) * 500
-    
-    -- 4. Dimension Sorting (Rotation Invariant)
-    -- We assume the car is longer than it is wide.
-    local dims = tel.dimensions -- Calculated in PerceptionModule
-    local dimA = dims.x
-    local dimB = dims.y
-    
-    local length = math.max(dimA, dimB) -- The larger one is Length
-    local width = math.min(dimA, dimB)  -- The smaller one is Width
-    
-    local lengthBucket = math.floor((length / 0.5) + 0.5) * 0.5 
-    local widthBucket = math.floor((width / 0.5) + 0.5) * 0.5
-    
-    -- 5. Engine Profile
-    local engineTag = "STD"
-    if driver.engine and driver.engine.engineStats then
-        local stats = driver.engine.engineStats
-        if stats.TYPE == "custom" then
-             local speedBucket = math.floor((stats.MAX_SPEED / 25) + 0.5) * 25
-             engineTag = "C" .. speedBucket
-        else
-             engineTag = stats.TYPE or "STD"
-        end
-    end
-
-    -- 6. Construct ID (e.g., M1500_DF500_L5.0_W2.5_sports)
-    local fingerprint = string.format("M%d_DF%d_L%.1f_W%.1f_%s", 
-        massBucket, dfBucket, lengthBucket, widthBucket, engineTag)
-        
-    return fingerprint
-end
 
 
 

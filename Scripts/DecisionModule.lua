@@ -81,8 +81,12 @@ function DecisionModule.server_init(self,driver)
 
     self.speedUpdateTimer = 0 
     
+    -- Optimizable Variables ---
     self.STEERING_Kp_BASE = DEFAULT_STEERING_Kp
     self.STEERING_Kd_BASE = DEFAULT_STEERING_Kd
+    self.brakingForceConstant = 15.0
+
+
     
     self.trackPositionBias = 0.0 
     self.smoothedRadius = 1000.0
@@ -166,7 +170,7 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
     maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
     
-    local brakingForce = ASSUMED_BRAKING_FORCE * BRAKING_POWER_FACTOR
+    local brakingForce = self.brakingForceConstant * BRAKING_POWER_FACTOR
     local allowableSpeed = math.sqrt((maxCornerSpeed * maxCornerSpeed) + (2 * brakingForce * distToCorner))
 
     self.dbg_MaxCorner = maxCornerSpeed
