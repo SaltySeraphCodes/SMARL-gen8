@@ -146,12 +146,13 @@ end
 
 function DecisionModule:updateTrackState(perceptionData)
     local tick = sm.game.getServerTick()
+    -- [UPDATED] Retrieve 3 values: Radius, Distance, and Apex Point
     if tick % 4 == 0 or not self.cachedMinRadius then
-         self.cachedMinRadius, self.cachedDist = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
+         self.cachedMinRadius, self.cachedDist, self.cachedApex = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
     end
     
+    -- Smoothing (Existing Logic)
     local rawRadius = self.cachedMinRadius or 1000.0
-    
     if rawRadius < self.smoothedRadius then
         self.smoothedRadius = rawRadius
         self.radiusHoldTimer = 1.0 
@@ -162,7 +163,6 @@ function DecisionModule:updateTrackState(perceptionData)
             self.smoothedRadius = self.smoothedRadius + 5.0 
         end
     end
-    
     if self.smoothedRadius > rawRadius then self.smoothedRadius = rawRadius end
     if self.smoothedRadius > 1000.0 then self.smoothedRadius = 1000.0 end
     
@@ -336,76 +336,64 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local radius = self.smoothedRadius or MIN_RADIUS_FOR_MAX_SPEED 
     local curveDir = nav.longCurveDirection 
     local distToApex = self.cachedDist or 0.0 
-    local localRadius = nav.roadCurvatureRadius or 1000.0
+    
+    -- [NEW] Robust Apex Tracking
+    -- If we have a cached apex point from the scanner, use it.
+    -- Otherwise, default to current lookahead.
+    local apexPos = self.cachedApex or nav.centerlineTarget
+    local carPos = perceptionData.Telemetry.location
+    local carForward = perceptionData.Telemetry.rotations.at
 
+    -- STATE INITIALIZATION
     if self.isCornering == false and radius < CORNER_RADIUS_THRESHOLD then
         self.isCornering = true
         self.cornerDirection = curveDir 
+        self.activeApexLocation = apexPos -- Lock in the target for this corner
         
-        if localRadius < CORNER_RADIUS_THRESHOLD then
-            self.cornerPhase = 2
-            self.cornerTimer = CORNER_PHASE_DURATION
-            self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
-        else
-            self.cornerPhase = 1 
-            self.cornerTimer = CORNER_PHASE_DURATION
-            self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
-        end
+        -- Default to Entry
+        self.cornerPhase = 1 
     end
     
     if self.isCornering == true then
         self.currentMode = "Cornering" 
         
+        -- Use the LOCKED apex if available, otherwise live update
+        local targetApex = self.activeApexLocation or apexPos
+        
+        -- Calculate geometric relation to Apex
+        local toApex = targetApex - carPos
+        local distSq = toApex:length2()
+        local isBehind = toApex:dot(carForward) < 0 -- True if we have passed it
+        
         -- PHASE 1: ENTRY (Swing Out)
         if self.cornerPhase == 1 then
             local idealBias = self.cornerDirection * CORNER_ENTRY_BIAS 
             
-            if self.cornerDirection == 1 and wall.marginRight < 2.0 then
-                idealBias = 0.0 
-            elseif self.cornerDirection == -1 and wall.marginLeft < 2.0 then
-                idealBias = 0.0 
-            end
+            -- Wall Checks (Existing)
+            if self.cornerDirection == 1 and wall.marginRight < 2.0 then idealBias = 0.0 end
+            if self.cornerDirection == -1 and wall.marginLeft < 2.0 then idealBias = 0.0 end
             self.targetBias = idealBias
             
-            local currentSpeed = perceptionData.Telemetry.speed or 0
-            local switchDist = 30.0 + (currentSpeed * 1.0) 
-            local currentBias = nav.trackPositionBias or 0
-            local biasDiff = math.abs(currentBias - idealBias)
-            
-            if distToApex < switchDist or localRadius < CORNER_RADIUS_THRESHOLD then 
-                self.cornerPhase = 2 
-                self.cornerTimer = CORNER_PHASE_DURATION 
-            elseif biasDiff < 0.2 and distToApex < switchDist * 1.5 then
+            -- [TRANSITION] Distance Based
+            -- Switch to Apex Phase when we are within 20 meters (400 sq units)
+            if distSq < 400.0 then 
                 self.cornerPhase = 2
             end
             
         -- PHASE 2: APEX (Hit Racing Line)
-        -- [FIXED] Changed from hard-coded "Inner Edge" to "Racing Line Bias"
         elseif self.cornerPhase == 2 then
-            -- 1. Get the Profile Bias (The saved racing line)
-            -- If 'mid' wasn't saved, racingLineBias will be 0.0.
+            -- Bias Logic (Existing)
             local rawProfileBias = nav.racingLineBias or 0.0
-            
-            -- 2. Validate the Profile
-            -- If the bias is effectively zero (Center), it means we don't have a 
-            -- valid optimized racing line for this corner.
-            -- In that case, FALLBACK to procedural logic (Force 0.85 Inside).
             if math.abs(rawProfileBias) < 0.1 then 
-                -- Fallback: Dive to the inside wall (Procedural Apex)
                 self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
             else
-                -- Profile Valid: Follow the node's optimized location
                 self.targetBias = rawProfileBias
             end
 
-            self.cornerTimer = self.cornerTimer - dt
-            if self.cornerTimer <= 0.0 then
-                if localRadius < CORNER_RADIUS_THRESHOLD * 1.2 then
-                    self.cornerTimer = 0.2 
-                else
-                    self.cornerPhase = 3 
-                    self.cornerTimer = CORNER_PHASE_DURATION
-                end
+            -- [TRANSITION] Geometry Based
+            -- If the apex is now behind us (Dot Product < 0), release the turn.
+            if isBehind then
+                self.cornerPhase = 3 
             end
             
         -- PHASE 3: EXIT (Release)
@@ -413,21 +401,24 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             local currentPos = nav.trackPositionBias or 0.0
             self.targetBias = currentPos * 0.9 
             
-            self.cornerTimer = self.cornerTimer - dt
-            if self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
+            -- [TRANSITION] Radius Based
+            -- Only exit cornering mode when the track actually straightens out
+            if radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
                 self.isCornering = false
                 self.cornerPhase = 0
+                self.activeApexLocation = nil
                 self.currentMode = "RaceLine" 
                 self.targetBias = (self.Driver.carAggression - 0.5) * 0.8 
             end
         end
     end
     
+    -- FAILSAFE: If the track is straight for a long time, force reset
     if self.isCornering and radius > 6 * CORNER_RADIUS_THRESHOLD then
         self.isCornering = false
         self.cornerPhase = 0
+        self.activeApexLocation = nil
         self.currentMode = "RaceLine"
-        self.targetBias = (self.Driver.carAggression - 0.5) * 0.8
     end
 end
 
@@ -708,36 +699,36 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local offsetVector = perp:normalize() * (safeBias * halfWidth * -1)
     local rawTargetPoint = centerTarget + offsetVector
 
-    -- [FIX 1] TARGET SMOOTHING
-    -- If we don't have a smoothed point yet, start at the raw point
+    -- TARGET SMOOTHING
     if not self.smoothedTargetPoint then self.smoothedTargetPoint = rawTargetPoint end
-
-    -- Slow down the lerp. 10.0 was too fast (induced oscillation on mode switch).
-    -- 3.0 means it takes approx 1 second to fully transition lanes, which is smoother.
     local lerpFactor = math.min(1.0, 3.0 * dt) 
     self.smoothedTargetPoint = self.smoothedTargetPoint + (rawTargetPoint - self.smoothedTargetPoint) * lerpFactor
-
-    -- Use the SMOOTHED point for physics
     local targetPoint = self.smoothedTargetPoint
 
-    if self.latestDebugData then 
-        self.latestDebugData.targetPoint = targetPoint 
-    end
+    if self.latestDebugData then self.latestDebugData.targetPoint = targetPoint end
 
     -- 3. PURE PURSUIT MATH
     local carPos = telemetry.location
-    local carRight = telemetry.rotations.right
-    
     local vecToTarget = targetPoint - carPos
     local lookaheadDist = vecToTarget:length()
-    
-    -- Project onto local Right axis (Y in local space)
+    local carRight = telemetry.rotations.right
     local localY = vecToTarget:dot(carRight)
 
     local optimizer = self.Driver.Optimizer
     if optimizer and optimizer.lookaheadMult then
         lookaheadDist = lookaheadDist * optimizer.lookaheadMult
     end
+
+    -- [[ FIX 1: DYNAMIC LOOKAHEAD (Anti-Oscillation) ]]
+    -- If we are far off the racing line, look further ahead to smooth the merge.
+    local errorScale = math.abs(localY) * 0.8 
+    lookaheadDist = lookaheadDist + errorScale
+
+    -- [[ FIX 2: LOW SPEED STABILITY (Anti-Wobble) ]]
+    -- Enforce a minimum "virtual" lookahead based on speed.
+    -- This stops the car from twitching when crawling at low speeds.
+    local minStabilityDist = 15.0 + (telemetry.speed * 0.6)
+    lookaheadDist = math.max(lookaheadDist, minStabilityDist)
 
     -- Curvature = 2 * y / L^2
     local curvature = (2.0 * localY) / (lookaheadDist * lookaheadDist)
@@ -750,17 +741,13 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     -- 5. DAMPING (D-Term)
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
     local dampFactor = (optimizer and optimizer.dampingFactor) or self.STEERING_Kd_BASE or 0.2
-    
     local damping = yawRate * dampFactor
-
-    -- [FIX 2] DAMPING CLAMP
-    -- Previous limits (-0.4, 0.4) caused the crash in the log.
-    -- If the car is spinning violently, we MUST allow full counter-steer (-1.0 to 1.0).
+    
+    -- Damping Clamp
     damping = mathClamp(-1.0, 1.0, damping) 
     
     steerOutput = steerOutput - damping
 
-    -- [TELEMETRY CAPTURE] 
     self.dbg_PP_Dist = lookaheadDist    
     self.dbg_PP_Y    = localY           
     self.dbg_Damp    = damping          
@@ -769,88 +756,6 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     return mathClamp(-1.0, 1.0, steerOutput)
 end
 
-
--- [MODIFIED] Added 'dt' parameter to enable Slew Rate Limiting
-function DecisionModule.calculateSteering_old(self, perceptionData, dt)
-    local telemetry = perceptionData.Telemetry
-    local nav = perceptionData.Navigation
-    
-    if not nav or not nav.trackPositionBias then return 0.0 end
-    
-    local speed = telemetry.speed or 0
-    local speedRatio = math.min(speed / self.dynamicMaxSpeed, 1.0)
-    
-    local kp = self.STEERING_Kp_BASE or DEFAULT_STEERING_Kp
-    local kd = self.STEERING_Kd_BASE or DEFAULT_STEERING_Kd
-    
-    local absKp = math.abs(kp)
-    local absKd = math.abs(kd)
-
-    local dynamicKp = absKp * (1.0 - (speedRatio * (1.0 - Kp_MIN_FACTOR)))
-    local dynamicKd = absKd * (1.0 + (speedRatio * (Kd_BOOST_FACTOR - 1.0)))
-
-    local rawTargetBias = self:getFinalTargetBias(perceptionData)
-    self.smoothedBias = self.smoothedBias or rawTargetBias
-    self.smoothedBias = self.smoothedBias + (rawTargetBias - self.smoothedBias) * 0.25
-    
-    local lateralError = self.smoothedBias - nav.trackPositionBias
-    self.lateralError = lateralError
-
-    local carDir = telemetry.rotations.at 
-    local goalDir = nav.nodeGoalDirection
-    local crossZ = carDir.x * goalDir.y - carDir.y * goalDir.x
-    local angleErrorRad = math.atan2(crossZ, carDir:dot(goalDir))
-
-    self.dbg_LatError = lateralError * LATERAL_Kp
-    self.dbg_AngError = angleErrorRad / MAX_WHEEL_ANGLE_RAD
-
-    -- Dynamic Angle Weighting
-    local latMag = math.abs(lateralError)
-    local angleWeight = 1.0
-    if latMag > 0.8 then
-        angleWeight = 0.0
-    elseif latMag > 0.5 then
-        angleWeight = 1.0 - ((latMag - 0.5) * 3.33) 
-        angleWeight = math.max(0.0, angleWeight)
-    end
-
-    local pTerm = (lateralError * LATERAL_Kp) - ((angleErrorRad / MAX_WHEEL_ANGLE_RAD) * angleWeight)
-    
-    local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-    local dTerm = yawRate * dynamicKd 
-
-    -- D-Term Clamping
-    if latMag > 1.0 then
-         if (pTerm > 0 and dTerm < 0) then dTerm = math.max(dTerm, -pTerm * 0.8) end
-         if (pTerm < 0 and dTerm > 0) then dTerm = math.min(dTerm, -pTerm * 0.8) end
-    elseif math.abs(pTerm) > 0.5 then
-        if (pTerm < 0 and dTerm > 0) then
-            dTerm = math.min(dTerm, math.abs(pTerm) * 0.5) 
-        elseif (pTerm > 0 and dTerm < 0) then
-            dTerm = math.max(dTerm, -math.abs(pTerm) * 0.5)
-        end
-    end
-
-    local rawSteer = (pTerm * dynamicKp) + dTerm
-
-    -- [NEW] Slew Rate Limiter
-    -- Prevents the steering signal from jumping infinitely fast
-    if self.lastSteerOut then
-        local delta = rawSteer - self.lastSteerOut
-        local maxDelta = STEERING_SLEW_RATE * dt 
-        delta = mathClamp(-maxDelta, maxDelta, delta)
-        rawSteer = self.lastSteerOut + delta
-    end
-    self.lastSteerOut = rawSteer
-
-    if math.abs(rawSteer) > 0.8 and math.abs(lateralError) > 0.8 then
-        if self.Driver.Optimizer then
-            self.Driver.Optimizer:reportUndersteer()
-        end
-    end
-    
-    return math.min(math.max(rawSteer, -1.0), 1.0)
-end
 
 function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
     local currentSpeed = perceptionData.Telemetry.speed

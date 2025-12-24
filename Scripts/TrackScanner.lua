@@ -598,7 +598,7 @@ function TrackScanner.sv_startScan(self)
     -- 2. Perform Scanning Logic
     if self.scanMode == SCAN_MODE_RACE then
         self:scanTrackLoop(startPos, startDir)
-        self:optimizeRacingLine(150, false)
+        self:optimizeRacingLine(500, false)
     else
         self:scanPitLaneFromAnchors()
         self:optimizeRacingLine(5, true)

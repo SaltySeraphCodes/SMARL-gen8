@@ -162,7 +162,7 @@ end
 function PerceptionModule:scanTrackCurvature(scanDistance)
     local nav = self.perceptionData.Navigation
     if not nav or not nav.closestPointData then 
-        return MAX_CURVATURE_RADIUS, 0.0 
+        return MAX_CURVATURE_RADIUS, 0.0, nil 
     end
 
     local currentNode = nav.closestPointData.baseNode
@@ -170,19 +170,13 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
     
     local minRadius = MAX_CURVATURE_RADIUS
     local distToMin = 0.0
+    local apexLocation = nil -- [NEW] To store the physical point of the apex
     
-    -- [CHANGE] Check further ahead, less frequently
-    local scanStep = 10.0 
+    local scanStep = 5.0 
     local currentDist = 0.0
-    
-    -- [CHANGE] The "Chord Length". 
-    -- We calculate curvature using points spaced 15 meters apart.
-    -- This filters out kinks/bumps smaller than 15 meters.
     local chordOffset = 15.0
 
     while currentDist < scanDistance do
-        -- Get three points spread wide apart
-        -- P_A (Start) --15m--> P_B (Center) --15m--> P_C (End)
         local pA = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
         local pB = self:getPointInDistance(currentNode, currentT, currentDist + chordOffset, self.chain)
         local pC = self:getPointInDistance(currentNode, currentT, currentDist + (chordOffset * 2), self.chain)
@@ -192,12 +186,14 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
         if radius < minRadius then
             minRadius = radius
             distToMin = currentDist
+            apexLocation = pB -- [NEW] Capture the center of the curve
         end
         
         currentDist = currentDist + scanStep
     end
     
-    return minRadius, distToMin
+    -- Return Apex Location as the 3rd argument
+    return minRadius, distToMin, apexLocation
 end
 
 
