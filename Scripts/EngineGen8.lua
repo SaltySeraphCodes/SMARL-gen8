@@ -104,14 +104,14 @@ end
 
 --- Helpers
 local function getWheelRPM(bearing)
-    -- getAngularVelocity returns a vec3 (radians/sec). 
-    -- For bearings, the local X axis is usually the rotation axis.
-    sm.joint.getAngularVelocity(bearing)
-    local angVel = bearing:getAngularVelocity()
-    print(bearing,angVel)
+    -- ERROR FIX: getAngularVelocity() returns a number (rad/s), not a vector.
+    local radsPerSec = bearing:getAngularVelocity()
     
-    local radsPerSec = angVel:dot(bearing:getXAxis()) -- Project onto rotation axis
-    return (radsPerSec * 60) / (2 * math.pi) -- Convert rad/s to RPM
+    -- Safety check: Ensure it's a number (API protection)
+    if type(radsPerSec) ~= "number" then return 0 end
+
+    -- Convert rad/s to RPM
+    return (radsPerSec * 60) / (2 * math.pi) 
 end
 
 -- --- MAIN UPDATE LOOP (40Hz) ---
@@ -168,42 +168,42 @@ function Engine.calculateRPM(self)
 
     -- [NEW] TRACTION CONTROL LOGIC
     local slipDetected = false
-    local telemetry = self.driver.perceptionData.Telemetry
-    local carSpeed = telemetry.speed or 0
-    -- Estimate "Road Speed" RPM (Speed / WheelCircumference * 60)
-    -- 3 block wheel diameter approx 0.75m radius -> Circ ~4.7m
-    local theoreticalRPM = (carSpeed * 60) / 4.7
-
-    local maxSlipRatio = 0.0
-    
-    for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
-        local actualRPM = math.abs(getWheelRPM(bearing))
-        local ratio = 0
-        if theoreticalRPM > 50 then
-            ratio = actualRPM / theoreticalRPM
-        elseif actualRPM > 400 then 
-            -- Car is stopped but wheels spinning fast -> Burnout
-            print("burnout")
-            ratio = 5.0 
-        end
+    if self.driver.perceptionData and self.driver.perceptionData.Telemetry then
+        local telemetry = self.driver.perceptionData.Telemetry
+        local carSpeed = telemetry.speed or 0
         
-        if ratio > 1.5 then -- Wheel spinning 50% faster than road speed
-            print("slipage")
-            slipDetected = true
-            maxSlipRatio = ratio
+        -- Estimate "Road Speed" RPM (Speed / WheelCircumference * 60)
+        -- 3 block wheel diameter approx 0.75m radius -> Circ ~4.7m
+        local theoreticalRPM = (carSpeed * 60) / 4.7
+        
+        -- Check actual bearings
+        local maxSlipRatio = 0.0
+        for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
+            local actualRPM = math.abs(getWheelRPM(bearing))
+            local ratio = 0
+            
+            if theoreticalRPM > 50 then
+                ratio = actualRPM / theoreticalRPM
+            elseif actualRPM > 400 then 
+                -- Burnout protection (Car stopped, wheels fast)
+                ratio = 5.0 
+            end
+            
+            if ratio > 1.5 then -- Wheel spinning 50% faster than road speed
+                 slipDetected = true
+            end
         end
     end
 
     if slipDetected then
          -- Physics Glitch Prevention: Cut throttle immediately
-         -- This stops the "Infinite Energy" buildup that flips cars
          self.accelInput = self.accelInput * 0.1 
-         self.curRPM = self.curRPM * 0.9 -- Drag down engine speed
-         
-         -- Optional: Visual Feedback
-         if self.longTimer % 10 == 0 then
-             print(self.driver.id, "TCS ACTIVE! Slip:", maxSlipRatio)
-         end
+         self.curRPM = self.curRPM * 0.9 
+    end
+
+    if not self.driver.isRacing and not self.driver.active then 
+         self.curVRPM = 0
+         return 0 
     end
 
     -- 1. Base Increment based on input and gear
