@@ -49,6 +49,26 @@ function RaceManager.setState(self, newState)
     print("RaceManager: State changing from", self.state, "to", newState)
     self.state = newState
     self:broadcastCommand({ type = "raceStatus", value = newState })
+    
+    -- [[ NEW: AUTOMATED LEARNING LOCK ]]
+    -- Strategy: Learn during Qualifying/Practice, Lock in for the Race.
+    local shouldLock = false
+    
+    if newState == STATE_RACING then
+        if self.qualifying then
+            shouldLock = false -- Keep learning during Quali
+            print("RaceManager: Qualifying Started - LEARNING ENABLED")
+        else
+            shouldLock = true -- Lock it down for the Race
+            print("RaceManager: Race Started - LEARNING LOCKED (Physics Protected)")
+        end
+    elseif newState == STATE_STOPPED then
+        shouldLock = false -- Always unlock when stopped so we can tune in testing
+    end
+
+    -- Broadcast the Lock Command
+    self:broadcastCommand({ type = "set_learning_lock", value = shouldLock })
+
     if newState == STATE_STOPPED then
         self.raceFinished = false
         self.finishResults = {}

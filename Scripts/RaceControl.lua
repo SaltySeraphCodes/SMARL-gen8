@@ -459,7 +459,16 @@ function RaceControl.client_onDestroy(self)
     if self.UIManager then self.UIManager:destroy() end
 end
 
-function RaceControl.client_canInteract(self, character) return true end
+function RaceControl.client_canInteract(self, character) 
+    if character:isCrouching() then
+        sm.gui.setInteractionText("WARNING:", sm.gui.getKeyBinding("Tinker", true), "DELETE ALL RACERS")
+    else
+        -- Show standard open command with a hint about the hidden feature
+        sm.gui.setInteractionText("Open Control", sm.gui.getKeyBinding("Use", true), "Crouch+Tinker to Clear")
+    end
+    return true 
+end
+
 function RaceControl.client_onInteract(self, character, state) 
     if state and self.UIManager then
         self.UIManager:open()
@@ -467,7 +476,25 @@ function RaceControl.client_onInteract(self, character, state)
 end
 
 function RaceControl.client_canTinker(self, character) return true end
-function RaceControl.client_onTinker(self, character, state) end
+
+function RaceControl.client_onTinker(self, character, state) 
+    -- Only trigger on key press (state = true)
+    if state then
+        -- Check if the player is crouching
+        if character:isCrouching() then
+            -- Audio/Visual Feedback
+            sm.audio.play("PaintTool - Erase", self.shape:getWorldPosition())
+            sm.gui.displayAlertText("COMMAND: Clearing Grid...", 2.5)
+            
+            -- Send Command
+            self.network:sendToServer("sv_delete_all_racers")
+        else
+            -- Helper text if they try to tinker while standing
+            sm.gui.displayAlertText("Safety Lock: Hold CROUCH to Delete Racers", 2.0)
+            sm.audio.play("Button off", self.shape:getWorldPosition())
+        end
+    end
+end
 
 -- --- GUI CALLBACK PROXIES ---
 function RaceControl.cl_onBtnStart(self) self.UIManager:cl_onBtnStart() end

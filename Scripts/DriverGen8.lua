@@ -590,6 +590,14 @@ function DriverGen8.sv_recieveCommand(self, command)
         elseif command.value == 3 then
             self.formation = true; self.racing = true; self.isRacing = true
         end
+
+    elseif command.type == "set_learning_lock" then
+        if self.Optimizer then
+            -- We respect the global command
+            local lockState = command.value
+            self.Optimizer:setLearningLock(lockState)
+        end
+        
     elseif command.type == "handicap" then
         -- Handle handicap
     elseif command.type == "pit" then
@@ -754,9 +762,40 @@ function DriverGen8.on_engineLoaded(self, data)
     self:sv_load_tuning_data()
 end
 function DriverGen8.on_engineDestroyed(self, data) self.engine = nil end
+
+
+function DriverGen8.sv_toggleLearningLock(self)
+    if self.Optimizer then
+        local newState = not self.Optimizer.learningLocked
+        self.Optimizer:setLearningLock(newState)
+        
+        -- Visual Feedback
+        local status = newState and "LOCKED" or "UNLOCKED"
+        local color = newState and sm.color.new(1,0,0,1) or sm.color.new(0,1,0,1)
+        
+        -- Play a sound or show an alert (using Interaction text as debug)
+        sm.gui.displayAlertText("Physics Learning: " .. status)
+        
+        -- Optional: Save this preference to metadata so it persists?
+        -- self.storage:save({ locked = newState }) 
+    end
+end
+
+
+function DriverGen8.client_canInteract(self, character) return true end
+
+function DriverGen8.client_onInteract(self, character, state) 
+    if state then -- On Key Down
+        self.network:sendToServer("sv_toggleLearningLock")
+    end
+end
+
+
 function DriverGen8.client_canTinker(self, character) return true end
 function DriverGen8.client_onTinker(self, character, state) end
-function DriverGen8.client_onInteract(self, character, state) end
+
+
+
 
 function DriverGen8.client_onUpdate(self, dt)
     -- Initialize Pool if missing
@@ -842,83 +881,6 @@ function DriverGen8.client_onUpdate(self, dt)
         if effect:isPlaying() then effect:stop() end
     end
 end
-
-function DriverGen8.client_onUpdate_old(self, dt)
-    -- Initialize Pool if missing
-    if not self.effectPool then self.effectPool = {} end
-
-    if self.shape then self.location = self.shape:getWorldPosition() end
-
-    -- [[ CoM VISUALIZER ]]
-    if self.body and self.shape then -- todo add flag so only when enabled
-        if self.CoMDebugEffect then
-            if not self.CoMDebugEffect:isPlaying() then self.CoMDebugEffect:start() end
-            self.CoMDebugEffect:setPosition(self.body.centerOfMassPosition)
-        else
-            local comWorld = self.body.centerOfMassPosition --Returns the center of mass world position of a body.
-            -- Draw a Blue Dot at CoM
-            local effect = sm.effect.createEffect("Loot - GlowItem", nil)
-            effect:setScale(sm.vec3.new(0,0,0))
-            effect:setPosition(comWorld)
-            effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-            effect:setParameter("Color", sm.color.new(0, 0, 1, 1))
-            if not effect:isPlaying() then effect:start() end
-            effect:setPosition(comWorld)
-            self.CoMDebugEffect = effect
-        end
-    end
-
-    -- Active dot counter
-
-    local activeDots = 0
-
-    if self.clientDebugRays then
-        for _, line in ipairs(self.clientDebugRays) do
-            -- Color Logic
-            local color = sm.color.new(0,1,0,1) 
-            if line.c == 2 then color = sm.color.new(1,1,0,1) end 
-            if line.c == 3 then color = sm.color.new(1,0,0,1) end 
-            if line.c == 4 then color = sm.color.new(0,1,1,1) end 
-            
-            -- Ray Math
-            local dir = (line.e - line.s)
-            local length = dir:length()
-            local step = 1.5 -- Density of dots
-            local normDir = dir:normalize()
-            
-            for d = 0, length, step do
-                activeDots = activeDots + 1
-                local worldPos = line.s + (normDir * d)
-                
-                -- Manage Effect Pool
-                local effect = self.effectPool[activeDots]
-                if not effect then
-                    -- [CHANGE] Host is nil (World Space)
-                    effect = sm.effect.createEffect("Loot - GlowItem", nil)
-                    effect:setScale(sm.vec3.new(0,0,0)) 
-                    effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-                    effect:setParameter("Color", color)
-                    
-                    table.insert(self.effectPool, effect)
-                end
-                
-                -- Update Effect
-                if not effect:isPlaying() then effect:start() end
-                
-                -- [CHANGE] Set Position directly in World Space
-                effect:setPosition(worldPos)
-                effect:setParameter("Color", color)
-            end
-        end
-    end
-
-    -- Cleanup: Stop unused effects in the pool
-    for i = activeDots + 1, #self.effectPool do
-        local effect = self.effectPool[i]
-        if effect:isPlaying() then effect:stop() end
-    end
-end
-
 
 function DriverGen8.cl_updateDebugRays(self, data)
     self.clientDebugRays = data
