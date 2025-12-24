@@ -796,7 +796,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         local rad = self.smoothedRadius or 0
         local tSpeed = self.dbg_Allowable or 0 -- The speed allowed by the corner geometry
         
-        --[[print(string.format(
+        print(string.format(
             "[%s] %s | Spd:%03.0f/Tgt:%03.0f (Rad:%03.0f) | PP[Dst:%.1f Y:%+.1f] | STR:%+.2f (Damp:%+.2f) | Thr:%.1f",
             tostring(self.Driver.id % 100), -- Short ID
             modeStr,                        -- Current State (RaceLine, Corn1, etc)
@@ -808,7 +808,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
             controls.steer,                 -- Final Steering Output
             damp,                           -- Damping Correction
             controls.throttle               -- Throttle Input
-        ))]]
+        ))
     end
 
     self.controls = controls
