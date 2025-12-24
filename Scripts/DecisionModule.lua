@@ -98,34 +98,50 @@ function DecisionModule.server_init(self,driver)
 
     self:calculateCarPerformance()
 end
+
 function DecisionModule.calculateCarPerformance(self)
-    local dynamicMaxSpeed = BASE_MAX_SPEED
-    local dynamicGripFactor = GRIP_FACTOR
     local car = self.Driver
     
-    local tireGripMultiplier = TIRE_TYPES[car.tire_type] and TIRE_TYPES[car.tire_type].GRIP or 0.5
-    local wearPenalty = (1.0 - (car.tire_wear or 1.0)) * 0.2 
-    dynamicGripFactor = dynamicGripFactor * (tireGripMultiplier - wearPenalty)
-    
+    -- 1. BASELINE GRIP (The "Potential" of the car)
+    -- Start with standard physics (0.8) plus Aero
+    local baseGrip = GRIP_FACTOR
     local spoilerAngle = car.spoiler_angle or 0.0 
     local downforceBoost = math.min(spoilerAngle / 80.0, 1.0) * 0.1 
-    dynamicGripFactor = dynamicGripFactor + downforceBoost
+    baseGrip = baseGrip + downforceBoost
+
+    -- 2. APPLY LEARNED PHYSICS
+    -- If the optimizer found the car is naturally grippier (on fresh tires), use that.
+    if self.Driver.Optimizer and self.Driver.Optimizer.learnedGrip then
+        local learned = self.Driver.Optimizer.learnedGrip
+        -- Trust the learned profile 60%, base physics 40%
+        baseGrip = (baseGrip * 0.4) + (learned * 0.6)
+    end
+
+    -- 3. APPLY SIMULATED TIRE FACTORS (Type & Wear)
+    -- Now we apply the penalty to the Baseline
+    local tireTypeData = TIRE_TYPES[car.Tire_Type] or { GRIP = 0.5 }
+    local typeMultiplier = tireTypeData.GRIP
     
+    -- Wear Penalty: 0% wear = 0 penalty. 100% wear = 0.2 penalty.
+    local currentHealth = car.Tire_Health or 1.0
+    local wearPenalty = (1.0 - currentHealth) * 0.2 
+    
+    -- Final Grip = Baseline * (TireType - Wear)
+    -- Example: 1.0 * (1.0 - 0.2) = 0.8 effective grip on dead tires
+    self.dynamicGripFactor = baseGrip * (typeMultiplier - wearPenalty)
+    
+    -- 4. SPEED LIMITS (Limp Modes)
     local gearRatio = car.gear_length or 1.0 
-    dynamicMaxSpeed = BASE_MAX_SPEED * gearRatio * 0.5 
+    self.dynamicMaxSpeed = BASE_MAX_SPEED * gearRatio * 0.5 
     
     if car.tireLimp then
-        dynamicMaxSpeed = math.min(dynamicMaxSpeed, 40.0) 
-        dynamicGripFactor = dynamicGripFactor * 0.5
+        self.dynamicMaxSpeed = math.min(self.dynamicMaxSpeed, 40.0) 
+        self.dynamicGripFactor = self.dynamicGripFactor * 0.5
     end
-
     if car.fuelLimp then
-        dynamicMaxSpeed = math.min(dynamicMaxSpeed, 20.0) 
-        dynamicGripFactor = dynamicGripFactor * 0.9 
+        self.dynamicMaxSpeed = math.min(self.dynamicMaxSpeed, 20.0) 
+        self.dynamicGripFactor = self.dynamicGripFactor * 0.9 
     end
-
-    self.dynamicGripFactor = dynamicGripFactor 
-    self.dynamicMaxSpeed = dynamicMaxSpeed
 end
 
 function DecisionModule:updateTrackState(perceptionData)
@@ -667,12 +683,10 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local telemetry = perceptionData.Telemetry
 
     -- 1. GET THE SAFE CONTEXT BIAS
-    -- This uses your existing Context Steering logic to find the best "lane"
     local safeBias = self:getFinalTargetBias(perceptionData)
-    self.smoothedBias = safeBias -- Store for debugging
+    self.smoothedBias = safeBias 
 
     -- 2. RECONSTRUCT THE 3D TARGET POINT
-    -- We take the centerline lookahead point and shift it left/right based on bias
     local centerTarget = nav.centerlineTarget 
     if not centerTarget then return 0.0 end
 
@@ -684,35 +698,30 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local offsetVector = perp:normalize() * (safeBias * halfWidth * -1)
     local rawTargetPoint = centerTarget + offsetVector
 
-    -- [NEW] TARGET SMOOTHING (The Anti-Blink Filter)
+    -- [FIX 1] TARGET SMOOTHING
     -- If we don't have a smoothed point yet, start at the raw point
     if not self.smoothedTargetPoint then self.smoothedTargetPoint = rawTargetPoint end
 
-    -- Interpolate towards the new point. 
-    -- Factor 10.0 * dt means it takes ~0.3s to fully travel a large jump.
-    -- This eats 1-frame glitches but is fast enough for corners.
-    local lerpFactor = math.min(1.0, 10.0 * dt)
+    -- Slow down the lerp. 10.0 was too fast (induced oscillation on mode switch).
+    -- 3.0 means it takes approx 1 second to fully transition lanes, which is smoother.
+    local lerpFactor = math.min(1.0, 3.0 * dt) 
     self.smoothedTargetPoint = self.smoothedTargetPoint + (rawTargetPoint - self.smoothedTargetPoint) * lerpFactor
 
     -- Use the SMOOTHED point for physics
     local targetPoint = self.smoothedTargetPoint
 
-    -- [DEBUG] Visualize both (Magenta = Smooth, Red = Raw/Blinky)
     if self.latestDebugData then 
         self.latestDebugData.targetPoint = targetPoint 
-        self.latestDebugData.rawTargetPoint = rawTargetPoint -- You can add a visualizer for this if you want
     end
 
     -- 3. PURE PURSUIT MATH
-    -- Transform Target Point into Local Car Space
     local carPos = telemetry.location
-    local carFwd = telemetry.rotations.at
     local carRight = telemetry.rotations.right
     
     local vecToTarget = targetPoint - carPos
     local lookaheadDist = vecToTarget:length()
     
-    -- Project onto local Right axis (Y in local space) to get lateral offset
+    -- Project onto local Right axis (Y in local space)
     local localY = vecToTarget:dot(carRight)
 
     local optimizer = self.Driver.Optimizer
@@ -721,35 +730,32 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     end
 
     -- Curvature = 2 * y / L^2
-    -- This defines the arc connecting the car to the point
     local curvature = (2.0 * localY) / (lookaheadDist * lookaheadDist)
-
-    -- 4. CALCULATE STEERING ANGLE
-    -- SteerAngle = atan(Wheelbase * Curvature)
-    -- Wheelbase is approx 3.0 blocks for most SM cars, adjust if yours is a limo
     local wheelBase = 3.0 
     local targetSteerAngle = math.atan(curvature * wheelBase)
     
-    -- 5. NORMALIZE OUTPUT (-1 to 1)
+    -- 4. NORMALIZE OUTPUT (-1 to 1)
     local steerOutput = targetSteerAngle / MAX_WHEEL_ANGLE_RAD
     
-    -- 6. DAMPING (D-Term replacement)
-    -- Small counter-steer based on Yaw Rate to prevent oscillation at high speed
+    -- 5. DAMPING (D-Term)
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
     local dampFactor = (optimizer and optimizer.dampingFactor) or self.STEERING_Kd_BASE or 0.2
+    
     local damping = yawRate * dampFactor
-    damping = mathClamp(-0.4, 0.4, damping) -- Safety Clamp
+
+    -- [FIX 2] DAMPING CLAMP
+    -- Previous limits (-0.4, 0.4) caused the crash in the log.
+    -- If the car is spinning violently, we MUST allow full counter-steer (-1.0 to 1.0).
+    damping = mathClamp(-1.0, 1.0, damping) 
     
     steerOutput = steerOutput - damping
 
     -- [TELEMETRY CAPTURE] 
-    -- Save these values to 'self' so we can print them later
-    self.dbg_PP_Dist = lookaheadDist    -- How far away is the target?
-    self.dbg_PP_Y    = localY           -- Is the target Left (-) or Right (+)?
-    self.dbg_Damp    = damping          -- How much is the D-Term fighting the turn?
-    self.dbg_RawStr  = steerOutput + damping -- What was the steering BEFORE damping?
+    self.dbg_PP_Dist = lookaheadDist    
+    self.dbg_PP_Y    = localY           
+    self.dbg_Damp    = damping          
+    self.dbg_RawStr  = steerOutput + damping 
 
-    -- 7. CLAMP (NO SLEW RATE LIMITER!)
     return mathClamp(-1.0, 1.0, steerOutput)
 end
 

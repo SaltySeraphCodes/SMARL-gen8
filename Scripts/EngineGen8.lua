@@ -13,6 +13,8 @@ Engine.colorHighlight = sm.color.new(0xF6a268ff)
 
 local ENGINE_SPEED_LIMIT = 1000 -- Hard limit fallback
 local TUNING_DATA_PATH = "$CONTENT_DATA/JsonData/tuningData.json"
+local DRAFTING_SPEED_MULT = 1.15 -- 15% Top Speed Bonus
+local DRAFTING_ACCEL_MULT = 1.10 -- 10% Acceleration Bonus
 
 -- --- ENGINE EVENTS ---
 
@@ -70,9 +72,9 @@ function Engine.server_init(self)
     self.engineStats = {
         TYPE = "custom",
         COLOR = "aaaa2f",
-        MAX_SPEED = 250,
-        MAX_ACCEL = 1,
-        MAX_BRAKE = 1,
+        MAX_SPEED = 25,
+        MAX_ACCEL = 0.30,
+        MAX_BRAKE = 0.80,
         GEARING = {0.25, 0.35, 0.40, 0.25, 0.15},
         REV_LIMIT = 50 -- Calculated below
     }
@@ -169,6 +171,24 @@ function Engine.server_onFixedUpdate(self, dt)
         self.curRPM = self.engineStats.MAX_SPEED * 0.8
     end
 
+   -- [NEW] Push Wheel Data to Driver Telemetry for the Optimizer
+    if self.driver and self.driver.perceptionData and self.driver.perceptionData.Telemetry then
+        local totalAngularVel = 0
+        local count = 0
+        for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
+             -- getAngularVelocity returns Rad/s
+             local av = bearing:getAngularVelocity()
+             totalAngularVel = totalAngularVel + math.abs(av)
+             count = count + 1
+        end
+        if count > 0 then
+            local avgRadS = totalAngularVel / count
+            -- Store both units for convenience
+            self.driver.perceptionData.Telemetry.avgWheelRadS = avgRadS
+            self.driver.perceptionData.Telemetry.avgWheelRPM = (avgRadS * 60) / (2 * math.pi)
+        end
+    end
+
     -- 5. Output to Wheels
     self:setRPM(self.curRPM)
 end
@@ -186,10 +206,11 @@ function Engine.calculateRPM(self)
     if not self.driver or not self.engineStats then return 0 end
 
     -- 1. FETCH TRACTION CONSTANT
-    -- Ask the Optimizer for the correct ratio. Default to 2.6 if not ready.
     local tractionConst = 2.6
-    if self.driver.Optimizer and self.driver.Optimizer.tractionConstant then
-        tractionConst = self.driver.Optimizer.tractionConstant
+    local tcsConverged = false
+    if self.driver.Optimizer then
+        tractionConst = self.driver.Optimizer.tractionConstant or 2.6
+        tcsConverged = self.driver.Optimizer.tcsConverged
     end
 
     -- 2. TRACTION CONTROL & CALIBRATION
@@ -198,11 +219,16 @@ function Engine.calculateRPM(self)
     if self.driver.perceptionData and self.driver.perceptionData.Telemetry then
         local telemetry = self.driver.perceptionData.Telemetry
         local carSpeed = telemetry.speed or 0
-        
-        -- Calculate Theoretical RPM using the Dynamic Constant
-        -- Formula: RPM = (Speed * 60) / Constant
         local theoreticalRPM = (carSpeed * 60) / tractionConst
         
+        -- TCS SENSITIVITY
+        -- If converged (Profile Learned), we use a tight 1.3x limit (high performance).
+        -- If not converged, we use a loose 2.0x limit (safety only).
+        local slipLimit = tcsConverged and 1.3 or 2.0
+        
+        local avgActualRPM = 0
+        local wheelCount = 0
+
         -- [LEARNING CONDITION]
         -- We only learn when:
         -- 1. Going fast enough (>15 blocks/s)
@@ -221,14 +247,9 @@ function Engine.calculateRPM(self)
         for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
             local actualRPM = getWheelRPM(bearing)
             
-            -- TCS Check (Anti-Burnout)
-            -- Only active if moving
             if theoreticalRPM > 50 then
                 local ratio = actualRPM / theoreticalRPM
-                
-                -- Threshold 2.0: If wheels spin 2x faster than theory, cut power.
-                -- This protects against burnouts and flips.
-                if ratio > 2.0 then 
+                if ratio > slipLimit then 
                     slipDetected = true 
                 end
             end
@@ -275,9 +296,10 @@ function Engine.calculateRPM(self)
         end
     end
 
-    -- [ACTIVATE CUT]
     if slipDetected then
-         self.accelInput = self.accelInput * 0.2 -- Cut throttle to 20%
+         -- Tighter cut if converged for faster recovery
+         local cutSeverity = tcsConverged and 0.5 or 0.2
+         self.accelInput = self.accelInput * cutSeverity 
          self.curRPM = self.curRPM * 0.9 
     end
 
@@ -343,19 +365,15 @@ end
 function Engine._applyPerformanceModifiers(self, increment)
     if not self.driver then return increment end
     
-    -- Drafting Bonus
-    -- Access Decision Module's mode if available, or check driver flags
+    -- DRAFTING BONUS (ACCELERATION)
     local isDrafting = (self.driver.Decision and self.driver.Decision.currentMode == "Drafting")
     
     if isDrafting and self.accelInput >= 0.9 then
-        increment = increment + 0.00016 
+        -- Apply percentage boost instead of flat adder for better scaling
+        increment = increment * DRAFTING_ACCEL_MULT
     end
     
-    -- Handicap (Top Speed Logic) - Calculated for Limiter, but could affect accel
-    -- Storing modifier for limiter use
-    self.totalSpeedModifier = 0 -- Reset
-    -- Add handicap logic here if needed
-    
+    self.totalSpeedModifier = 0 
     return increment
 end
 
@@ -373,19 +391,29 @@ end
 
 function Engine._applyHardLimiter(self, nextRPM)
     local increment = nextRPM - self.curRPM
-    local maxSpeed = (self.engineStats.MAX_SPEED or ENGINE_SPEED_LIMIT) + self.totalSpeedModifier
     
-    -- Forward Speed Limit
-    if nextRPM >= maxSpeed and increment > 0 then
-        local reduction = 1.06
-        -- Passing/Drafting allows slight overspeed
-        if self.driver.Decision and (self.driver.Decision.currentMode == "Drafting" or self.driver.Decision.currentMode == "OvertakeDynamic") then
-             reduction = 1.02
-        end
+    local tractionConst = 2.6
+    if self.driver and self.driver.Optimizer and self.driver.Optimizer.tractionConstant then
+        tractionConst = self.driver.Optimizer.tractionConstant
+    end
+
+    -- DRAFTING BONUS (TOP SPEED)
+    local baseSpeed = (self.engineStats.MAX_SPEED or 100) + self.totalSpeedModifier
+    local isDrafting = (self.driver.Decision and self.driver.Decision.currentMode == "Drafting")
+    
+    if isDrafting then
+        baseSpeed = baseSpeed * DRAFTING_SPEED_MULT
+    end
+    
+    -- Convert Velocity to RPM Limit
+    local calculatedLimit = (baseSpeed * 2 * math.pi) / tractionConst
+    if calculatedLimit < 50 then calculatedLimit = 50 end
+
+    -- Apply Limit
+    if nextRPM >= calculatedLimit and increment > 0 then
+        -- Soft limiter
+        nextRPM = nextRPM - (increment * 1.05)
         
-        nextRPM = nextRPM - (increment * reduction)
-    
-    -- Reverse Speed Limit
     elseif nextRPM <= -40 and increment < 0 then
         nextRPM = -40
     end

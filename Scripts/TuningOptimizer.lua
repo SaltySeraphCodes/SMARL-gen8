@@ -12,24 +12,42 @@ function TuningOptimizer:init(driver)
     self.driver = driver
     self.history = {} 
     self.fingerprint = "CALCULATING" 
+
+    self.learningLocked = false
     
     -- [[ TUNABLE PHYSICS PARAMETERS ]]
-    self.cornerLimit = 2.0      -- Speed Multiplier (Higher = Faster Corners)
-    self.brakingFactor = 15.0   -- Braking Power (Higher = Brake Later)
-    self.dampingFactor = 0.25   -- Yaw Resistance (Higher = Less Wobble, Slower Turn-in)
-    self.lookaheadMult = 1.0    -- Lookahead Modifier (Lower = Aggressive, Higher = Smooth)
+    self.cornerLimit = 2.0      
+    self.brakingFactor = 15.0   
+    self.dampingFactor = 0.25   
+    self.lookaheadMult = 1.0    
     self.tractionConstant = 2.6
+    
+    -- [[ NEW: LEARNED PHYSICS PROFILE ]]
+    self.learnedGrip = 1.0      -- 1.0 = Standard Grip (approx 1g). Will learn 0.5 - 2.0
+    self.tcsConverged = false   -- Becomes true when tractionConstant stops fluctuating
+    self.tcsVariance = 0.0      -- Tracker for TCS learning stability
+    
     -- Learning Metrics
     self.tickCount = 0
-    self.yVarianceSum = 0       -- Accumulator for Path Error^2
-    self.peakY = 0              -- Max Deviation from Path (Understeer detection)
-    self.oscillations = 0       -- Count of rapid Left/Right switches
+    self.yVarianceSum = 0      
+    self.peakY = 0             
+    self.oscillations = 0       
     self.crashDetected = false 
     self.lastSpeed = 0.0
     self.lastYSign = 0
     
+    -- Grip Learning Buffers
+    self.peakLatAccel = 0.0
+    self.slipEvents = 0
 
-    print("TuningOptimizer: Initialized")
+    print("TuningOptimizer: Initialized with Physics Profiling")
+end
+
+-- [[ PUBLIC API TO LOCK LEARNING ]]
+function TuningOptimizer:setLearningLock(locked)
+    self.learningLocked = locked
+    local status = locked and "LOCKED (Race Mode)" or "UNLOCKED (Practice Mode)"
+    print(string.format("Optimizer [%d]: Learning is now %s", self.driver.id, status))
 end
 
 function TuningOptimizer:checkFingerprint()
@@ -65,22 +83,29 @@ function TuningOptimizer:loadProfile()
 end
 
 function TuningOptimizer:applyProfile(profile)
-    -- Map loaded JSON data to our new variables
     if profile.cornerLimit then self.cornerLimit = profile.cornerLimit end
     if profile.brakingFactor then self.brakingFactor = profile.brakingFactor end
-    
-    -- Legacy support: Map old Kd to new dampingFactor
-    if profile.kd then self.dampingFactor = profile.kd * 0.5 end 
     if profile.dampingFactor then self.dampingFactor = profile.dampingFactor end
     if profile.lookaheadMult then self.lookaheadMult = profile.lookaheadMult end
+    
     if profile.tractionConstant then 
         self.tractionConstant = profile.tractionConstant 
-        print(string.format("Optimizer: Loaded Traction Constant: %.2f", self.tractionConstant))
+        -- If we loaded a profile, assume TCS is reasonably converged
+        self.tcsConverged = true 
+    end
+
+    -- Load Grip Profile
+    if profile.learnedGrip then 
+        self.learnedGrip = profile.learnedGrip 
+        print(string.format("Optimizer: Loaded Grip Profile: %.2f Gs", self.learnedGrip))
     end
 end
 
 function TuningOptimizer:saveProfile()
-    local success, data = pcall(sm.json.open, TUNING_FILE)
+    -- [[ LOCK CHECK ]]
+    if self.learningLocked then return end
+
+    local success, data = pcall(sm.json.open, TUNING_PROFILES)
     if not success or type(data) ~= "table" then data = {} end
     
     local typeKey = self.fingerprint or "GENERIC"
@@ -92,6 +117,7 @@ function TuningOptimizer:saveProfile()
         dampingFactor = self.dampingFactor,
         lookaheadMult = self.lookaheadMult,
         tractionConstant = self.tractionConstant,
+        learnedGrip = self.learnedGrip, -- Save the grip
         updated = os.time()
     }
     sm.json.save(data, TUNING_FILE)
@@ -102,6 +128,11 @@ function TuningOptimizer:reportUndersteer()
 end
 
 function TuningOptimizer:reportCrash()
+    -- [[ LOCK CHECK ]]
+    -- If locked, we ignore crash data. We assume the crash was due to 
+    -- external factors (opponents), not bad tuning.
+    if self.learningLocked then return end
+
     self.crashDetected = true
     -- Immediate Emergency Adjustment
     self.cornerLimit = math.max(1.0, self.cornerLimit * 0.8) -- Slow down 20% immediately
@@ -116,91 +147,104 @@ function TuningOptimizer:recordFrame(perceptionData)
     local tel = perceptionData.Telemetry
     local currentSpeed = tel.speed
     
-    -- 1. Crash Detection (Impact Velocity)
+    -- 1. Crash Detection
     local deltaSpeed = currentSpeed - self.lastSpeed
     if deltaSpeed < -12.0 then self:reportCrash() end
     self.lastSpeed = currentSpeed
 
-    -- 2. Pure Pursuit Tracking Error (PP_Y)
-    -- We read the debug value we added to DecisionModule
+    -- 2. Pure Pursuit Error & Oscillation
     local ppY = self.driver.Decision.dbg_PP_Y or 0
-    
-    -- 3. Oscillation Detection (Sign flipping)
     local ySign = getSign(ppY)
     if ySign ~= self.lastYSign and math.abs(ppY) > 0.2 then
         self.oscillations = self.oscillations + 1
         self.lastYSign = ySign
     end
-
-    -- 4. Variance Calculation (How shaky is the line?)
     self.yVarianceSum = self.yVarianceSum + (ppY * ppY)
-    
-    -- 5. Peak Error (Did we miss a corner?)
     if math.abs(ppY) > self.peakY then self.peakY = math.abs(ppY) end
+
+    -- [[ NEW: GRIP LEARNING ]]
+    -- Calculate Lateral Acceleration: a = v * omega (speed * yawRate)
+    local yawRate = 0
+    if tel.angularVelocity and tel.rotations then
+        yawRate = math.abs(tel.angularVelocity:dot(tel.rotations.up))
+    end
+    
+    local latAccel = currentSpeed * yawRate
+    
+    -- If we are holding this G-force stable (not oscillating), record it
+    if latAccel > self.peakLatAccel and self.oscillations < 2 then
+        self.peakLatAccel = latAccel
+    end
+    
+    -- Detect Slip (Yaw Rate vs Steering Input mismatch could go here)
+    -- For now, we assume if PeakY is huge, we slid.
 
     self.tickCount = self.tickCount + 1
 end
 
 function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
+    -- [[ LOCK CHECK ]]
+    -- If locked, we simply reset the buffers so they don't overflow,
+    -- but we DO NOT update any parameters or save data.
+    if self.learningLocked then
+        self:reset()
+        return
+    end
+    
     if self.tickCount < MIN_DATA_SAMPLES then self:reset(); return end
 
-    -- CALCULATE METRICS
-    local rmsError = math.sqrt(self.yVarianceSum / self.tickCount) -- Root Mean Square Error
-    local oscillationRate = self.oscillations / (self.tickCount / 40.0) -- Flips per second
+    local rmsError = math.sqrt(self.yVarianceSum / self.tickCount)
+    local oscillationRate = self.oscillations / (self.tickCount / 40.0)
     
     local debugMsg = ""
     local improved = false
 
-    -- A. SAFETY LAYER (Crash/Understeer)
+    -- [[ UPDATED: GRIP PROFILE LOGIC ]]
+    -- CRITICAL: Only learn Physical Grip Limits when tires are fresh (> 90%).
+    -- This prevents the AI from mistaking "Simulated Wear" for "Permanent Physics".
+    local tireHealth = self.driver.Tire_Health or 1.0
+    
+    if tireHealth > 0.90 and self.peakLatAccel > 5.0 then
+        -- We are on fresh rubber, so any grip we see is the "True Potential" of the car
+        local observedGrip = self.peakLatAccel / 15.0
+        
+        if observedGrip > self.learnedGrip then
+            -- Car is grippier than we thought!
+            self.learnedGrip = math.min(2.5, self.learnedGrip + 0.05)
+            improved = true
+        elseif self.peakY > 2.0 and observedGrip < self.learnedGrip then
+            -- We are sliding on FRESH tires -> True grip loss
+            self.learnedGrip = math.max(0.5, self.learnedGrip - 0.05)
+            improved = true
+        end
+    end
+    
+    -- [[ EXISTING TUNING LOGIC ]]
     if self.crashDetected then
-        -- Already handled in reportCrash, just reset flag and save
         debugMsg = "Recovering from Crash"
         improved = true
-
     elseif self.peakY > 2.5 then
-        -- Massive Understeer (Missed apex by > 2.5m)
-        self.cornerLimit = math.max(1.2, self.cornerLimit - LEARNING_RATE) -- Slow down
-        self.lookaheadMult = math.min(1.5, self.lookaheadMult + LEARNING_RATE) -- Look further ahead (smoother)
-        debugMsg = "Understeer Fix (Speed Down, Lookahead Up)"
+        self.cornerLimit = math.max(1.2, self.cornerLimit - LEARNING_RATE)
+        self.lookaheadMult = math.min(1.5, self.lookaheadMult + LEARNING_RATE)
+        debugMsg = debugMsg .. " Understeer Fix"
         improved = true
-
-    -- B. STABILITY LAYER (Wobble)
     elseif oscillationRate > 1.5 or rmsError > STABILITY_THRESHOLD then
-        -- Car is snaking/jittering
-        self.dampingFactor = math.min(0.5, self.dampingFactor + LEARNING_RATE) -- More D-Term
-        self.lookaheadMult = math.min(1.5, self.lookaheadMult + (LEARNING_RATE * 2)) -- Look further ahead
-        debugMsg = string.format("Stabilizing (Osc: %.1f/s)", oscillationRate)
+        self.dampingFactor = math.min(0.5, self.dampingFactor + LEARNING_RATE)
+        self.lookaheadMult = math.min(1.5, self.lookaheadMult + (LEARNING_RATE * 2))
+        debugMsg = debugMsg .. " Stabilizing"
         improved = true
-
-    -- C. PERFORMANCE LAYER (Pushing Limits)
     else
         local avgTime = self:getRollingAverage(sectorID, 5)
         if avgTime == 0 or sectorTime < avgTime then
-            -- We are stable and fast. Push harder!
-            self.cornerLimit = math.min(3.5, self.cornerLimit + (LEARNING_RATE * 0.5)) -- Faster corners
-            self.brakingFactor = math.min(40.0, self.brakingFactor + LEARNING_RATE) -- Brake later
-            
-            -- If very stable, sharpen steering
-            if oscillationRate < 0.5 then
-                self.dampingFactor = math.max(0.15, self.dampingFactor - (LEARNING_RATE * 0.5))
-            end
-            
-            debugMsg = "Setting PB! Pushing Limits."
-            improved = true
-        else
-            -- Stable but slow? Maybe braking too early?
-            self.brakingFactor = math.min(40.0, self.brakingFactor + (LEARNING_RATE * 2))
-            debugMsg = "Slow. Braking Later."
+            self.cornerLimit = math.min(3.5, self.cornerLimit + (LEARNING_RATE * 0.5))
+            self.brakingFactor = math.min(40.0, self.brakingFactor + LEARNING_RATE)
+            debugMsg = debugMsg .. " Pushing Limits"
             improved = true
         end
     end
 
-    print(string.format("Opt [%d]: %s | Limit:%.2f Brk:%.1f Damp:%.2f Look:%.2f | Err:%.2fm", 
-        self.driver.id, debugMsg, self.cornerLimit, self.brakingFactor, self.dampingFactor, self.lookaheadMult, rmsError))
-
     if improved then self:saveProfile() end
     
-    -- Update History buffer logic (keep same as before)
     table.insert(self.history, { sid = sectorID, time = sectorTime })
     if #self.history > 50 then table.remove(self.history, 1) end
     
@@ -225,12 +269,27 @@ function TuningOptimizer:reset()
     self.yVarianceSum = 0
     self.peakY = 0
     self.oscillations = 0
+    self.peakLatAccel = 0 -- Reset peak Gs for next sector
     self.crashDetected = false
 end
 
 function TuningOptimizer:updateTractionConstant(val)
-    -- Only save if the change is significant (> 0.1) to avoid file spam
-    if math.abs(self.tractionConstant - val) > 0.1 then
+    -- [[ LOCK CHECK ]]
+    if self.learningLocked then return end
+
+    -- If the new value is very close to the old value, we are converged
+    local diff = math.abs(self.tractionConstant - val)
+    
+    if diff < 0.05 then
+        if not self.tcsConverged then
+            self.tcsConverged = true
+            print("Optimizer: TCS Profile CONVERGED. Enabling High-Performance Mode.")
+        end
+    else
+        self.tcsConverged = false
+    end
+
+    if diff > 0.1 then
         self.tractionConstant = val
         self:saveProfile()
         print(string.format("Optimizer: Learned NEW Traction Constant: %.2f", val))

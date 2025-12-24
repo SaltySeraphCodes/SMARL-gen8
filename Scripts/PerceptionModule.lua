@@ -266,6 +266,8 @@ function PerceptionModule.build_telemetry_data(self)
     telemetryData.isOnLift = self.Driver.body:isStatic()
     telemetryData.rotations = self:get_world_rotations() 
     telemetryData.downforce = self:get_artificial_downforce() 
+    telemetryData.avgWheelRPM = 0.0
+    telemetryData.avgWheelRadS = 0.0
     return telemetryData
 end
 
