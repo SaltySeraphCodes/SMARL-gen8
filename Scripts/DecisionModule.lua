@@ -13,7 +13,7 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local DEFAULT_STEERING_Kp = 0.45  
+local DEFAULT_STEERING_Kp = 0.45
 local DEFAULT_STEERING_Kd = 0.40  
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
@@ -39,7 +39,9 @@ local CAR_WIDTH_BUFFER = 0.3
 local GAP_STICKINESS = 0.2 
 
 -- [[ CORNERING STRATEGY ]]
-local CORNER_RADIUS_THRESHOLD = 120.0  
+-- [FIX] Lowered from 120.0. 
+-- Prevents "Cornering Mode" (Swing Wide) on shallow turns where standard Racing Line is better.
+local CORNER_RADIUS_THRESHOLD = 75.0  
 local CORNER_ENTRY_BIAS = 0.60         
 local CORNER_APEX_BIAS = 0.85          
 local CORNER_EXIT_BIAS = 0.40          
@@ -582,20 +584,7 @@ function DecisionModule.calculateSteering(self, perceptionData)
     self.dbg_LatError = lateralError * LATERAL_Kp
     self.dbg_AngError = angleErrorRad / MAX_WHEEL_ANGLE_RAD
 
-    -- [FIX] Dynamic Angle Weighting
-    -- If we are far off track (> 0.5), we reduce the Angle Error influence.
-    -- This prevents the "Steer Right" bug where the car points left (Correctly)
-    -- but the PID subtracts that angle, canceling out the left turn.
-    local latMag = math.abs(lateralError)
-    local angleWeight = 1.0
-    if latMag > 0.5 then
-        -- Scale from 1.0 (at 0.5 error) to 0.0 (at 1.0 error)
-        angleWeight = 1.0 - ((latMag - 0.5) * 2.0)
-        angleWeight = math.max(0.0, angleWeight)
-    end
-
-    -- [[ 1. Calculate P-Term ]]
-    -- Dynamic Angle Weighting: Ignore angle if we are way off track
+    -- Dynamic Angle Weighting
     local latMag = math.abs(lateralError)
     local angleWeight = 1.0
     if latMag > 0.5 then
@@ -605,18 +594,25 @@ function DecisionModule.calculateSteering(self, perceptionData)
 
     local pTerm = (lateralError * LATERAL_Kp) - ((angleErrorRad / MAX_WHEEL_ANGLE_RAD) * angleWeight)
     
-    -- [[ 2. Calculate D-Term ]]
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
+
     local dTerm = yawRate * dynamicKd 
 
-    -- [[ 3. CRITICAL FIX: D-Term Clamping ]]
-    -- If we are in a high-error state (Desperate Turn), 
-    -- do NOT let the D-Term (Stability) reverse the steering direction.
-    if math.abs(pTerm) > 0.5 then
-        -- If P-Term wants Left (-) and D-Term wants Right (+)
+    -- [[ CRITICAL FIX: Safe D-Term Clamping ]]
+    -- Instead of Zeroing D-Term (which causes instability/flipping),
+    -- we Clamp it so it can never *reverse* the intended steering.
+    -- It can reduce steering to 0 (straight), but not counter-steer into a wall.
+    
+    if latMag > 1.0 then
+         -- Emergency Mode: Allow D-Term to stabilize, but CAP it at 80% of P-Term.
+         -- This ensures we always have at least 20% steering power towards the track.
+         if (pTerm > 0 and dTerm < 0) then dTerm = math.max(dTerm, -pTerm * 0.8) end
+         if (pTerm < 0 and dTerm > 0) then dTerm = math.min(dTerm, -pTerm * 0.8) end
+         
+    elseif math.abs(pTerm) > 0.5 then
+        -- Standard High-G Turn: Cap D-Term at 50% of P-Term
         if (pTerm < 0 and dTerm > 0) then
-            dTerm = math.min(dTerm, math.abs(pTerm) * 0.5) -- Cap D-Term to 50% of P-Term
-        -- If P-Term wants Right (+) and D-Term wants Left (-)
+            dTerm = math.min(dTerm, math.abs(pTerm) * 0.5) 
         elseif (pTerm > 0 and dTerm < 0) then
             dTerm = math.max(dTerm, -math.abs(pTerm) * 0.5)
         end
@@ -677,7 +673,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     if self.lastSpeed then
         local delta = currentSpeed - self.lastSpeed
         -- If we lose > 15 speed in one tick (0.025s), that's a massive impact
-        if delta < -15.0 then 
+        if delta < -11.0 then 
             print(self.Driver.id, "WALL IMPACT DETECTED! Delta:", delta)
             if self.Driver.Optimizer then self.Driver.Optimizer:reportCrash() end
         end
@@ -703,12 +699,13 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     
         if nav and nav.closestPointData and nav.closestPointData.baseNode then
             local node = nav.closestPointData.baseNode
-            -- Fallback if centerTarget is missing
-            local centerTarget = nav.centerlineTarget or node.location 
+            local centerTarget = nav.centerlineTarget or node.location
             if node.perp then
                 local halfWidth = (node.width or 20.0) / 2.0
                 local biasOffset = (node.perp:normalize() * -1) * (self.smoothedBias * halfWidth)
                 visualTarget = centerTarget + biasOffset
+                -- Lift it up so it doesn't get buried in the ground/wall
+                visualTarget.z = visualTarget.z + 1.0 
             end
             nodePos = nav.closestPointData.baseNode.location
             nodeWidth = nav.closestPointData.baseNode.width or 0
@@ -720,10 +717,16 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
 
         local tgtStr = "LOST"
         if visualTarget then tgtStr = string.format("<%.1f,%.1f>", visualTarget.x, visualTarget.y) end
+        
+        -- [NEW] Added Mode, Radius, Racing Line Bias for debugging
+        local modeStr = self.currentMode or "None"
+        if self.isCornering then modeStr = "Corn" .. self.cornerPhase end
 
         print(string.format(
-            "[%s] S:%03.0f/TSpd:%03.0f | Dist:%.1f | STR:%+.2f (Lat:%+.2f Ang:%+.2f) | T:%.2f B:%.2f | TGT:%s",
+            "[%s] %s R:%03.0f S:%03.0f/T:%03.0f | Dist:%.1f | STR:%+.2f (Lat:%+.2f Ang:%+.2f) | T:%.2f B:%.2f | TGT:%s",
             tostring(self.Driver.id % 100), 
+            modeStr,
+            self.smoothedRadius or 0,
             spd, 
             self.dbg_Allowable or 0, 
             self.dbg_Dist or 0,      
