@@ -567,8 +567,80 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     end
 end
 
--- [MODIFIED] Added 'dt' parameter to enable Slew Rate Limiting
 function DecisionModule.calculateSteering(self, perceptionData, dt)
+    local nav = perceptionData.Navigation
+    local telemetry = perceptionData.Telemetry
+
+    -- 1. GET THE SAFE CONTEXT BIAS
+    -- This uses your existing Context Steering logic to find the best "lane"
+    local safeBias = self:getFinalTargetBias(perceptionData)
+    self.smoothedBias = safeBias -- Store for debugging
+
+    -- 2. RECONSTRUCT THE 3D TARGET POINT
+    -- We take the centerline lookahead point and shift it left/right based on bias
+    local centerTarget = nav.centerlineTarget 
+    if not centerTarget then return 0.0 end
+
+    local node = nav.closestPointData.baseNode
+    local halfWidth = (node.width or 20.0) / 2.0
+    
+    -- Safety: If we don't have a perp vector (weird track node), default to center
+    local perp = node.perp or self.Driver.shape:getRight() 
+    
+    -- "Safe Point" = Center + (PerpendicularVector * Bias * Width)
+    -- Note: We negate perp if necessary to match your +/- 1 logic (Left is usually -1)
+    local offsetVector = perp:normalize() * (safeBias * halfWidth * -1)
+    local targetPoint = centerTarget + offsetVector
+
+    -- [DEBUG] Visualize where the car is actually trying to go
+    if self.latestDebugData then self.latestDebugData.targetPoint = targetPoint end
+
+    -- 3. PURE PURSUIT MATH
+    -- Transform Target Point into Local Car Space
+    local carPos = telemetry.location
+    local carFwd = telemetry.rotations.at
+    local carRight = telemetry.rotations.right
+    
+    local vecToTarget = targetPoint - carPos
+    local lookaheadDist = vecToTarget:length()
+    
+    -- Project onto local Right axis (Y in local space) to get lateral offset
+    local localY = vecToTarget:dot(carRight)
+
+    -- Curvature = 2 * y / L^2
+    -- This defines the arc connecting the car to the point
+    local curvature = (2.0 * localY) / (lookaheadDist * lookaheadDist)
+
+    -- 4. CALCULATE STEERING ANGLE
+    -- SteerAngle = atan(Wheelbase * Curvature)
+    -- Wheelbase is approx 3.0 blocks for most SM cars, adjust if yours is a limo
+    local wheelBase = 3.0 
+    local targetSteerAngle = math.atan(curvature * wheelBase)
+    
+    -- 5. NORMALIZE OUTPUT (-1 to 1)
+    local steerOutput = targetSteerAngle / MAX_WHEEL_ANGLE_RAD
+    
+    -- 6. DAMPING (D-Term replacement)
+    -- Small counter-steer based on Yaw Rate to prevent oscillation at high speed
+    local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
+    local damping = yawRate * (self.STEERING_Kd_BASE or 0.2)
+    
+    steerOutput = steerOutput - damping
+
+    -- [TELEMETRY CAPTURE] 
+    -- Save these values to 'self' so we can print them later
+    self.dbg_PP_Dist = lookaheadDist    -- How far away is the target?
+    self.dbg_PP_Y    = localY           -- Is the target Left (-) or Right (+)?
+    self.dbg_Damp    = damping          -- How much is the D-Term fighting the turn?
+    self.dbg_RawStr  = steerOutput + damping -- What was the steering BEFORE damping?
+
+    -- 7. CLAMP (NO SLEW RATE LIMITER!)
+    return mathClamp(-1.0, 1.0, steerOutput)
+end
+
+
+-- [MODIFIED] Added 'dt' parameter to enable Slew Rate Limiting
+function DecisionModule.calculateSteering_old(self, perceptionData, dt)
     local telemetry = perceptionData.Telemetry
     local nav = perceptionData.Navigation
     
@@ -701,67 +773,35 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     self.lastSpeed = currentSpeed
 
     local tick = sm.game.getServerTick()
-    
-    local nav = perceptionData.Navigation
-    local currentBias = nav and nav.trackPositionBias or 0.0
-    local walls = perceptionData.WallAvoidance or {marginLeft=99, marginRight=99}
-
-    local tel = perceptionData.Telemetry
-    local yawRate = tel.angularVelocity:dot(tel.rotations.up)
-    
-    if spd > 0.5 and self.dbg_Radius and tick % 4 == 0 then 
-        local carPos = tel.location
-        local nodePos = sm.vec3.new(0,0,0)
-        local nodeWidth = 0
+    if spd > 1.0 and tick % 4 == 0 then 
         
-        local nav = perceptionData.Navigation
-        local visualTarget = nil
-    
-        if nav and nav.closestPointData and nav.closestPointData.baseNode then
-            local node = nav.closestPointData.baseNode
-            local centerTarget = nav.centerlineTarget or node.location
-            if node.perp then
-                local halfWidth = (node.width or 20.0) / 2.0
-                local biasOffset = (node.perp:normalize() * -1) * (self.smoothedBias * halfWidth)
-                visualTarget = centerTarget + biasOffset
-                visualTarget.z = visualTarget.z + 1.0 
-            end
-            nodePos = nav.closestPointData.baseNode.location
-            nodeWidth = nav.closestPointData.baseNode.width or 0
-        end
-
-        local debugPacket = self.latestDebugData or {}
-        if visualTarget then 
-             local distToVis = (visualTarget - carPos):length()
-             if distToVis < 8.0 and nav.nodeGoalDirection then
-                 visualTarget = carPos + (nav.nodeGoalDirection * 8.0)
-                 visualTarget.z = visualTarget.z + 1.0
-             end
-             debugPacket.targetPoint = visualTarget 
-        end
-        self.latestDebugData = debugPacket
-
-        local tgtStr = "LOST"
-        if visualTarget then tgtStr = string.format("<%.1f,%.1f>", visualTarget.x, visualTarget.y) end
-        
+        -- FORMATTING HELPERS
         local modeStr = self.currentMode or "None"
         if self.isCornering then modeStr = "Corn" .. self.cornerPhase end
-
+        
+        -- PURE PURSUIT METRICS
+        local ppDist = self.dbg_PP_Dist or 0
+        local ppY = self.dbg_PP_Y or 0
+        local damp = self.dbg_Damp or 0
+        
+        -- BRAKING METRICS
+        -- 'smoothedRadius' is now the "Wide Chord" radius we implemented
+        local rad = self.smoothedRadius or 0
+        local tSpeed = self.dbg_Allowable or 0 -- The speed allowed by the corner geometry
+        
         print(string.format(
-            "[%s] %s R:%03.0f S:%03.0f/T:%03.0f | Dist:%.1f | Bias:%.2f | STR:%+.2f (Lat:%+.2f Ang:%+.2f) | T:%.2f B:%.2f | TGT:%s",
-            tostring(self.Driver.id % 100), 
-            modeStr,
-            self.smoothedRadius or 0,
-            spd, 
-            self.dbg_Allowable or 0, 
-            self.dbg_Dist or 0,      
-            currentBias,
-            controls.steer,
-            self.dbg_LatError or 0,  
-            self.dbg_AngError or 0, 
-            controls.throttle,
-            controls.brake,
-            tgtStr))
+            "[%s] %s | Spd:%03.0f/Tgt:%03.0f (Rad:%03.0f) | PP[Dst:%.1f Y:%+.1f] | STR:%+.2f (Damp:%+.2f) | Thr:%.1f",
+            tostring(self.Driver.id % 100), -- Short ID
+            modeStr,                        -- Current State (RaceLine, Corn1, etc)
+            spd,                            -- Current Speed
+            tSpeed,                         -- Max Allowed Speed for this Radius
+            rad,                            -- The Detected Radius (Wide Chord)
+            ppDist,                         -- Lookahead Distance
+            ppY,                            -- Local Offset (The most important number!)
+            controls.steer,                 -- Final Steering Output
+            damp,                           -- Damping Correction
+            controls.throttle               -- Throttle Input
+        ))
     end
 
     self.controls = controls

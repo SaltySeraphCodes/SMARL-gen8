@@ -171,6 +171,48 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
     local minRadius = MAX_CURVATURE_RADIUS
     local distToMin = 0.0
     
+    -- [CHANGE] Check further ahead, less frequently
+    local scanStep = 10.0 
+    local currentDist = 0.0
+    
+    -- [CHANGE] The "Chord Length". 
+    -- We calculate curvature using points spaced 15 meters apart.
+    -- This filters out kinks/bumps smaller than 15 meters.
+    local chordOffset = 15.0
+
+    while currentDist < scanDistance do
+        -- Get three points spread wide apart
+        -- P_A (Start) --15m--> P_B (Center) --15m--> P_C (End)
+        local pA = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
+        local pB = self:getPointInDistance(currentNode, currentT, currentDist + chordOffset, self.chain)
+        local pC = self:getPointInDistance(currentNode, currentT, currentDist + (chordOffset * 2), self.chain)
+        
+        local radius = self:calculateCurvatureRadius(pA, pB, pC)
+        
+        if radius < minRadius then
+            minRadius = radius
+            distToMin = currentDist
+        end
+        
+        currentDist = currentDist + scanStep
+    end
+    
+    return minRadius, distToMin
+end
+
+
+function PerceptionModule:scanTrackCurvature_old(scanDistance)
+    local nav = self.perceptionData.Navigation
+    if not nav or not nav.closestPointData then 
+        return MAX_CURVATURE_RADIUS, 0.0 
+    end
+
+    local currentNode = nav.closestPointData.baseNode
+    local currentT = nav.closestPointData.tOnSegment
+    
+    local minRadius = MAX_CURVATURE_RADIUS
+    local distToMin = 0.0
+    
     -- Check points at intervals ahead
     local scanStep = 5.0 -- Check every 5 meters
     local currentDist = 0.0

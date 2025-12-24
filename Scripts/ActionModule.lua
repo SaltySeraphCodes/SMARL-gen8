@@ -75,15 +75,15 @@ end
 function ActionModule.setSteering(self, steerFactor, currentSpeed)
     local targetAngle = steerFactor * MAX_WHEEL_ANGLE_RAD
     
-    -- Dynamic Adjustment Speed
-    -- Slower at high speed (Stability), Faster at low speed (Response)
-    local speedRatio = math.min(currentSpeed / ADJUSTMENT_SPEED_REF, 1.0)
-    local adjustmentRate = MAX_ADJUSTMENT + (MIN_ADJUSTMENT - MAX_ADJUSTMENT) * speedRatio
+    -- [CHANGE] Removed dynamic speed calculation.
+    -- Locked to 3.0 (approx 170 degrees/sec) for physics stability.
+    local adjustmentRate = 3.0
     
-    -- [FIX] Ensure we never pass NaN or Infinite values to the physics engine
+    -- [FIX] Nan/Inf check remains
     if targetAngle ~= targetAngle then targetAngle = 0 end 
     
     for k, v in pairs(sm.interactable.getBearings(self.Driver.interactable)) do
+        -- 3rd arg is speed, 4th is strength (impulse)
         sm.joint.setTargetAngle(v, targetAngle, adjustmentRate, 1500)
     end
     self.steeringOut = targetAngle
