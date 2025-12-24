@@ -1,0 +1,11 @@
+
+{
+	"M6750_DF0_L6.0_W3.0_STD" : 
+	{
+		"brakingFactor" : 5.0,
+		"cornerLimit" : 1.0,
+		"dampingFactor" : 0.60,
+		"lookaheadMult" : 1.0,
+		"updated" : 1766603951.0
+	}
+}
