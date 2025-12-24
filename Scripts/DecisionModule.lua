@@ -13,7 +13,7 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local DEFAULT_STEERING_Kp = 0.45
+local DEFAULT_STEERING_Kp = 0.45  
 local DEFAULT_STEERING_Kd = 0.40  
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
@@ -39,8 +39,6 @@ local CAR_WIDTH_BUFFER = 0.3
 local GAP_STICKINESS = 0.2 
 
 -- [[ CORNERING STRATEGY ]]
--- [FIX] Lowered from 120.0. 
--- Prevents "Cornering Mode" (Swing Wide) on shallow turns where standard Racing Line is better.
 local CORNER_RADIUS_THRESHOLD = 75.0  
 local CORNER_ENTRY_BIAS = 0.60         
 local CORNER_APEX_BIAS = 0.85          
@@ -598,24 +596,22 @@ function DecisionModule.calculateSteering(self, perceptionData)
 
     local dTerm = yawRate * dynamicKd 
 
-    -- [[ CRITICAL FIX: Safe D-Term Clamping ]]
-    -- Instead of Zeroing D-Term (which causes instability/flipping),
-    -- we Clamp it so it can never *reverse* the intended steering.
-    -- It can reduce steering to 0 (straight), but not counter-steer into a wall.
+    -- [[ CRITICAL FIX: Safe D-Term Scaling ]]
+    -- Instead of a hard switch at 1.0 error, we linearly fade D-Term influence 
+    -- starting at 0.5 error (50% power) down to 0.0 at 1.0 error.
+    -- This prevents the "Sudden Loss of Stability" when crossing the threshold,
+    -- but ensures full turning power when desperate.
     
-    if latMag > 1.0 then
-         -- Emergency Mode: Allow D-Term to stabilize, but CAP it at 80% of P-Term.
-         -- This ensures we always have at least 20% steering power towards the track.
-         if (pTerm > 0 and dTerm < 0) then dTerm = math.max(dTerm, -pTerm * 0.8) end
-         if (pTerm < 0 and dTerm > 0) then dTerm = math.min(dTerm, -pTerm * 0.8) end
-         
-    elseif math.abs(pTerm) > 0.5 then
-        -- Standard High-G Turn: Cap D-Term at 50% of P-Term
-        if (pTerm < 0 and dTerm > 0) then
-            dTerm = math.min(dTerm, math.abs(pTerm) * 0.5) 
-        elseif (pTerm > 0 and dTerm < 0) then
-            dTerm = math.max(dTerm, -math.abs(pTerm) * 0.5)
-        end
+    local dTermScale = 1.0
+    if latMag > 0.5 then
+        -- Map 0.5..1.0 to 1.0..0.0
+        dTermScale = 1.0 - ((latMag - 0.5) * 2.0)
+        dTermScale = math.max(0.0, dTermScale)
+    end
+    
+    -- If P-Term and D-Term oppose each other (Stability fighting Turn), reduce D-Term
+    if (pTerm > 0 and dTerm < 0) or (pTerm < 0 and dTerm > 0) then
+        dTerm = dTerm * dTermScale
     end
 
     local rawSteer = (pTerm * dynamicKp) + dTerm
@@ -672,8 +668,8 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local currentSpeed = perceptionData.Telemetry.speed or 0
     if self.lastSpeed then
         local delta = currentSpeed - self.lastSpeed
-        -- If we lose > 15 speed in one tick (0.025s), that's a massive impact
-        if delta < -11.0 then 
+        -- [FIX] Lowered threshold to detect scrapes/drags
+        if delta < -8.0 then 
             print(self.Driver.id, "WALL IMPACT DETECTED! Delta:", delta)
             if self.Driver.Optimizer then self.Driver.Optimizer:reportCrash() end
         end
@@ -718,18 +714,19 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         local tgtStr = "LOST"
         if visualTarget then tgtStr = string.format("<%.1f,%.1f>", visualTarget.x, visualTarget.y) end
         
-        -- [NEW] Added Mode, Radius, Racing Line Bias for debugging
         local modeStr = self.currentMode or "None"
         if self.isCornering then modeStr = "Corn" .. self.cornerPhase end
 
+        -- [FIX] Added Bias display
         print(string.format(
-            "[%s] %s R:%03.0f S:%03.0f/T:%03.0f | Dist:%.1f | STR:%+.2f (Lat:%+.2f Ang:%+.2f) | T:%.2f B:%.2f | TGT:%s",
+            "[%s] %s R:%03.0f S:%03.0f/T:%03.0f | Dist:%.1f | Bias:%.2f | STR:%+.2f (Lat:%+.2f Ang:%+.2f) | T:%.2f B:%.2f | TGT:%s",
             tostring(self.Driver.id % 100), 
             modeStr,
             self.smoothedRadius or 0,
             spd, 
             self.dbg_Allowable or 0, 
             self.dbg_Dist or 0,      
+            currentBias,
             controls.steer,
             self.dbg_LatError or 0,  
             self.dbg_AngError or 0, 
