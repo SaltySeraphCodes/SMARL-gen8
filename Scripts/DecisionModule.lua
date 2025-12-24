@@ -13,8 +13,7 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
--- [FIX] Increased base gain to give more authority in normal turns
-local DEFAULT_STEERING_Kp = 0.70  -- Was 0.45
+local DEFAULT_STEERING_Kp = 0.45  
 local DEFAULT_STEERING_Kd = 0.40  
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
@@ -81,7 +80,6 @@ function DecisionModule.server_init(self,driver)
 
     self.speedUpdateTimer = 0 
     
-    -- Optimizable Variables ---
     self.STEERING_Kp_BASE = DEFAULT_STEERING_Kp
     self.STEERING_Kd_BASE = DEFAULT_STEERING_Kd
     self.brakingForceConstant = 15.0
@@ -309,6 +307,7 @@ end
 
 function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local nav = perceptionData.Navigation
+    local wall = perceptionData.WallAvoidance or {marginLeft=99, marginRight=99}
     local radius = self.smoothedRadius or MIN_RADIUS_FOR_MAX_SPEED 
     local curveDir = nav.longCurveDirection 
     local distToApex = self.cachedDist or 0.0 
@@ -334,12 +333,30 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         
         -- PHASE 1: ENTRY
         if self.cornerPhase == 1 then
-            self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
+            local idealBias = self.cornerDirection * CORNER_ENTRY_BIAS 
+            
+            -- [FIX] Wall Check: Don't swing wide if the wall is right there.
+            if self.cornerDirection == 1 and wall.marginRight < 2.0 then
+                idealBias = 0.0 -- Abort swing to right
+            elseif self.cornerDirection == -1 and wall.marginLeft < 2.0 then
+                idealBias = 0.0 -- Abort swing to left
+            end
+            self.targetBias = idealBias
+            
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 30.0 + (currentSpeed * 1.0) 
+            
+            -- [FIX] Check if we are already 'wide enough'
+            -- If we achieved the entry bias but are still far away, hold, but allow early switch
+            local currentBias = nav.trackPositionBias or 0
+            local biasDiff = math.abs(currentBias - idealBias)
+            
             if distToApex < switchDist or localRadius < CORNER_RADIUS_THRESHOLD then 
                 self.cornerPhase = 2 
                 self.cornerTimer = CORNER_PHASE_DURATION 
+            elseif biasDiff < 0.2 and distToApex < switchDist * 1.5 then
+                -- Optimization: If we are already in position, don't wait forever, focus on apex
+                self.cornerPhase = 2
             end
             
         -- PHASE 2: APEX
@@ -584,9 +601,6 @@ function DecisionModule.calculateSteering(self, perceptionData)
     self.dbg_AngError = angleErrorRad / MAX_WHEEL_ANGLE_RAD
 
     -- Dynamic Angle Weighting
-    -- [FIX] Force Angle Weight to 0 if we are near a wall (Lat Error > 0.8)
-    -- This prevents the "Steer Right into Left Wall" bug where the car
-    -- tries to straighten out parallel to the wall instead of turning away.
     local latMag = math.abs(lateralError)
     local angleWeight = 1.0
     if latMag > 0.8 then
