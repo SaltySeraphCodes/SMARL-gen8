@@ -175,8 +175,7 @@ function Engine.calculateRPM(self)
         
         -- Estimate "Road Speed" RPM
         -- We will log what this ratio is to tune it
-        local theoreticalRPM = (carSpeed * 60) / 4.7
-        
+        local theoreticalRPM = (carSpeed * 60) / 2.6        
         local maxRatio = 0
         
         for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
@@ -191,7 +190,7 @@ function Engine.calculateRPM(self)
             
             -- Relaxed Threshold: 2.0 (Double speed) for now
             -- We will tighten this once we see the debug logs
-            if ratio > 2.0 then 
+            if ratio > 2.5 then 
                  slipDetected = true
             end
             
