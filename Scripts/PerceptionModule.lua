@@ -4,7 +4,7 @@ PerceptionModule = class(nil)
 
 local Z_TOLERANCE_SQ = 25        
 local LOOKAHEAD_DISTANCE_1 = 12.0 
-local LOOKAHEAD_DISTANCE_2 = 45.0  -- Increased from 15.0 to 45.0
+local LOOKAHEAD_DISTANCE_2 = 35.0 
 local MAX_CURVATURE_RADIUS = 1000.0 
 local LONG_LOOKAHEAD_DISTANCE = 80.0 -- Increased to see end of straights
 

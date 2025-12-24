@@ -13,18 +13,16 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
--- [FIX] Increased from 0.18. Gives the PID "Authority" to turn the wheel.
-local DEFAULT_STEERING_Kp = 0.60  
-local DEFAULT_STEERING_Kd = 0.25  -- Increased slightly to damp the stronger P-term
--- [FIX] Increased from 0.45. Multiplies the Position Error.
-local LATERAL_Kp = 1.2        
+local DEFAULT_STEERING_Kp = 0.45  -- [TWEAK] Reduced from 0.60
+local DEFAULT_STEERING_Kd = 0.40  -- [TWEAK] Increased from 0.25 (Damping)
+local LATERAL_Kp = 1.0            -- [TWEAK] Reduced from 1.2      
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
 
 -- [[ TUNING - SPEED PID ]]
-local SPEED_Kp = 0.4 
-local SPEED_Ki = 0.01 
-local SPEED_Kd = 0.08 
+local SPEED_Kp = 0.15             -- [FIX] Reduced from 0.4 (Too aggressive)
+local SPEED_Ki = 0.02             -- [TWEAK] Slight increase to hold speed
+local SPEED_Kd = 0.25             -- [FIX] Increased from 0.08 (Anticipate braking)
 local MAX_I_TERM_SPEED = 10.0 
 
 -- [[ RACING LOGIC ]]
@@ -592,7 +590,6 @@ function DecisionModule.calculateSteering(self, perceptionData)
     -- If we are steering hard (>0.8) BUT the error isn't shrinking (or we are near wall), we are understeering.
     if math.abs(rawSteer) > 0.8 and math.abs(lateralError) > 0.8 then
         if self.Driver.Optimizer then
-            print("UNDDETECT")
             self.Driver.Optimizer:reportUndersteer()
         end
     end
