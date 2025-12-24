@@ -5,11 +5,11 @@ TrackScanner = class(nil)
 
 -- Constants
 local SCAN_STEP_SIZE = 4.0 
-local SCAN_WIDTH_MAX = 50.0 
-local WALL_SCAN_HEIGHT = 20.0 
+local SCAN_WIDTH_MAX = 80.0 
+local WALL_SCAN_HEIGHT = 30.0 
 local FLOOR_DROP_THRESHOLD = 1.5 
 local SCAN_GRAIN = 0.5 
-local MARGIN_SAFETY = 5 
+local MARGIN_SAFETY = 6
 local SCAN_MODE_RACE = 1
 local SCAN_MODE_PIT = 2
 local LOOP_Z_TOLERANCE = 6.0
@@ -598,7 +598,7 @@ function TrackScanner.sv_startScan(self)
     -- 2. Perform Scanning Logic
     if self.scanMode == SCAN_MODE_RACE then
         self:scanTrackLoop(startPos, startDir)
-        self:optimizeRacingLine(100, false)
+        self:optimizeRacingLine(150, false)
     else
         self:scanPitLaneFromAnchors()
         self:optimizeRacingLine(5, true)
