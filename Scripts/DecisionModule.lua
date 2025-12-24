@@ -162,7 +162,7 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
 
     local limitMultiplier = 2.0
     if self.Driver.Optimizer then 
-        limitMultiplier = self.Driver.Optimizer.cornerLimit 
+        limitMultiplier = self.Driver.Optimizer.cornerLimit -- Uses learned speed limit
     end
 
     local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * limitMultiplier
@@ -170,9 +170,9 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
     maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
     
-    local brakingForce = self.brakingForceConstant * BRAKING_POWER_FACTOR
-    local allowableSpeed = math.sqrt((maxCornerSpeed * maxCornerSpeed) + (2 * brakingForce * distToCorner))
-
+    local brakingForce = (self.Driver.Optimizer and self.Driver.Optimizer.brakingFactor) or self.brakingForceConstant
+    local allowableSpeed = math.sqrt((maxCornerSpeed^2) + (2 * brakingForce * distToCorner))
+    
     self.dbg_MaxCorner = maxCornerSpeed
     self.dbg_Allowable = allowableSpeed
 
@@ -607,6 +607,11 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     -- Project onto local Right axis (Y in local space) to get lateral offset
     local localY = vecToTarget:dot(carRight)
 
+    local optimizer = self.Driver.Optimizer
+    if optimizer and optimizer.lookaheadMult then
+        lookaheadDist = lookaheadDist * optimizer.lookaheadMult
+    end
+
     -- Curvature = 2 * y / L^2
     -- This defines the arc connecting the car to the point
     local curvature = (2.0 * localY) / (lookaheadDist * lookaheadDist)
@@ -623,7 +628,9 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     -- 6. DAMPING (D-Term replacement)
     -- Small counter-steer based on Yaw Rate to prevent oscillation at high speed
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-    local damping = yawRate * (self.STEERING_Kd_BASE or 0.2)
+    local dampFactor = (optimizer and optimizer.dampingFactor) or self.STEERING_Kd_BASE or 0.2
+    local damping = yawRate * dampFactor
+    damping = mathClamp(-0.4, 0.4, damping) -- Safety Clamp
     
     steerOutput = steerOutput - damping
 

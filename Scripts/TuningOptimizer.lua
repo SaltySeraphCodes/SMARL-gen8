@@ -3,9 +3,8 @@
 dofile("globals.lua")
 TuningOptimizer = class(nil)
 
-local STABILITY_THRESHOLD = 0.8 
-local LEARNING_RATE_PID = 0.02
-local LEARNING_RATE_PHYSICS = 0.1
+local STABILITY_THRESHOLD = 0.5 -- Max allowed Path Error variance (meters)
+local LEARNING_RATE = 0.05
 local MIN_DATA_SAMPLES = 40    
 local TUNING_FILE = TUNING_PROFILES 
 
@@ -13,22 +12,23 @@ function TuningOptimizer:init(driver)
     self.driver = driver
     self.history = {} 
     self.fingerprint = "CALCULATING" 
-    self.retryTimer = 0
-
-    -- Physics Learning Params
-    self.cornerLimit = 2.0 
-    self.brakingFactor = 15.0
     
-    -- Event Counters
-    self.understeerEvents = 0
+    -- [[ TUNABLE PHYSICS PARAMETERS ]]
+    self.cornerLimit = 2.0      -- Speed Multiplier (Higher = Faster Corners)
+    self.brakingFactor = 15.0   -- Braking Power (Higher = Brake Later)
+    self.dampingFactor = 0.25   -- Yaw Resistance (Higher = Less Wobble, Slower Turn-in)
+    self.lookaheadMult = 1.0    -- Lookahead Modifier (Lower = Aggressive, Higher = Smooth)
+    
+    -- Learning Metrics
+    self.tickCount = 0
+    self.yVarianceSum = 0       -- Accumulator for Path Error^2
+    self.peakY = 0              -- Max Deviation from Path (Understeer detection)
+    self.oscillations = 0       -- Count of rapid Left/Right switches
     self.crashDetected = false 
     self.lastSpeed = 0.0
-    
-    self.tickCount = 0
-    self.yawAccumulator = 0
-    self.yawHistory = {}
-    
-    print("TuningOptimizer: Initialized.")
+    self.lastYSign = 0
+
+    print("TuningOptimizer: Initialized (Gen 8 Physics Mode).")
 end
 
 function TuningOptimizer:checkFingerprint()
@@ -64,35 +64,31 @@ function TuningOptimizer:loadProfile()
 end
 
 function TuningOptimizer:applyProfile(profile)
-    local decision = self.driver.Decision
-    if profile.kp and profile.kd then
-        decision.STEERING_Kp_BASE = profile.kp
-        decision.STEERING_Kd_BASE = profile.kd
-    end
-    if profile.cornerLimit then
-        self.cornerLimit = profile.cornerLimit
-    end
-    if profile.brakingFactor then
-        self.brakingFactor = profile.brakingFactor
-        decision.brakingForceConstant = self.brakingFactor 
-    end
+    -- Map loaded JSON data to our new variables
+    if profile.cornerLimit then self.cornerLimit = profile.cornerLimit end
+    if profile.brakingFactor then self.brakingFactor = profile.brakingFactor end
+    
+    -- Legacy support: Map old Kd to new dampingFactor
+    if profile.kd then self.dampingFactor = profile.kd * 0.5 end 
+    if profile.dampingFactor then self.dampingFactor = profile.dampingFactor end
+    
+    if profile.lookaheadMult then self.lookaheadMult = profile.lookaheadMult end
 end
 
-function TuningOptimizer:saveProfile(kp, kd)
+function TuningOptimizer:saveProfile()
     local success, data = pcall(sm.json.open, TUNING_FILE)
     if not success or type(data) ~= "table" then data = {} end
     
-    local typeKey = self.fingerprint or "GENERIC_SAFE_MODE"
-    if typeKey == "CALCULATING" then typeKey = "GENERIC_SAFE_MODE" end
+    local typeKey = self.fingerprint or "GENERIC"
+    if typeKey == "CALCULATING" then typeKey = "GENERIC" end
 
     data[typeKey] = {
-        kp = kp,
-        kd = kd,
         cornerLimit = self.cornerLimit,
         brakingFactor = self.brakingFactor,
+        dampingFactor = self.dampingFactor,
+        lookaheadMult = self.lookaheadMult,
         updated = os.time()
     }
-    
     sm.json.save(data, TUNING_FILE)
 end
 
@@ -102,112 +98,104 @@ end
 
 function TuningOptimizer:reportCrash()
     self.crashDetected = true
-    print("Optimizer: CRASH REPORTED. Preparing safety adjustments.")
+    -- Immediate Emergency Adjustment
+    self.cornerLimit = math.max(1.0, self.cornerLimit * 0.8) -- Slow down 20% immediately
+    self.dampingFactor = math.min(0.6, self.dampingFactor * 1.5) -- Stiffen steering
+    print(self.driver.id, "CRASH DETECTED! Emergency Limits Applied.")
 end
 
 function TuningOptimizer:recordFrame(perceptionData)
-    if self.fingerprint == "CALCULATING" then
-        self:checkFingerprint()
-        return 
-    end
+    if self.fingerprint == "CALCULATING" then self:checkFingerprint(); return end
     if not self.driver.isRacing then return end
     
     local tel = perceptionData.Telemetry
-    local yawRate = math.abs(tel.angularVelocity:dot(tel.rotations.up))
-    
-    -- [NEW] Impact Detection (Sudden Velocity Loss)
     local currentSpeed = tel.speed
+    
+    -- 1. Crash Detection (Impact Velocity)
     local deltaSpeed = currentSpeed - self.lastSpeed
-    -- If we lose more than 20 speed in 1 frame (0.025s), we hit something hard.
-    if deltaSpeed < -10.0 then 
-        print(self.driver.id, "IMPACT DETECTED! Delta:", deltaSpeed)
-        self:reportCrash()
-    end
+    if deltaSpeed < -12.0 then self:reportCrash() end
     self.lastSpeed = currentSpeed
 
+    -- 2. Pure Pursuit Tracking Error (PP_Y)
+    -- We read the debug value we added to DecisionModule
+    local ppY = self.driver.Decision.dbg_PP_Y or 0
+    
+    -- 3. Oscillation Detection (Sign flipping)
+    local ySign = getSign(ppY)
+    if ySign ~= self.lastYSign and math.abs(ppY) > 0.2 then
+        self.oscillations = self.oscillations + 1
+        self.lastYSign = ySign
+    end
+
+    -- 4. Variance Calculation (How shaky is the line?)
+    self.yVarianceSum = self.yVarianceSum + (ppY * ppY)
+    
+    -- 5. Peak Error (Did we miss a corner?)
+    if math.abs(ppY) > self.peakY then self.peakY = math.abs(ppY) end
+
     self.tickCount = self.tickCount + 1
-    self.yawAccumulator = self.yawAccumulator + yawRate
-    table.insert(self.yawHistory, yawRate)
 end
 
 function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
-    if self.tickCount < MIN_DATA_SAMPLES then self:reset() return end
+    if self.tickCount < MIN_DATA_SAMPLES then self:reset(); return end
 
-    local avgYaw = self.yawAccumulator / self.tickCount
-    local varianceSum = 0
-    for _, yaw in ipairs(self.yawHistory) do
-        varianceSum = varianceSum + (yaw - avgYaw)^2
-    end
-    local stabilityIndex = math.sqrt(varianceSum / self.tickCount)
-    local avgTime = self:getRollingAverage(sectorID, 5) 
-
-    local decision = self.driver.Decision
-    local currentKp = decision.STEERING_Kp_BASE
-    local currentKd = decision.STEERING_Kd_BASE
+    -- CALCULATE METRICS
+    local rmsError = math.sqrt(self.yVarianceSum / self.tickCount) -- Root Mean Square Error
+    local oscillationRate = self.oscillations / (self.tickCount / 40.0) -- Flips per second
     
-    local newKp = currentKp
-    local newKd = currentKd
-    local improved = false
     local debugMsg = ""
+    local improved = false
 
-    -- A. CRASH RECOVERY (Highest Priority)
+    -- A. SAFETY LAYER (Crash/Understeer)
     if self.crashDetected then
-        -- Big boost to Damping (Stability)
-        newKd = math.min(1.5, currentKd + (LEARNING_RATE_PID * 4)) 
-        -- Massive reduction in corner speed
-        self.cornerLimit = math.max(1.2, self.cornerLimit - (LEARNING_RATE_PHYSICS * 2)) 
-        -- Brake earlier
-        self.brakingFactor = math.max(5.0, self.brakingFactor - (LEARNING_RATE_PHYSICS * 5)) 
-        
+        -- Already handled in reportCrash, just reset flag and save
+        debugMsg = "Recovering from Crash"
         improved = true
-        debugMsg = "CRASH DETECTED. Applying Safety Mode."
 
-    -- B. SAFETY LAYER (Understeer)
-    elseif self.understeerEvents > 1 then
-        self.brakingFactor = math.max(5.0, self.brakingFactor - (LEARNING_RATE_PHYSICS * 5))
-        self.cornerLimit = math.max(1.2, self.cornerLimit - LEARNING_RATE_PHYSICS)
-        
+    elseif self.peakY > 2.5 then
+        -- Massive Understeer (Missed apex by > 2.5m)
+        self.cornerLimit = math.max(1.2, self.cornerLimit - LEARNING_RATE) -- Slow down
+        self.lookaheadMult = math.min(1.5, self.lookaheadMult + LEARNING_RATE) -- Look further ahead (smoother)
+        debugMsg = "Understeer Fix (Speed Down, Lookahead Up)"
         improved = true
-        debugMsg = "Understeer Fix (Brakes/Speed Reduced)"
-        
-    -- C. STABILITY LAYER
-    elseif stabilityIndex > STABILITY_THRESHOLD then
-        newKd = currentKd + (LEARNING_RATE_PID * 2)
-        newKp = math.max(0.05, currentKp - LEARNING_RATE_PID)
-        self.cornerLimit = math.max(1.2, self.cornerLimit - (LEARNING_RATE_PHYSICS * 0.5))
-        
-        improved = true
-        debugMsg = string.format("Stabilizing (Unstable %.2f)", stabilityIndex)
 
-    -- D. PERFORMANCE LAYER
+    -- B. STABILITY LAYER (Wobble)
+    elseif oscillationRate > 1.5 or rmsError > STABILITY_THRESHOLD then
+        -- Car is snaking/jittering
+        self.dampingFactor = math.min(0.5, self.dampingFactor + LEARNING_RATE) -- More D-Term
+        self.lookaheadMult = math.min(1.5, self.lookaheadMult + (LEARNING_RATE * 2)) -- Look further ahead
+        debugMsg = string.format("Stabilizing (Osc: %.1f/s)", oscillationRate)
+        improved = true
+
+    -- C. PERFORMANCE LAYER (Pushing Limits)
     else
+        local avgTime = self:getRollingAverage(sectorID, 5)
         if avgTime == 0 or sectorTime < avgTime then
-            self.brakingFactor = math.min(40.0, self.brakingFactor + LEARNING_RATE_PHYSICS)
-            self.cornerLimit = math.min(3.5, self.cornerLimit + (LEARNING_RATE_PHYSICS * 0.2))
-            newKp = currentKp + LEARNING_RATE_PID
+            -- We are stable and fast. Push harder!
+            self.cornerLimit = math.min(3.5, self.cornerLimit + (LEARNING_RATE * 0.5)) -- Faster corners
+            self.brakingFactor = math.min(40.0, self.brakingFactor + LEARNING_RATE) -- Brake later
             
+            -- If very stable, sharpen steering
+            if oscillationRate < 0.5 then
+                self.dampingFactor = math.max(0.15, self.dampingFactor - (LEARNING_RATE * 0.5))
+            end
+            
+            debugMsg = "Setting PB! Pushing Limits."
             improved = true
-            debugMsg = "Faster! Pushing Limits."
         else
-            newKd = math.max(0.1, currentKd - LEARNING_RATE_PID)
-            debugMsg = "Slower. Reducing Damping (Kd) to aid rotation."
+            -- Stable but slow? Maybe braking too early?
+            self.brakingFactor = math.min(40.0, self.brakingFactor + (LEARNING_RATE * 2))
+            debugMsg = "Slow. Braking Later."
+            improved = true
         end
     end
 
-    newKp = mathClamp(0.05, 0.80, newKp)
-    newKd = mathClamp(0.10, 1.50, newKd)
+    print(string.format("Opt [%d]: %s | Limit:%.2f Brk:%.1f Damp:%.2f Look:%.2f | Err:%.2fm", 
+        self.driver.id, debugMsg, self.cornerLimit, self.brakingFactor, self.dampingFactor, self.lookaheadMult, rmsError))
+
+    if improved then self:saveProfile() end
     
-    decision.STEERING_Kp_BASE = newKp
-    decision.STEERING_Kd_BASE = newKd
-    decision.brakingForceConstant = self.brakingFactor
-
-    print(string.format("Opt [%d]: %s | T:%.2f (Avg:%.2f) | Kp:%.2f Kd:%.2f | Brk:%.1f Limit:%.1f", 
-        self.driver.id, debugMsg, sectorTime, avgTime, newKp, newKd, self.brakingFactor, self.cornerLimit))
-
-    if improved then
-        self:saveProfile(newKp, newKd)
-    end
-
+    -- Update History buffer logic (keep same as before)
     table.insert(self.history, { sid = sectorID, time = sectorTime })
     if #self.history > 50 then table.remove(self.history, 1) end
     
@@ -229,10 +217,10 @@ end
 
 function TuningOptimizer:reset()
     self.tickCount = 0
-    self.yawAccumulator = 0
-    self.yawHistory = {}
-    self.understeerEvents = 0 
-    self.crashDetected = false 
+    self.yVarianceSum = 0
+    self.peakY = 0
+    self.oscillations = 0
+    self.crashDetected = false
 end
 
 function TuningOptimizer:generatePhysicsFingerprint(driver)
