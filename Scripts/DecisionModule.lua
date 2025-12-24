@@ -342,6 +342,95 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     if self.isCornering == true then
         self.currentMode = "Cornering" 
         
+        -- PHASE 1: ENTRY (Swing Out)
+        if self.cornerPhase == 1 then
+            local idealBias = self.cornerDirection * CORNER_ENTRY_BIAS 
+            
+            if self.cornerDirection == 1 and wall.marginRight < 2.0 then
+                idealBias = 0.0 
+            elseif self.cornerDirection == -1 and wall.marginLeft < 2.0 then
+                idealBias = 0.0 
+            end
+            self.targetBias = idealBias
+            
+            local currentSpeed = perceptionData.Telemetry.speed or 0
+            local switchDist = 30.0 + (currentSpeed * 1.0) 
+            local currentBias = nav.trackPositionBias or 0
+            local biasDiff = math.abs(currentBias - idealBias)
+            
+            if distToApex < switchDist or localRadius < CORNER_RADIUS_THRESHOLD then 
+                self.cornerPhase = 2 
+                self.cornerTimer = CORNER_PHASE_DURATION 
+            elseif biasDiff < 0.2 and distToApex < switchDist * 1.5 then
+                self.cornerPhase = 2
+            end
+            
+        -- PHASE 2: APEX (Hit Racing Line)
+        -- [FIXED] Changed from hard-coded "Inner Edge" to "Racing Line Bias"
+        elseif self.cornerPhase == 2 then
+            -- Fallback to hard inside (0.85) only if racingLineBias is missing
+            local racingLineTarget = nav.racingLineBias or (-self.cornerDirection * CORNER_APEX_BIAS)
+            self.targetBias = racingLineTarget
+
+            self.cornerTimer = self.cornerTimer - dt
+            if self.cornerTimer <= 0.0 then
+                if localRadius < CORNER_RADIUS_THRESHOLD * 1.2 then
+                    self.cornerTimer = 0.2 
+                else
+                    self.cornerPhase = 3 
+                    self.cornerTimer = CORNER_PHASE_DURATION
+                end
+            end
+            
+        -- PHASE 3: EXIT (Release)
+        elseif self.cornerPhase == 3 then
+            local currentPos = nav.trackPositionBias or 0.0
+            self.targetBias = currentPos * 0.9 
+            
+            self.cornerTimer = self.cornerTimer - dt
+            if self.cornerTimer <= 0.0 or radius >= 2.0 * CORNER_RADIUS_THRESHOLD then
+                self.isCornering = false
+                self.cornerPhase = 0
+                self.currentMode = "RaceLine" 
+                self.targetBias = (self.Driver.carAggression - 0.5) * 0.8 
+            end
+        end
+    end
+    
+    if self.isCornering and radius > 6 * CORNER_RADIUS_THRESHOLD then
+        self.isCornering = false
+        self.cornerPhase = 0
+        self.currentMode = "RaceLine"
+        self.targetBias = (self.Driver.carAggression - 0.5) * 0.8
+    end
+end
+
+function DecisionModule.handleCorneringStrategy_old(self, perceptionData, dt)
+    local nav = perceptionData.Navigation
+    local wall = perceptionData.WallAvoidance or {marginLeft=99, marginRight=99}
+    local radius = self.smoothedRadius or MIN_RADIUS_FOR_MAX_SPEED 
+    local curveDir = nav.longCurveDirection 
+    local distToApex = self.cachedDist or 0.0 
+    local localRadius = nav.roadCurvatureRadius or 1000.0
+
+    if self.isCornering == false and radius < CORNER_RADIUS_THRESHOLD then
+        self.isCornering = true
+        self.cornerDirection = curveDir 
+        
+        if localRadius < CORNER_RADIUS_THRESHOLD then
+            self.cornerPhase = 2
+            self.cornerTimer = CORNER_PHASE_DURATION
+            self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
+        else
+            self.cornerPhase = 1 
+            self.cornerTimer = CORNER_PHASE_DURATION
+            self.targetBias = self.cornerDirection * CORNER_ENTRY_BIAS 
+        end
+    end
+    
+    if self.isCornering == true then
+        self.currentMode = "Cornering" 
+        
         -- PHASE 1: ENTRY
         if self.cornerPhase == 1 then
             local idealBias = self.cornerDirection * CORNER_ENTRY_BIAS 
