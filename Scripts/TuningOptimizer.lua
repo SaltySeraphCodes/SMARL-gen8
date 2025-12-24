@@ -21,7 +21,8 @@ function TuningOptimizer:init(driver)
     
     -- Event Counters
     self.understeerEvents = 0
-    self.crashDetected = false -- [NEW] Track crashes
+    self.crashDetected = false 
+    self.lastSpeed = 0.0
     
     self.tickCount = 0
     self.yawAccumulator = 0
@@ -99,7 +100,6 @@ function TuningOptimizer:reportUndersteer()
     self.understeerEvents = self.understeerEvents + 1
 end
 
--- [NEW] Call this from DriverGen8.resetCar()
 function TuningOptimizer:reportCrash()
     self.crashDetected = true
     print("Optimizer: CRASH REPORTED. Preparing safety adjustments.")
@@ -114,6 +114,17 @@ function TuningOptimizer:recordFrame(perceptionData)
     
     local tel = perceptionData.Telemetry
     local yawRate = math.abs(tel.angularVelocity:dot(tel.rotations.up))
+    
+    -- [NEW] Impact Detection (Sudden Velocity Loss)
+    local currentSpeed = tel.speed
+    local deltaSpeed = currentSpeed - self.lastSpeed
+    -- If we lose more than 20 speed in 1 frame (0.025s), we hit something hard.
+    if deltaSpeed < -20.0 then 
+        print(self.driver.id, "IMPACT DETECTED! Delta:", deltaSpeed)
+        self:reportCrash()
+    end
+    self.lastSpeed = currentSpeed
+
     self.tickCount = self.tickCount + 1
     self.yawAccumulator = self.yawAccumulator + yawRate
     table.insert(self.yawHistory, yawRate)
@@ -122,7 +133,6 @@ end
 function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
     if self.tickCount < MIN_DATA_SAMPLES then self:reset() return end
 
-    -- 1. Metrics Calculation
     local avgYaw = self.yawAccumulator / self.tickCount
     local varianceSum = 0
     for _, yaw in ipairs(self.yawHistory) do
@@ -131,7 +141,6 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
     local stabilityIndex = math.sqrt(varianceSum / self.tickCount)
     local avgTime = self:getRollingAverage(sectorID, 5) 
 
-    -- 2. Current State
     local decision = self.driver.Decision
     local currentKp = decision.STEERING_Kp_BASE
     local currentKd = decision.STEERING_Kd_BASE
@@ -141,20 +150,19 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
     local improved = false
     local debugMsg = ""
 
-    -- 3. OPTIMIZATION LOGIC --
-
     -- A. CRASH RECOVERY (Highest Priority)
-    -- If we crashed, we were likely unstable or too fast. 
-    -- Fix: Drastically increase Damping, Slow Down, Brake Earlier.
     if self.crashDetected then
-        newKd = math.min(1.5, currentKd + (LEARNING_RATE_PID * 4)) -- Big boost to Damping
-        self.cornerLimit = math.max(1.2, self.cornerLimit - (LEARNING_RATE_PHYSICS * 2)) -- Slow down
-        self.brakingFactor = math.max(5.0, self.brakingFactor - (LEARNING_RATE_PHYSICS * 5)) -- Brake earlier
+        -- Big boost to Damping (Stability)
+        newKd = math.min(1.5, currentKd + (LEARNING_RATE_PID * 4)) 
+        -- Massive reduction in corner speed
+        self.cornerLimit = math.max(1.2, self.cornerLimit - (LEARNING_RATE_PHYSICS * 2)) 
+        -- Brake earlier
+        self.brakingFactor = math.max(5.0, self.brakingFactor - (LEARNING_RATE_PHYSICS * 5)) 
         
         improved = true
         debugMsg = "CRASH DETECTED. Applying Safety Mode."
 
-    -- B. SAFETY LAYER (Understeer / Wall Hits)
+    -- B. SAFETY LAYER (Understeer)
     elseif self.understeerEvents > 1 then
         self.brakingFactor = math.max(5.0, self.brakingFactor - (LEARNING_RATE_PHYSICS * 5))
         self.cornerLimit = math.max(1.2, self.cornerLimit - LEARNING_RATE_PHYSICS)
@@ -162,7 +170,7 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
         improved = true
         debugMsg = "Understeer Fix (Brakes/Speed Reduced)"
         
-    -- C. STABILITY LAYER (Oscillation / Twitchiness)
+    -- C. STABILITY LAYER
     elseif stabilityIndex > STABILITY_THRESHOLD then
         newKd = currentKd + (LEARNING_RATE_PID * 2)
         newKp = math.max(0.05, currentKp - LEARNING_RATE_PID)
@@ -171,10 +179,9 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
         improved = true
         debugMsg = string.format("Stabilizing (Unstable %.2f)", stabilityIndex)
 
-    -- D. PERFORMANCE LAYER (Stable & Clean)
+    -- D. PERFORMANCE LAYER
     else
         if avgTime == 0 or sectorTime < avgTime then
-            -- FASTER: Good job. Push limits slightly.
             self.brakingFactor = math.min(40.0, self.brakingFactor + LEARNING_RATE_PHYSICS)
             self.cornerLimit = math.min(3.5, self.cornerLimit + (LEARNING_RATE_PHYSICS * 0.2))
             newKp = currentKp + LEARNING_RATE_PID
@@ -182,16 +189,11 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
             improved = true
             debugMsg = "Faster! Pushing Limits."
         else
-            -- SLOWER: We were stable, but slow.
-            -- This usually means the car is "Fighting" the turn (Over-Damped).
-            -- Fix: Reduce Damping (Kd) to let it rotate more freely.
             newKd = math.max(0.1, currentKd - LEARNING_RATE_PID)
-            
             debugMsg = "Slower. Reducing Damping (Kd) to aid rotation."
         end
     end
 
-    -- 4. Apply & Save
     newKp = mathClamp(0.05, 0.80, newKp)
     newKd = mathClamp(0.10, 1.50, newKd)
     
@@ -206,7 +208,6 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
         self:saveProfile(newKp, newKd)
     end
 
-    -- 5. Store History
     table.insert(self.history, { sid = sectorID, time = sectorTime })
     if #self.history > 50 then table.remove(self.history, 1) end
     
@@ -231,7 +232,7 @@ function TuningOptimizer:reset()
     self.yawAccumulator = 0
     self.yawHistory = {}
     self.understeerEvents = 0 
-    self.crashDetected = false -- Reset crash flag
+    self.crashDetected = false 
 end
 
 function TuningOptimizer:generatePhysicsFingerprint(driver)

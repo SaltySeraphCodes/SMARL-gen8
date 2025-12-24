@@ -13,16 +13,16 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local DEFAULT_STEERING_Kp = 0.45  -- [TWEAK] Reduced from 0.60
-local DEFAULT_STEERING_Kd = 0.40  -- [TWEAK] Increased from 0.25 (Damping)
-local LATERAL_Kp = 1.0            -- [TWEAK] Reduced from 1.2      
+local DEFAULT_STEERING_Kp = 0.45  
+local DEFAULT_STEERING_Kd = 0.40  
+local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
 
 -- [[ TUNING - SPEED PID ]]
-local SPEED_Kp = 0.15             -- [FIX] Reduced from 0.4 (Too aggressive)
-local SPEED_Ki = 0.02             -- [TWEAK] Slight increase to hold speed
-local SPEED_Kd = 0.25             -- [FIX] Increased from 0.08 (Anticipate braking)
+local SPEED_Kp = 0.15             
+local SPEED_Ki = 0.02             
+local SPEED_Kd = 0.25             
 local MAX_I_TERM_SPEED = 10.0 
 
 -- [[ RACING LOGIC ]]
@@ -56,7 +56,6 @@ local VISUALIZE_RAYS = true
 
 -- [[ BRAKING PHYSICS ]]
 local BRAKING_POWER_FACTOR = 0.9 
-local ASSUMED_BRAKING_FORCE = 15.0
 local SCAN_DISTANCE = 120.0       
 
 function DecisionModule.server_init(self,driver)
@@ -86,8 +85,6 @@ function DecisionModule.server_init(self,driver)
     self.STEERING_Kd_BASE = DEFAULT_STEERING_Kd
     self.brakingForceConstant = 15.0
 
-
-    
     self.trackPositionBias = 0.0 
     self.smoothedRadius = 1000.0
     self.radiusHoldTimer = 0.0
@@ -159,7 +156,6 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
 
     local friction = self.dynamicGripFactor or 0.9
 
-    -- Use Optimizer's learned limit instead of hardcoded 2.0
     local limitMultiplier = 2.0
     if self.Driver.Optimizer then 
         limitMultiplier = self.Driver.Optimizer.cornerLimit 
@@ -178,10 +174,9 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
 
     local targetSpeed = math.min(self.dynamicMaxSpeed, allowableSpeed)
 
-    if self.currentMode == "Caution" then targetSpeed = 15.0 end -- TODO: Set speeds as globals up top of file
+    if self.currentMode == "Caution" then targetSpeed = 15.0 end 
     if self.pitState > 0 then targetSpeed = 15.0 end
     if self.pitState == 3 then targetSpeed = 5.0 end
-
 
     return math.min(self.dynamicMaxSpeed, targetSpeed)
 end
@@ -412,13 +407,11 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
         end
     end
 
-    -- [FIX] Wall Recovery Override
-    -- If we are dangerously close to a wall (>0.95 bias), FORCE the car to steer away.
-    -- This prevents the "Wonky" sticking behavior where it slides along the wall.
+    -- Wall Recovery
     local currentPosBias = nav.trackPositionBias or 0.0
     if math.abs(currentPosBias) > 0.95 then
-        if currentPosBias > 0 then idealBias = 0.5 end -- Too far Right -> Aim Center-Right
-        if currentPosBias < 0 then idealBias = -0.5 end -- Too far Left -> Aim Center-Left
+        if currentPosBias > 0 then idealBias = 0.5 end 
+        if currentPosBias < 0 then idealBias = -0.5 end 
     end
 
     local isWallDanger = (wall.isLeftCritical or wall.isRightCritical or wall.isForwardLeftCritical or wall.isForwardRightCritical)
@@ -589,15 +582,25 @@ function DecisionModule.calculateSteering(self, perceptionData)
     self.dbg_LatError = lateralError * LATERAL_Kp
     self.dbg_AngError = angleErrorRad / MAX_WHEEL_ANGLE_RAD
 
-    local pTerm = (lateralError * LATERAL_Kp) - (angleErrorRad / MAX_WHEEL_ANGLE_RAD)
+    -- [FIX] Dynamic Angle Weighting
+    -- If we are far off track (> 0.5), we reduce the Angle Error influence.
+    -- This prevents the "Steer Right" bug where the car points left (Correctly)
+    -- but the PID subtracts that angle, canceling out the left turn.
+    local latMag = math.abs(lateralError)
+    local angleWeight = 1.0
+    if latMag > 0.5 then
+        -- Scale from 1.0 (at 0.5 error) to 0.0 (at 1.0 error)
+        angleWeight = 1.0 - ((latMag - 0.5) * 2.0)
+        angleWeight = math.max(0.0, angleWeight)
+    end
+
+    local pTerm = (lateralError * LATERAL_Kp) - ((angleErrorRad / MAX_WHEEL_ANGLE_RAD) * angleWeight)
     
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
 
     local dTerm = yawRate * dynamicKd 
     local rawSteer = (pTerm * dynamicKp) + dTerm
 
-    -- Understeer Detection
-    -- If we are steering hard (>0.8) BUT the error isn't shrinking (or we are near wall), we are understeering.
     if math.abs(rawSteer) > 0.8 and math.abs(lateralError) > 0.8 then
         if self.Driver.Optimizer then
             self.Driver.Optimizer:reportUndersteer()
@@ -665,7 +668,8 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     
         if nav and nav.closestPointData and nav.closestPointData.baseNode then
             local node = nav.closestPointData.baseNode
-            local centerTarget = nav.centerlineTarget or node.location
+            -- Fallback if centerTarget is missing
+            local centerTarget = nav.centerlineTarget or node.location 
             if node.perp then
                 local halfWidth = (node.width or 20.0) / 2.0
                 local biasOffset = (node.perp:normalize() * -1) * (self.smoothedBias * halfWidth)
@@ -679,18 +683,18 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         if visualTarget then debugPacket.targetPoint = visualTarget end
         self.latestDebugData = debugPacket
 
-        local tgtStr = "N/A"
+        local tgtStr = "LOST"
         if visualTarget then tgtStr = string.format("<%.1f,%.1f>", visualTarget.x, visualTarget.y) end
 
         print(string.format(
             "[%s] S:%03.0f/TSpd:%03.0f | Dist:%.1f | STR:%+.2f (Lat:%+.2f Ang:%+.2f) | T:%.2f B:%.2f | TGT:%s",
             tostring(self.Driver.id % 100), 
             spd, 
-            self.dbg_Allowable or 0, -- What speed does logic think is safe?
-            self.dbg_Dist or 0,      -- How far is the corner?
+            self.dbg_Allowable or 0, 
+            self.dbg_Dist or 0,      
             controls.steer,
-            self.dbg_LatError or 0,  -- Is it trying to move Over?
-            self.dbg_AngError or 0,  -- Is it trying to Rotate?
+            self.dbg_LatError or 0,  
+            self.dbg_AngError or 0, 
             controls.throttle,
             controls.brake,
             tgtStr))
