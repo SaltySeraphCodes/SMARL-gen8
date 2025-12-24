@@ -106,7 +106,10 @@ end
 local function getWheelRPM(bearing)
     -- getAngularVelocity returns a vec3 (radians/sec). 
     -- For bearings, the local X axis is usually the rotation axis.
+    sm.joint.getAngularVelocity(bearing)
     local angVel = bearing:getAngularVelocity()
+    print(bearing,angVel)
+    
     local radsPerSec = angVel:dot(bearing:getXAxis()) -- Project onto rotation axis
     return (radsPerSec * 60) / (2 * math.pi) -- Convert rad/s to RPM
 end
@@ -172,6 +175,7 @@ function Engine.calculateRPM(self)
     local theoreticalRPM = (carSpeed * 60) / 4.7
 
     local maxSlipRatio = 0.0
+    
     for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
         local actualRPM = math.abs(getWheelRPM(bearing))
         local ratio = 0

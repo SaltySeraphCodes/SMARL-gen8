@@ -82,7 +82,6 @@ function ActionModule.setSteering(self, steerFactor, currentSpeed)
     if #bearings > 0 then
         -- Check the first bearing to see what the physical wheels are doing
         local currentAngle = bearings[1]:getAngle()
-        print("bear",currentAngle,targetAngle)
         -- If we are asking for Left, but wheel is stuck Right, 
         -- limit the impulse so we don't snap the axle.
         local error = math.abs(targetAngle - currentAngle)
