@@ -168,41 +168,50 @@ function Engine.calculateRPM(self)
 
     -- [NEW] TRACTION CONTROL LOGIC
     local slipDetected = false
+    
     if self.driver.perceptionData and self.driver.perceptionData.Telemetry then
         local telemetry = self.driver.perceptionData.Telemetry
         local carSpeed = telemetry.speed or 0
         
-        -- Estimate "Road Speed" RPM (Speed / WheelCircumference * 60)
-        -- 3 block wheel diameter approx 0.75m radius -> Circ ~4.7m
+        -- Estimate "Road Speed" RPM
+        -- We will log what this ratio is to tune it
         local theoreticalRPM = (carSpeed * 60) / 4.7
         
-        -- Check actual bearings
-        local maxSlipRatio = 0.0
+        local maxRatio = 0
+        
         for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
             local actualRPM = math.abs(getWheelRPM(bearing))
             local ratio = 0
             
-            -- [FIX] Only check ratio if we are moving fast enough to matter
-            -- If theoretical RPM is < 100 (approx 8 m/s or 30 km/h), disable ratio check
-            if theoreticalRPM > 100 then
+            -- Only check if moving fast enough (approx > 15 km/h)
+            if theoreticalRPM > 50 then
                 ratio = actualRPM / theoreticalRPM
-            elseif actualRPM > 450 then 
-                -- Burnout protection still active if wheels go crazy
-                print("burn")
-                ratio = 5.0 
+                if ratio > maxRatio then maxRatio = ratio end
             end
             
-            -- [FIX] raised threshold slightly to 1.6 to be more permissive
-            if ratio > 1.6 then 
-                print("slip")
-                slipDetected = true
+            -- Relaxed Threshold: 2.0 (Double speed) for now
+            -- We will tighten this once we see the debug logs
+            if ratio > 2.0 then 
+                 slipDetected = true
             end
+            
+            -- Burnout check (Speed near 0, Wheels spinning)
+            if carSpeed < 2.0 and actualRPM > 200 then
+                slipDetected = true
+                maxRatio = 100.0 -- Flag as infinite slip
+            end
+        end
+        
+        -- [DEBUG PRINT] - Run this once to calibrate
+        -- Only print if we are moving and have some RPM
+        if self.longTimer % 20 == 0 and carSpeed > 5 then
+            print(string.format("TCS DEBUG | Spd:%.1f | TheoRPM:%.0f | MaxRatio:%.2f | Slip:%s", 
+                carSpeed, theoreticalRPM, maxRatio, tostring(slipDetected)))
         end
     end
 
     if slipDetected then
-         -- Physics Glitch Prevention: Cut throttle immediately
-         self.accelInput = self.accelInput * 0.1 
+         self.accelInput = self.accelInput * 0.2 -- Cut to 20%
          self.curRPM = self.curRPM * 0.9 
     end
 
