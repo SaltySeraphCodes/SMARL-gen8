@@ -382,9 +382,21 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         -- PHASE 2: APEX (Hit Racing Line)
         -- [FIXED] Changed from hard-coded "Inner Edge" to "Racing Line Bias"
         elseif self.cornerPhase == 2 then
-            -- Fallback to hard inside (0.85) only if racingLineBias is missing
-            local racingLineTarget = nav.racingLineBias or (-self.cornerDirection * CORNER_APEX_BIAS)
-            self.targetBias = racingLineTarget
+            -- 1. Get the Profile Bias (The saved racing line)
+            -- If 'mid' wasn't saved, racingLineBias will be 0.0.
+            local rawProfileBias = nav.racingLineBias or 0.0
+            
+            -- 2. Validate the Profile
+            -- If the bias is effectively zero (Center), it means we don't have a 
+            -- valid optimized racing line for this corner.
+            -- In that case, FALLBACK to procedural logic (Force 0.85 Inside).
+            if math.abs(rawProfileBias) < 0.1 then 
+                -- Fallback: Dive to the inside wall (Procedural Apex)
+                self.targetBias = -self.cornerDirection * CORNER_APEX_BIAS
+            else
+                -- Profile Valid: Follow the node's optimized location
+                self.targetBias = rawProfileBias
+            end
 
             self.cornerTimer = self.cornerTimer - dt
             if self.cornerTimer <= 0.0 then

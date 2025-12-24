@@ -203,7 +203,8 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
 
             table.insert(self.rawNodes, {
                 id = iterations + 1,
-                location = midPoint, 
+                location = midPoint, -- This will Move later during Optimization
+                mid = midPoint,     -- STAYS as the Geometric Center reference 
                 leftWall = leftWall,
                 rightWall = rightWall,
                 width = trackWidth,
@@ -502,7 +503,8 @@ function TrackScanner.serializeTrackData(self)
         for i, node in ipairs(chain) do
             local dataNode = {
                 id = node.id,
-                pos = self:vecToTable(node.location),
+                pos = self:vecToTable(node.location), -- The Racing Line
+                mid = self:vecToTable(node.mid),      -- The Geometric Center
                 width = node.width,
                 bank = node.bank,
                 incline = node.incline,
