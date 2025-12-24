@@ -36,6 +36,7 @@ function TrackScanner.server_init(self)
     self.scanMode = SCAN_MODE_RACE 
     self.isScanning = false
     self.debugEffects = {}
+    self.network:setClientData({ mode = self.scanMode })
 end
 
 function TrackScanner.client_init(self)
@@ -537,14 +538,37 @@ end
 
 -- --- INTERACTION ---
 
-function TrackScanner.client_canInteract(self, character) return true end
+function TrackScanner.client_canInteract(self, character)
+    -- Default to Race Mode if data hasn't synced yet
+    local mode = self.clientScanMode or SCAN_MODE_RACE
+    local modeText = (mode == SCAN_MODE_PIT) and "PIT LANE" or "RACE TRACK"
+    
+    -- Interaction: Start Scan
+    sm.gui.setInteractionText("Start Scan:", sm.gui.getKeyBinding("Use", true), modeText)
+    
+    -- Tinker: Switch Mode
+    sm.gui.setInteractionText("Switch Mode:", sm.gui.getKeyBinding("Tinker", true), "(Race / Pit)")
+    
+    return true 
+end
+
 function TrackScanner.client_onInteract(self, character, state)
     if state then
-        if character:isCrouching() then
-            self.network:sendToServer("sv_toggleScanMode")
-        else
-            self.network:sendToServer("sv_startScan")
-        end
+        -- Simple "Press E to Scan". No crouching needed anymore.
+        self.network:sendToServer("sv_startScan")
+    end
+end
+
+function TrackScanner.client_canTinker(self, character)
+    return true
+end
+
+
+function TrackScanner.client_onTinker(self, character, state)
+    if state then
+        -- Tinker toggles the mode
+        self.network:sendToServer("sv_toggleScanMode")
+        sm.audio.play("PaintTool - ColorPick", self.shape:getWorldPosition())
     end
 end
 
@@ -556,6 +580,12 @@ function TrackScanner.sv_toggleScanMode(self)
         self.scanMode = SCAN_MODE_RACE
         self.network:sendToClients("cl_showAlert", "Mode: RACE TRACK SCAN")
     end
+    -- [NEW] Sync state to client for GUI Text
+    self.network:setClientData({ mode = self.scanMode })
+end
+
+function TrackScanner.client_onClientDataUpdate(self, data)
+    self.clientScanMode = data.mode
 end
 
 function TrackScanner.sv_startScan(self)
