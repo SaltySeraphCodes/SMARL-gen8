@@ -213,6 +213,7 @@ function DriverGen8.server_onFixedUpdate(self, dt)
     self:checkLapCross()
     self:handleTireWear(dt)
     self:handleFuelUsage(dt)
+    self:handleReset() -- Handles after car has been reset (Should only run when reset called?)
 end
 
 function DriverGen8.sv_setup_pit(self, strategy)
@@ -303,7 +304,7 @@ end
 
 function DriverGen8.resetCar(self, force)
     local isOnLift = self.perceptionData and self.perceptionData.Telemetry and self.perceptionData.Telemetry.isOnLift
-    print ("Driver:", self.id, "Reset Car Requested. On Lift:", tostring(isOnLift), "Force:", tostring(force))
+    print ("Driver:", self.id, "Reset Car Requested. On Lift:", tostring(isOnLift),self.liftPlaced, "Force:", tostring(force))
     -- 1. WAIT FOR TIMER
     -- Prevents code spamming. If waiting (timeout < 10) and not on lift, just tick up and exit.
     if self.resetPosTimeout < 10 and not isOnLift and not force then
@@ -422,6 +423,15 @@ function DriverGen8.resetCar(self, force)
     end
         
     -- 5. LIFT REMOVAL (fires immediately after, no need for delay)
+    if isOnLift and self.liftPlaced and self.player then
+        sm.player.removeLift(self.player)
+        self.liftPlaced = false
+        self.resetPosTimeout = 0 
+    end
+end
+
+function DriverGen8.handleReset(self) -- CHecks if self.liftPlaced and isOnLift, if it is, remove lift and reset liftPlaced
+    local isOnLift = self.perceptionData and self.perceptionData.Telemetry and self.perceptionData.Telemetry.isOnLift
     if isOnLift and self.liftPlaced and self.player then
         sm.player.removeLift(self.player)
         self.liftPlaced = false
