@@ -174,9 +174,7 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     -- [DEBUG] FORCE CONSTANT SPEED
     -- Returns 50 (approx 40 km/h) to isolate steering logic.
     -- Remove this line once steering is stable!
-    return 50.0
-end
-    --[[
+    --return 50.0
     local effectiveRadius = self.smoothedRadius
     local distToCorner = self.cachedDist or 0.0
 
@@ -205,7 +203,7 @@ end
     if self.pitState == 3 then targetSpeed = 5.0 end
 
     return math.min(self.dynamicMaxSpeed, targetSpeed)
-end]]
+end
 
 function DecisionModule:calculateContextBias(perceptionData, preferredBias)
     local nav = perceptionData.Navigation
