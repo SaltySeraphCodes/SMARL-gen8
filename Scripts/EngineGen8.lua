@@ -182,15 +182,20 @@ function Engine.calculateRPM(self)
             local actualRPM = math.abs(getWheelRPM(bearing))
             local ratio = 0
             
-            if theoreticalRPM > 50 then
+            -- [FIX] Only check ratio if we are moving fast enough to matter
+            -- If theoretical RPM is < 100 (approx 8 m/s or 30 km/h), disable ratio check
+            if theoreticalRPM > 100 then
                 ratio = actualRPM / theoreticalRPM
-            elseif actualRPM > 400 then 
-                -- Burnout protection (Car stopped, wheels fast)
+            elseif actualRPM > 450 then 
+                -- Burnout protection still active if wheels go crazy
+                print("burn")
                 ratio = 5.0 
             end
             
-            if ratio > 1.5 then -- Wheel spinning 50% faster than road speed
-                 slipDetected = true
+            -- [FIX] raised threshold slightly to 1.6 to be more permissive
+            if ratio > 1.6 then 
+                print("slip")
+                slipDetected = true
             end
         end
     end
