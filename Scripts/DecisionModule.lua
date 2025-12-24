@@ -4,8 +4,8 @@ DecisionModule = class(nil)
 
 -- [[ TUNING - PHYSICS ]]
 local MAX_TILT_RAD = 1.047 
-local STUCK_SPEED_THRESHOLD = 1.0 
-local STUCK_TIME_LIMIT = 4.0 
+local STUCK_SPEED_THRESHOLD = 0.5 
+local STUCK_TIME_LIMIT = 6.0
 local BASE_MAX_SPEED = 1000 
 local MIN_CORNER_SPEED = 12
 local GRIP_FACTOR = 0.8            
@@ -477,17 +477,23 @@ function DecisionModule.checkUtility(self,perceptionData, dt)
     local rotationData = telemetry.rotations
     local resetFlag = false
     if self.Driver.body:isStatic() then self.onLift = true else self.onLift = false end
+
     local upDot = rotationData.up:dot(sm.vec3.new(0,0,1))
     local maxDot = math.cos(MAX_TILT_RAD) 
     if upDot < maxDot then self.isFlipped = true else self.isFlipped = false end
+    
     if telemetry.speed < STUCK_SPEED_THRESHOLD and telemetry.isOnLift == false and self.Driver.isRacing then 
         self.stuckTimer = self.stuckTimer + dt
     else
         self.stuckTimer = 0.0 
     end
     if self.isStuck then self.Driver.resetPosTimeout = 11.0 end 
-    if self.stuckTimer >= STUCK_TIME_LIMIT then self.isStuck = true else self.isStuck = false end
-    if self.isFlipped or self.isStuck then resetFlag = true end
+    if self.stuckTimer >= STUCK_TIME_LIMIT then 
+        print("stuck")
+        self.isStuck = true else self.isStuck = false end
+    if self.isFlipped or self.isStuck then 
+        print("flipped")
+        resetFlag = true end
     return resetFlag
 end
 

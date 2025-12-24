@@ -328,6 +328,7 @@ function DriverGen8.resetCar(self, force)
 
     -- 3. EXECUTE RESET
     if not self.liftPlaced and (self.racing or force) then
+        if self.Optimizer then self.Optimizer:reportCrash() end
         local bodies = self.body:getCreationBodies()
         
         -- PRIORITY TARGET: The last node we explicitly drove over.
