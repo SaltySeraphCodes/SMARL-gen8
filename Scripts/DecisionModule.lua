@@ -1,4 +1,3 @@
--- DecisionModule.lua
 dofile("globals.lua") 
 DecisionModule = class(nil)
 
@@ -18,6 +17,10 @@ local DEFAULT_STEERING_Kd = 0.40
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
+-- [NEW] Slew Rate Limit (Max steering change per second)
+-- 4.0 means it takes 0.25s to go from center to full lock. 
+-- Prevents instant snaps that break physics.
+local STEERING_SLEW_RATE = 4.0 
 
 -- [[ TUNING - SPEED PID ]]
 local SPEED_Kp = 0.15             
@@ -80,6 +83,7 @@ function DecisionModule.server_init(self,driver)
 
     self.speedUpdateTimer = 0 
     
+    -- Optimizable Variables ---
     self.STEERING_Kp_BASE = DEFAULT_STEERING_Kp
     self.STEERING_Kd_BASE = DEFAULT_STEERING_Kd
     self.brakingForceConstant = 15.0
@@ -89,10 +93,11 @@ function DecisionModule.server_init(self,driver)
     self.radiusHoldTimer = 0.0
     self.cachedDist = 0.0
     self.smoothedBias = 0.0 
+    
+    self.lastSteerOut = 0.0 -- For Slew Rate Limiting
 
     self:calculateCarPerformance()
 end
-
 function DecisionModule.calculateCarPerformance(self)
     local dynamicMaxSpeed = BASE_MAX_SPEED
     local dynamicGripFactor = GRIP_FACTOR
@@ -335,7 +340,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
         if self.cornerPhase == 1 then
             local idealBias = self.cornerDirection * CORNER_ENTRY_BIAS 
             
-            -- [FIX] Wall Check: Don't swing wide if the wall is right there.
             if self.cornerDirection == 1 and wall.marginRight < 2.0 then
                 idealBias = 0.0 -- Abort swing to right
             elseif self.cornerDirection == -1 and wall.marginLeft < 2.0 then
@@ -346,8 +350,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
             local currentSpeed = perceptionData.Telemetry.speed or 0
             local switchDist = 30.0 + (currentSpeed * 1.0) 
             
-            -- [FIX] Check if we are already 'wide enough'
-            -- If we achieved the entry bias but are still far away, hold, but allow early switch
             local currentBias = nav.trackPositionBias or 0
             local biasDiff = math.abs(currentBias - idealBias)
             
@@ -355,7 +357,6 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
                 self.cornerPhase = 2 
                 self.cornerTimer = CORNER_PHASE_DURATION 
             elseif biasDiff < 0.2 and distToApex < switchDist * 1.5 then
-                -- Optimization: If we are already in position, don't wait forever, focus on apex
                 self.cornerPhase = 2
             end
             
@@ -566,7 +567,8 @@ function DecisionModule.determineStrategy(self,perceptionData, dt)
     end
 end
 
-function DecisionModule.calculateSteering(self, perceptionData)
+-- [MODIFIED] Added 'dt' parameter to enable Slew Rate Limiting
+function DecisionModule.calculateSteering(self, perceptionData, dt)
     local telemetry = perceptionData.Telemetry
     local nav = perceptionData.Navigation
     
@@ -596,7 +598,6 @@ function DecisionModule.calculateSteering(self, perceptionData)
     local crossZ = carDir.x * goalDir.y - carDir.y * goalDir.x
     local angleErrorRad = math.atan2(crossZ, carDir:dot(goalDir))
 
-    -- Store for debug print
     self.dbg_LatError = lateralError * LATERAL_Kp
     self.dbg_AngError = angleErrorRad / MAX_WHEEL_ANGLE_RAD
 
@@ -606,24 +607,20 @@ function DecisionModule.calculateSteering(self, perceptionData)
     if latMag > 0.8 then
         angleWeight = 0.0
     elseif latMag > 0.5 then
-        angleWeight = 1.0 - ((latMag - 0.5) * 3.33) -- Fast fade
+        angleWeight = 1.0 - ((latMag - 0.5) * 3.33) 
         angleWeight = math.max(0.0, angleWeight)
     end
 
     local pTerm = (lateralError * LATERAL_Kp) - ((angleErrorRad / MAX_WHEEL_ANGLE_RAD) * angleWeight)
     
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-
     local dTerm = yawRate * dynamicKd 
 
-    -- [[ CRITICAL FIX: Safe D-Term Clamping ]]
+    -- D-Term Clamping
     if latMag > 1.0 then
-         -- Emergency Mode: Allow D-Term to stabilize, but CAP it at 80% of P-Term.
          if (pTerm > 0 and dTerm < 0) then dTerm = math.max(dTerm, -pTerm * 0.8) end
          if (pTerm < 0 and dTerm > 0) then dTerm = math.min(dTerm, -pTerm * 0.8) end
-         
     elseif math.abs(pTerm) > 0.5 then
-        -- Standard High-G Turn: Cap D-Term at 50% of P-Term
         if (pTerm < 0 and dTerm > 0) then
             dTerm = math.min(dTerm, math.abs(pTerm) * 0.5) 
         elseif (pTerm > 0 and dTerm < 0) then
@@ -632,6 +629,16 @@ function DecisionModule.calculateSteering(self, perceptionData)
     end
 
     local rawSteer = (pTerm * dynamicKp) + dTerm
+
+    -- [NEW] Slew Rate Limiter
+    -- Prevents the steering signal from jumping infinitely fast
+    if self.lastSteerOut then
+        local delta = rawSteer - self.lastSteerOut
+        local maxDelta = STEERING_SLEW_RATE * dt 
+        delta = mathClamp(-maxDelta, maxDelta, delta)
+        rawSteer = self.lastSteerOut + delta
+    end
+    self.lastSteerOut = rawSteer
 
     if math.abs(rawSteer) > 0.8 and math.abs(lateralError) > 0.8 then
         if self.Driver.Optimizer then
@@ -676,7 +683,8 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         controls.steer = 0.0; controls.throttle = 0.0; controls.brake = 0.0
     else
         self:determineStrategy(perceptionData, dt) 
-        controls.steer = self:calculateSteering(perceptionData)
+        -- [FIX] Passed dt to calculateSteering
+        controls.steer = self:calculateSteering(perceptionData, dt)
         controls.throttle, controls.brake = self:calculateSpeedControl(perceptionData, controls.steer)
     end
 
@@ -685,7 +693,6 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local currentSpeed = perceptionData.Telemetry.speed or 0
     if self.lastSpeed then
         local delta = currentSpeed - self.lastSpeed
-        -- [FIX] Lowered threshold to detect scrapes/drags
         if delta < -8.0 then 
             print(self.Driver.id, "WALL IMPACT DETECTED! Delta:", delta)
             if self.Driver.Optimizer then self.Driver.Optimizer:reportCrash() end
@@ -717,7 +724,6 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
                 local halfWidth = (node.width or 20.0) / 2.0
                 local biasOffset = (node.perp:normalize() * -1) * (self.smoothedBias * halfWidth)
                 visualTarget = centerTarget + biasOffset
-                -- [FIX] Always lift visual target up so it's not hidden
                 visualTarget.z = visualTarget.z + 1.0 
             end
             nodePos = nav.closestPointData.baseNode.location
@@ -725,8 +731,6 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         end
 
         local debugPacket = self.latestDebugData or {}
-        -- [FIX] Ensure the target we visualize isn't "under the car" due to short lookahead.
-        -- We project it out at least 8 meters visually even if physics lookahead is smaller.
         if visualTarget then 
              local distToVis = (visualTarget - carPos):length()
              if distToVis < 8.0 and nav.nodeGoalDirection then
@@ -743,7 +747,6 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         local modeStr = self.currentMode or "None"
         if self.isCornering then modeStr = "Corn" .. self.cornerPhase end
 
-        -- [FIX] Added Bias display
         print(string.format(
             "[%s] %s R:%03.0f S:%03.0f/T:%03.0f | Dist:%.1f | Bias:%.2f | STR:%+.2f (Lat:%+.2f Ang:%+.2f) | T:%.2f B:%.2f | TGT:%s",
             tostring(self.Driver.id % 100), 

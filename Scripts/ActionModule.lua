@@ -1,14 +1,12 @@
 -- ActionModule.lua
--- Steering Values (Permanent):
----1 = full Left
---1 = full right
--- throttle values: 1 = full gas, 0 = coast, -1 = full brake
 dofile("globals.lua")
 ActionModule = class(nil)
 
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local MAX_ADJUSTMENT = 15.0  -- [TWEAK] Increased from 10.0 for faster low-speed response
-local MIN_ADJUSTMENT = 12   -- [FIX] Increased from 3.0. 
+-- [FIX] Lowered drastically to match your stable "Old Code" values.
+-- High values (12-15) cause physics glitches/explosions.
+local MAX_ADJUSTMENT = 6.0   
+local MIN_ADJUSTMENT = 3.0   
 local ADJUSTMENT_SPEED_REF = 50.0
 
 function ActionModule.server_init(self,driver)
@@ -16,7 +14,7 @@ function ActionModule.server_init(self,driver)
     self.steeringOut = 0
     self.throttleOut = 0
     self.curGear = 1
-    self.shiftTimer = 0.0 -- New: Prevents rapid shifting
+    self.shiftTimer = 0.0 
 end
 
 function ActionModule.shiftGear(self,gear) 
@@ -30,7 +28,7 @@ function ActionModule.updateGearing(self, dt)
     if self.Driver.engine == nil or self.Driver.engine.engineStats == nil then return end
     
     self.shiftTimer = math.max(0, self.shiftTimer - dt)
-    if self.shiftTimer > 0 then return end -- Wait for current gear to settle
+    if self.shiftTimer > 0 then return end 
 
     local engine = self.Driver.engine
     local vrpm = engine.curVRPM 
@@ -45,28 +43,22 @@ function ActionModule.updateGearing(self, dt)
     local nextGear = self.curGear
     
     if self.Driver.racing or self.Driver.isRacing then
-        -- UPSHIFT LOGIC
         if ai_throttle > 0.5 and vrpm >= revLimit * 0.92 then 
             if self.curGear < highestGear then
                 nextGear = self.curGear + 1 
             end
         end
 
-        -- DOWNSHIFT LOGIC (Protected)
-        -- Only downshift if we aren't mid-slide (yawRate check)
         if yawRate < 1.5 then 
             if ai_brake > 0.5 and self.curGear > 1 then
-                -- Downshift earlier during heavy braking to use engine braking, 
-                -- but only if VRPM is safe to avoid wheel lock.
                 if vrpm < revLimit * 0.4 then
                     nextGear = self.curGear - 1
                 end
             elseif currentSpeed < 5.0 and self.curGear > 1 then
-                nextGear = 1 -- Reset to 1st when nearly stopped
+                nextGear = 1 
             end
         end
 
-        -- REVERSE LOGIC
         if currentSpeed < 1.0 and ai_brake > 0.8 and self.curGear >= 0 then
             nextGear = -1
         elseif self.curGear == -1 and ai_throttle > 0.5 then
@@ -76,17 +68,23 @@ function ActionModule.updateGearing(self, dt)
 
     if nextGear ~= self.curGear then
         self:shiftGear(nextGear)
-        self.shiftTimer = 0.4 -- Lock shifting for 0.4s (adjust based on engine response)
+        self.shiftTimer = 0.4 
     end
 end
 
-function ActionModule.setSteering(self, steerFactor,currentSpeed)
+function ActionModule.setSteering(self, steerFactor, currentSpeed)
     local targetAngle = steerFactor * MAX_WHEEL_ANGLE_RAD
+    
+    -- Dynamic Adjustment Speed
+    -- Slower at high speed (Stability), Faster at low speed (Response)
     local speedRatio = math.min(currentSpeed / ADJUSTMENT_SPEED_REF, 1.0)
     local adjustmentRate = MAX_ADJUSTMENT + (MIN_ADJUSTMENT - MAX_ADJUSTMENT) * speedRatio
     
+    -- [FIX] Ensure we never pass NaN or Infinite values to the physics engine
+    if targetAngle ~= targetAngle then targetAngle = 0 end 
+    
     for k, v in pairs(sm.interactable.getBearings(self.Driver.interactable)) do
-        sm.joint.setTargetAngle( v, targetAngle, adjustmentRate, 1500)
+        sm.joint.setTargetAngle(v, targetAngle, adjustmentRate, 1500)
     end
     self.steeringOut = targetAngle
 end
@@ -103,7 +101,7 @@ end
 
 function ActionModule.applyControls(self, controls) 
     local currentSpeed = self.Driver.perceptionData.Telemetry.speed or 0.0
-    self:setSteering(controls.steer, currentSpeed) -- Pass the AI's steer value
+    self:setSteering(controls.steer, currentSpeed) 
     self:outputThrotttle(controls.throttle, controls.brake)
     if controls.resetCar then 
         self.Driver:resetCar() 
