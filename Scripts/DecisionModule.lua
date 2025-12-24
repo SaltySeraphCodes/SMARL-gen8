@@ -13,7 +13,8 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local DEFAULT_STEERING_Kp = 0.45  
+-- [FIX] Increased base gain to give more authority in normal turns
+local DEFAULT_STEERING_Kp = 0.70  -- Was 0.45
 local DEFAULT_STEERING_Kd = 0.40  
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
@@ -583,10 +584,15 @@ function DecisionModule.calculateSteering(self, perceptionData)
     self.dbg_AngError = angleErrorRad / MAX_WHEEL_ANGLE_RAD
 
     -- Dynamic Angle Weighting
+    -- [FIX] Force Angle Weight to 0 if we are near a wall (Lat Error > 0.8)
+    -- This prevents the "Steer Right into Left Wall" bug where the car
+    -- tries to straighten out parallel to the wall instead of turning away.
     local latMag = math.abs(lateralError)
     local angleWeight = 1.0
-    if latMag > 0.5 then
-        angleWeight = 1.0 - ((latMag - 0.5) * 2.0)
+    if latMag > 0.8 then
+        angleWeight = 0.0
+    elseif latMag > 0.5 then
+        angleWeight = 1.0 - ((latMag - 0.5) * 3.33) -- Fast fade
         angleWeight = math.max(0.0, angleWeight)
     end
 
@@ -596,22 +602,19 @@ function DecisionModule.calculateSteering(self, perceptionData)
 
     local dTerm = yawRate * dynamicKd 
 
-    -- [[ CRITICAL FIX: Safe D-Term Scaling ]]
-    -- Instead of a hard switch at 1.0 error, we linearly fade D-Term influence 
-    -- starting at 0.5 error (50% power) down to 0.0 at 1.0 error.
-    -- This prevents the "Sudden Loss of Stability" when crossing the threshold,
-    -- but ensures full turning power when desperate.
-    
-    local dTermScale = 1.0
-    if latMag > 0.5 then
-        -- Map 0.5..1.0 to 1.0..0.0
-        dTermScale = 1.0 - ((latMag - 0.5) * 2.0)
-        dTermScale = math.max(0.0, dTermScale)
-    end
-    
-    -- If P-Term and D-Term oppose each other (Stability fighting Turn), reduce D-Term
-    if (pTerm > 0 and dTerm < 0) or (pTerm < 0 and dTerm > 0) then
-        dTerm = dTerm * dTermScale
+    -- [[ CRITICAL FIX: Safe D-Term Clamping ]]
+    if latMag > 1.0 then
+         -- Emergency Mode: Allow D-Term to stabilize, but CAP it at 80% of P-Term.
+         if (pTerm > 0 and dTerm < 0) then dTerm = math.max(dTerm, -pTerm * 0.8) end
+         if (pTerm < 0 and dTerm > 0) then dTerm = math.min(dTerm, -pTerm * 0.8) end
+         
+    elseif math.abs(pTerm) > 0.5 then
+        -- Standard High-G Turn: Cap D-Term at 50% of P-Term
+        if (pTerm < 0 and dTerm > 0) then
+            dTerm = math.min(dTerm, math.abs(pTerm) * 0.5) 
+        elseif (pTerm > 0 and dTerm < 0) then
+            dTerm = math.max(dTerm, -math.abs(pTerm) * 0.5)
+        end
     end
 
     local rawSteer = (pTerm * dynamicKp) + dTerm
@@ -700,7 +703,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
                 local halfWidth = (node.width or 20.0) / 2.0
                 local biasOffset = (node.perp:normalize() * -1) * (self.smoothedBias * halfWidth)
                 visualTarget = centerTarget + biasOffset
-                -- Lift it up so it doesn't get buried in the ground/wall
+                -- [FIX] Always lift visual target up so it's not hidden
                 visualTarget.z = visualTarget.z + 1.0 
             end
             nodePos = nav.closestPointData.baseNode.location
@@ -708,7 +711,16 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         end
 
         local debugPacket = self.latestDebugData or {}
-        if visualTarget then debugPacket.targetPoint = visualTarget end
+        -- [FIX] Ensure the target we visualize isn't "under the car" due to short lookahead.
+        -- We project it out at least 8 meters visually even if physics lookahead is smaller.
+        if visualTarget then 
+             local distToVis = (visualTarget - carPos):length()
+             if distToVis < 8.0 and nav.nodeGoalDirection then
+                 visualTarget = carPos + (nav.nodeGoalDirection * 8.0)
+                 visualTarget.z = visualTarget.z + 1.0
+             end
+             debugPacket.targetPoint = visualTarget 
+        end
         self.latestDebugData = debugPacket
 
         local tgtStr = "LOST"
