@@ -83,10 +83,14 @@ function Engine.server_init(self)
     
     -- Timers
     self.longTimer = 0 -- Simple tick counter
+
+    self.wheelTypeTag = "NONE"
     
     -- Initial Setup
     self:updateType() 
     self:parseParents()
+    self:scanWheelType()
+
 end
 
 function Engine.client_init(self)
@@ -104,14 +108,39 @@ end
 
 --- Helpers
 local function getWheelRPM(bearing)
-    -- ERROR FIX: getAngularVelocity() returns a number (rad/s), not a vector.
-    local radsPerSec = bearing:getAngularVelocity()
-    
-    -- Safety check: Ensure it's a number (API protection)
-    if type(radsPerSec) ~= "number" then return 0 end
+    local val = bearing:getAngularVelocity()
+    if type(val) ~= "number" then return 0 end
+    return (math.abs(val) * 60) / (2 * math.pi)
+end
 
-    -- Convert rad/s to RPM
-    return (radsPerSec * 60) / (2 * math.pi) 
+function Engine.scanWheelType(self)
+    -- Iterate through all bearings connected to the engine
+    local bearings = sm.interactable.getBearings(self.interactable)
+    
+    for _, bearing in ipairs(bearings) do
+        -- Get the shape attached to the bearing (Shape B is the wheel)
+        local shape = sm.joint.getShapeB(bearing)
+        
+        if shape then
+            local uuid = tostring(shape:getShapeUuid())
+            local code = getWheelCode(uuid)
+            
+            -- If we find a known wheel, lock it in and stop scanning
+            -- (Assumes the car doesn't have mixed wheel types)
+            if code ~= "UNK" then
+                self.wheelTypeTag = code
+                print("Engine: Detected Wheel Type: " .. code)
+                return
+            else
+                -- If it's unknown, store the first 4 chars of the UUID as a fallback unique ID
+                self.wheelTypeTag = string.sub(uuid, 1, 4)
+            end
+        end
+    end
+    
+    if self.wheelTypeTag == "NONE" then
+        print("Engine: No Wheels Detected (Hover/Thruster build?)")
+    end
 end
 
 -- --- MAIN UPDATE LOOP (40Hz) ---
@@ -153,85 +182,111 @@ end
 -- --- PHYSICS SIMULATION ---
 
 function Engine.calculateRPM(self)
-    if (not self.driver and not self.noDriverError) then 
-        self:sv_setDriverError(true) 
-        return 0 
-    end
-    
+    if (not self.driver and not self.noDriverError) then self:sv_setDriverError(true); return 0 end
     if not self.driver or not self.engineStats then return 0 end
 
-    -- Only run if race is active (or testing)
-    if not self.driver.isRacing and not self.driver.active then -- check 'active' flag from driver
-         self.curVRPM = 0
-         return 0 
+    -- 1. FETCH TRACTION CONSTANT
+    -- Ask the Optimizer for the correct ratio. Default to 2.6 if not ready.
+    local tractionConst = 2.6
+    if self.driver.Optimizer and self.driver.Optimizer.tractionConstant then
+        tractionConst = self.driver.Optimizer.tractionConstant
     end
 
-    -- [NEW] TRACTION CONTROL LOGIC
+    -- 2. TRACTION CONTROL & CALIBRATION
     local slipDetected = false
     
     if self.driver.perceptionData and self.driver.perceptionData.Telemetry then
         local telemetry = self.driver.perceptionData.Telemetry
         local carSpeed = telemetry.speed or 0
         
-        -- Estimate "Road Speed" RPM
-        -- We will log what this ratio is to tune it
-        local theoreticalRPM = (carSpeed * 60) / 2.6        
-        local maxRatio = 0
+        -- Calculate Theoretical RPM using the Dynamic Constant
+        -- Formula: RPM = (Speed * 60) / Constant
+        local theoreticalRPM = (carSpeed * 60) / tractionConst
+        
+        -- [LEARNING CONDITION]
+        -- We only learn when:
+        -- 1. Going fast enough (>15 blocks/s)
+        -- 2. Accelerating gently (0.1 - 0.5 throttle) - Ensures positive torque without wheelspin
+        -- 3. Not steering hard (avoids differential speed)
+        local isLearning = false
+        local steerInput = math.abs(self.driver.perceptionData.steer or 0)
+        
+        if carSpeed > 15 and self.accelInput > 0.1 and self.accelInput < 0.5 and steerInput < 0.2 then
+            isLearning = true
+        end
+
+        local avgActualRPM = 0
+        local wheelCount = 0
         
         for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
-            local actualRPM = math.abs(getWheelRPM(bearing))
-            local ratio = 0
+            local actualRPM = getWheelRPM(bearing)
             
-            -- Only check if moving fast enough (approx > 15 km/h)
+            -- TCS Check (Anti-Burnout)
+            -- Only active if moving
             if theoreticalRPM > 50 then
-                ratio = actualRPM / theoreticalRPM
-                if ratio > maxRatio then maxRatio = ratio end
+                local ratio = actualRPM / theoreticalRPM
+                
+                -- Threshold 2.0: If wheels spin 2x faster than theory, cut power.
+                -- This protects against burnouts and flips.
+                if ratio > 2.0 then 
+                    slipDetected = true 
+                end
             end
             
-            -- Relaxed Threshold: 2.0 (Double speed) for now
-            -- We will tighten this once we see the debug logs
-            if ratio > 2.5 then 
-                 slipDetected = true
-            end
-            
-            -- Burnout check (Speed near 0, Wheels spinning)
-            if carSpeed < 2.0 and actualRPM > 200 then
-                slipDetected = true
-                maxRatio = 100.0 -- Flag as infinite slip
+            -- Accumulate Data for Learning
+            if isLearning then
+                avgActualRPM = avgActualRPM + actualRPM
+                wheelCount = wheelCount + 1
             end
         end
-        
-        -- [DEBUG PRINT] - Run this once to calibrate
-        -- Only print if we are moving and have some RPM
-        if self.longTimer % 20 == 0 and carSpeed > 5 then
-            print(string.format("TCS DEBUG | Spd:%.1f | TheoRPM:%.0f | MaxRatio:%.2f | Slip:%s", 
-                carSpeed, theoreticalRPM, maxRatio, tostring(slipDetected)))
+
+        -- [PERFORM CALIBRATION]
+        if isLearning and wheelCount > 0 then
+            avgActualRPM = avgActualRPM / wheelCount
+            
+            -- Solve for Constant: Const = (Speed * 60) / RPM
+            if avgActualRPM > 50 then
+                local calculatedConst = (carSpeed * 60) / avgActualRPM
+                
+                -- Sanity Filter: Ratio typically falls between 1.0 (Huge Wheels) and 6.0 (Tiny Wheels)
+                if calculatedConst > 1.0 and calculatedConst < 8.0 then
+                    self.learnSum = self.learnSum + calculatedConst
+                    self.learnCount = self.learnCount + 1
+                    
+                    -- Commit data after ~60 ticks (1.5 seconds) of consistent driving
+                    if self.learnCount > 60 then
+                        local finalConst = self.learnSum / self.learnCount
+                        
+                        -- Send to Optimizer to Save
+                        if self.driver.Optimizer then
+                            self.driver.Optimizer:updateTractionConstant(finalConst)
+                        end
+                        
+                        -- Reset buffers
+                        self.learnSum = 0
+                        self.learnCount = 0
+                    end
+                end
+            end
+        else
+            -- If we stop meeting conditions (e.g. brake or corner), reset the partial buffer
+            self.learnCount = 0 
+            self.learnSum = 0
         end
     end
 
+    -- [ACTIVATE CUT]
     if slipDetected then
-         self.accelInput = self.accelInput * 0.2 -- Cut to 20%
+         self.accelInput = self.accelInput * 0.2 -- Cut throttle to 20%
          self.curRPM = self.curRPM * 0.9 
     end
 
-    if not self.driver.isRacing and not self.driver.active then 
-         self.curVRPM = 0
-         return 0 
-    end
-
-    -- 1. Base Increment based on input and gear
+    if not self.driver.isRacing and not self.driver.active then self.curVRPM = 0; return 0 end
     local rpmIncrement = self:_calculateBaseRPMIncrement()
-    
-    -- 2. Modifiers (Drafting, Handicap)
     rpmIncrement = self:_applyPerformanceModifiers(rpmIncrement)
-    
-    -- 3. Apply Increment
     local nextRPM = self.curRPM + rpmIncrement
-    
-    -- 4. Gear & Rev Limits
     nextRPM = self:_applyGearLimits(nextRPM)
     nextRPM = self:_applyHardLimiter(nextRPM)
-    
     return nextRPM
 end
 

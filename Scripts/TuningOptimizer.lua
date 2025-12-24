@@ -18,7 +18,7 @@ function TuningOptimizer:init(driver)
     self.brakingFactor = 15.0   -- Braking Power (Higher = Brake Later)
     self.dampingFactor = 0.25   -- Yaw Resistance (Higher = Less Wobble, Slower Turn-in)
     self.lookaheadMult = 1.0    -- Lookahead Modifier (Lower = Aggressive, Higher = Smooth)
-    
+    self.tractionConstant = 2.6
     -- Learning Metrics
     self.tickCount = 0
     self.yVarianceSum = 0       -- Accumulator for Path Error^2
@@ -27,8 +27,9 @@ function TuningOptimizer:init(driver)
     self.crashDetected = false 
     self.lastSpeed = 0.0
     self.lastYSign = 0
+    
 
-    print("TuningOptimizer: Initialized (Gen 8 Physics Mode).")
+    print("TuningOptimizer: Initialized")
 end
 
 function TuningOptimizer:checkFingerprint()
@@ -71,8 +72,11 @@ function TuningOptimizer:applyProfile(profile)
     -- Legacy support: Map old Kd to new dampingFactor
     if profile.kd then self.dampingFactor = profile.kd * 0.5 end 
     if profile.dampingFactor then self.dampingFactor = profile.dampingFactor end
-    
     if profile.lookaheadMult then self.lookaheadMult = profile.lookaheadMult end
+    if profile.tractionConstant then 
+        self.tractionConstant = profile.tractionConstant 
+        print(string.format("Optimizer: Loaded Traction Constant: %.2f", self.tractionConstant))
+    end
 end
 
 function TuningOptimizer:saveProfile()
@@ -87,6 +91,7 @@ function TuningOptimizer:saveProfile()
         brakingFactor = self.brakingFactor,
         dampingFactor = self.dampingFactor,
         lookaheadMult = self.lookaheadMult,
+        tractionConstant = self.tractionConstant,
         updated = os.time()
     }
     sm.json.save(data, TUNING_FILE)
@@ -223,6 +228,15 @@ function TuningOptimizer:reset()
     self.crashDetected = false
 end
 
+function TuningOptimizer:updateTractionConstant(val)
+    -- Only save if the change is significant (> 0.1) to avoid file spam
+    if math.abs(self.tractionConstant - val) > 0.1 then
+        self.tractionConstant = val
+        self:saveProfile()
+        print(string.format("Optimizer: Learned NEW Traction Constant: %.2f", val))
+    end
+end
+
 function TuningOptimizer:generatePhysicsFingerprint(driver)
     if not driver.perceptionData or 
        not driver.perceptionData.Telemetry or 
@@ -232,38 +246,36 @@ function TuningOptimizer:generatePhysicsFingerprint(driver)
     end
     
     local tel = driver.perceptionData.Telemetry
+    
+    -- 1. Mass Bucket
     local rawMass = tel.mass or 1000
     local massBucket = math.floor((rawMass / 250) + 0.5) * 250
     
+    -- 2. Dimensions
+    local dims = tel.dimensions
+    local length = math.max(dims.x, dims.y)
+    local width = math.min(dims.x, dims.y)
+    local lengthBucket = math.floor((length / 0.5) + 0.5) * 0.5 
+    local widthBucket = math.floor((width / 0.5) + 0.5) * 0.5
+    
+    -- 3. Engine/Wheel Tag
+    local wheelTag = "NIL"
+    if driver.engine then
+        -- Ensure the engine has scanned (handle race conditions)
+        if not driver.engine.wheelTypeTag then 
+            driver.engine:scanWheelType() 
+        end
+        wheelTag = driver.engine.wheelTypeTag or "UNK"
+    end
+    
+    -- 4. Downforce Bucket
     local rawDownforce = tel.downforce or 0
     if driver.Spoiler_Angle then
         rawDownforce = rawDownforce + (driver.Spoiler_Angle * 20) 
     end
     local dfBucket = math.floor((rawDownforce / 500) + 0.5) * 500
-    
-    local dims = tel.dimensions
-    local dimA = dims.x
-    local dimB = dims.y
-    
-    local length = math.max(dimA, dimB)
-    local width = math.min(dimA, dimB)
-    
-    local lengthBucket = math.floor((length / 0.5) + 0.5) * 0.5 
-    local widthBucket = math.floor((width / 0.5) + 0.5) * 0.5
-    
-    local engineTag = "STD"
-    if driver.engine and driver.engine.engineStats then
-        local stats = driver.engine.engineStats
-        if stats.TYPE == "custom" then
-             local speedBucket = math.floor((stats.MAX_SPEED / 25) + 0.5) * 25
-             engineTag = "C" .. speedBucket
-        else
-             engineTag = stats.TYPE or "STD"
-        end
-    end
 
-    local fingerprint = string.format("M%d_DF%d_L%.1f_W%.1f_%s", 
-        massBucket, dfBucket, lengthBucket, widthBucket, engineTag)
-        
-    return fingerprint
+    -- NEW FORMAT: M[Mass]_L[Len]_W[Wid]_[WheelType]
+    -- Example: M1500_L12.0_W7.0_LRG
+    return string.format("M%d_L%.1f_W%.1f_%s", massBucket, lengthBucket, widthBucket, wheelTag)
 end

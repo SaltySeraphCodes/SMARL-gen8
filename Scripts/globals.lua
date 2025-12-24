@@ -73,6 +73,17 @@ CHECK_POINT_CONFIG = {
 CAMERA_MODES = { RACE_CAM = 0, DRONE_CAM = 1, FREE_CAM = 2, ONBOARD_CAM = 3, FINISH_CAM = 4 }
 ZOOM_METHODS = { IN = 0, OUT = 1, STAY = 2 }
 
+WHEEL_DB = {
+    ["62758dca-2d3e-4363-9827-02d24296decb"] = "SML", -- Small Wheel
+    ["809b7c84-e35a-497e-9083-d9633d7894a8"] = "LRG", -- Large Wheel
+    -- Add generic/mod fallback or specific mod UUIDs here
+}
+
+function getWheelCode(uuidString)
+    return WHEEL_DB[uuidString] or "UNK" -- Returns "UNK" for unknown/modded wheels
+end
+
+
 TIRE_TYPES = { 
     [1] = { TYPE = "soft", DECAY = 0.4, GRIP = 1.0, MAX_SLIP_FACTOR = 1.5 },
     [2] = { TYPE = "medium", DECAY = 0.2, GRIP = 0.8, MAX_SLIP_FACTOR = 1.0 },

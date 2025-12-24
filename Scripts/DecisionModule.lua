@@ -155,6 +155,12 @@ function DecisionModule:updateTrackState(perceptionData)
 end
 
 function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
+    -- [DEBUG] FORCE CONSTANT SPEED
+    -- Returns 50 (approx 40 km/h) to isolate steering logic.
+    -- Remove this line once steering is stable!
+    return 50.0
+end
+    --[[
     local effectiveRadius = self.smoothedRadius
     local distToCorner = self.cachedDist or 0.0
 
@@ -183,7 +189,7 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     if self.pitState == 3 then targetSpeed = 5.0 end
 
     return math.min(self.dynamicMaxSpeed, targetSpeed)
-end
+end]]
 
 function DecisionModule:calculateContextBias(perceptionData, preferredBias)
     local nav = perceptionData.Navigation
@@ -583,17 +589,30 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
 
     local node = nav.closestPointData.baseNode
     local halfWidth = (node.width or 20.0) / 2.0
-    
-    -- Safety: If we don't have a perp vector (weird track node), default to center
     local perp = node.perp or self.Driver.shape:getRight() 
     
-    -- "Safe Point" = Center + (PerpendicularVector * Bias * Width)
-    -- Note: We negate perp if necessary to match your +/- 1 logic (Left is usually -1)
+    -- Calculate where the logic WANTS to be (The "Raw" Target)
     local offsetVector = perp:normalize() * (safeBias * halfWidth * -1)
-    local targetPoint = centerTarget + offsetVector
+    local rawTargetPoint = centerTarget + offsetVector
 
-    -- [DEBUG] Visualize where the car is actually trying to go
-    if self.latestDebugData then self.latestDebugData.targetPoint = targetPoint end
+    -- [NEW] TARGET SMOOTHING (The Anti-Blink Filter)
+    -- If we don't have a smoothed point yet, start at the raw point
+    if not self.smoothedTargetPoint then self.smoothedTargetPoint = rawTargetPoint end
+
+    -- Interpolate towards the new point. 
+    -- Factor 10.0 * dt means it takes ~0.3s to fully travel a large jump.
+    -- This eats 1-frame glitches but is fast enough for corners.
+    local lerpFactor = math.min(1.0, 10.0 * dt)
+    self.smoothedTargetPoint = self.smoothedTargetPoint + (rawTargetPoint - self.smoothedTargetPoint) * lerpFactor
+
+    -- Use the SMOOTHED point for physics
+    local targetPoint = self.smoothedTargetPoint
+
+    -- [DEBUG] Visualize both (Magenta = Smooth, Red = Raw/Blinky)
+    if self.latestDebugData then 
+        self.latestDebugData.targetPoint = targetPoint 
+        self.latestDebugData.rawTargetPoint = rawTargetPoint -- You can add a visualizer for this if you want
+    end
 
     -- 3. PURE PURSUIT MATH
     -- Transform Target Point into Local Car Space
@@ -796,18 +815,18 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         local rad = self.smoothedRadius or 0
         local tSpeed = self.dbg_Allowable or 0 -- The speed allowed by the corner geometry
         
+        local rawBias = self.smoothedBias or 0
+
         print(string.format(
-            "[%s] %s | Spd:%03.0f/Tgt:%03.0f (Rad:%03.0f) | PP[Dst:%.1f Y:%+.1f] | STR:%+.2f (Damp:%+.2f) | Thr:%.1f",
-            tostring(self.Driver.id % 100), -- Short ID
-            modeStr,                        -- Current State (RaceLine, Corn1, etc)
-            spd,                            -- Current Speed
-            tSpeed,                         -- Max Allowed Speed for this Radius
-            rad,                            -- The Detected Radius (Wide Chord)
-            ppDist,                         -- Lookahead Distance
-            ppY,                            -- Local Offset (The most important number!)
-            controls.steer,                 -- Final Steering Output
-            damp,                           -- Damping Correction
-            controls.throttle               -- Throttle Input
+            "[%s] %s | Spd:%03.0f | PP[Dst:%.1f Y:%+.1f] | Bias:%+.2f | STR:%+.2f (Damp:%+.2f)",
+            tostring(self.Driver.id % 100), 
+            modeStr,
+            spd,
+            ppDist,
+            ppY,
+            rawBias, -- Added Bias to see if it jumps
+            controls.steer,
+            damp
         ))
     end
 
