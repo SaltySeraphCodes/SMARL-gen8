@@ -119,7 +119,7 @@ function TuningOptimizer:recordFrame(perceptionData)
     local currentSpeed = tel.speed
     local deltaSpeed = currentSpeed - self.lastSpeed
     -- If we lose more than 20 speed in 1 frame (0.025s), we hit something hard.
-    if deltaSpeed < -20.0 then 
+    if deltaSpeed < -10.0 then 
         print(self.driver.id, "IMPACT DETECTED! Delta:", deltaSpeed)
         self:reportCrash()
     end

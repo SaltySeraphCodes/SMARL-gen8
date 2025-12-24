@@ -4,9 +4,9 @@ PerceptionModule = class(nil)
 
 local Z_TOLERANCE_SQ = 25        
 local LOOKAHEAD_DISTANCE_1 = 12.0 
-local LOOKAHEAD_DISTANCE_2 = 35.0 
+local LOOKAHEAD_DISTANCE_2 = 45.0  
 local MAX_CURVATURE_RADIUS = 1000.0 
-local LONG_LOOKAHEAD_DISTANCE = 80.0 -- Increased to see end of straights
+local LONG_LOOKAHEAD_DISTANCE = 80.0
 
 
 local LANE_SLOT_WIDTH = 0.33 
@@ -302,9 +302,9 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
     local baseNode = closestPointData.baseNode
     
     -- 1. Lookahead Logic
-    local baseLookahead = 5 
+    local baseLookahead = 12.0 -- [FIX] Match the constant above
     local speedFactor = 0.6   
-    local lookaheadDist = baseLookahead + telemetry_data.speed * speedFactor 
+    local lookaheadDist = baseLookahead + telemetry_data.speed * speedFactor
     local lookaheadTarget = self:getPointInDistance(
         baseNode, 
         closestPointData.tOnSegment, 

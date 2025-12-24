@@ -594,11 +594,34 @@ function DecisionModule.calculateSteering(self, perceptionData)
         angleWeight = math.max(0.0, angleWeight)
     end
 
+    -- [[ 1. Calculate P-Term ]]
+    -- Dynamic Angle Weighting: Ignore angle if we are way off track
+    local latMag = math.abs(lateralError)
+    local angleWeight = 1.0
+    if latMag > 0.5 then
+        angleWeight = 1.0 - ((latMag - 0.5) * 2.0)
+        angleWeight = math.max(0.0, angleWeight)
+    end
+
     local pTerm = (lateralError * LATERAL_Kp) - ((angleErrorRad / MAX_WHEEL_ANGLE_RAD) * angleWeight)
     
+    -- [[ 2. Calculate D-Term ]]
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-
     local dTerm = yawRate * dynamicKd 
+
+    -- [[ 3. CRITICAL FIX: D-Term Clamping ]]
+    -- If we are in a high-error state (Desperate Turn), 
+    -- do NOT let the D-Term (Stability) reverse the steering direction.
+    if math.abs(pTerm) > 0.5 then
+        -- If P-Term wants Left (-) and D-Term wants Right (+)
+        if (pTerm < 0 and dTerm > 0) then
+            dTerm = math.min(dTerm, math.abs(pTerm) * 0.5) -- Cap D-Term to 50% of P-Term
+        -- If P-Term wants Right (+) and D-Term wants Left (-)
+        elseif (pTerm > 0 and dTerm < 0) then
+            dTerm = math.max(dTerm, -math.abs(pTerm) * 0.5)
+        end
+    end
+
     local rawSteer = (pTerm * dynamicKp) + dTerm
 
     if math.abs(rawSteer) > 0.8 and math.abs(lateralError) > 0.8 then
@@ -649,6 +672,18 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     end
 
     local spd = perceptionData.Telemetry.speed or 0 
+    
+    local currentSpeed = perceptionData.Telemetry.speed or 0
+    if self.lastSpeed then
+        local delta = currentSpeed - self.lastSpeed
+        -- If we lose > 15 speed in one tick (0.025s), that's a massive impact
+        if delta < -15.0 then 
+            print(self.Driver.id, "WALL IMPACT DETECTED! Delta:", delta)
+            if self.Driver.Optimizer then self.Driver.Optimizer:reportCrash() end
+        end
+    end
+    self.lastSpeed = currentSpeed
+
     local tick = sm.game.getServerTick()
     
     local nav = perceptionData.Navigation
