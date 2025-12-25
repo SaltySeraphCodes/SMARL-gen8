@@ -756,7 +756,6 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     return mathClamp(-1.0, 1.0, steerOutput)
 end
 
-
 function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
     local currentSpeed = perceptionData.Telemetry.speed
     local targetSpeed = self:getTargetSpeed(perceptionData,steerInput) -- Recalculated here
@@ -797,6 +796,109 @@ function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
 end
 
 function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
+    local controls = {}
+    controls.resetCar = self:checkUtility(perceptionData,dt)
+
+    self:updateTrackState(perceptionData)
+
+    local targetSpeedForLog = 0.0
+
+    if controls.resetCar then
+        print(self.Driver.id,"resetting car")
+        controls.steer = 0.0; controls.throttle = 0.0; controls.brake = 0.0
+    else
+        self:determineStrategy(perceptionData, dt) 
+        controls.steer = self:calculateSteering(perceptionData, dt)
+        -- Capture target speed from the updated function
+        controls.throttle, controls.brake, targetSpeedForLog = self:calculateSpeedControl(perceptionData, controls.steer)
+    end
+
+    local spd = perceptionData.Telemetry.speed or 0 
+    
+    -- Crash Detection
+    if self.lastSpeed then
+        local delta = spd - self.lastSpeed
+        if delta < -8.0 then 
+            print(self.Driver.id, "WALL IMPACT DETECTED! Delta:", delta)
+            if self.Driver.Optimizer then self.Driver.Optimizer:reportCrash() end
+        end
+    end
+    self.lastSpeed = spd
+
+    -- [[ NEW DEBUG LOGGING ]]
+    local tick = sm.game.getServerTick()
+    if spd > 1.0 and tick % 4 == 0 then 
+        
+        -- 1. Gather Data
+        local nav = perceptionData.Navigation
+        local tm = perceptionData.Telemetry
+        
+        -- Lateral Position
+        local latMeters = nav.lateralMeters or 0.0
+        local trkWidth = nav.trackWidth or 20.0
+        
+        -- Heading Error (Angle between Car Forward and Track Forward)
+        -- Rule: Positive Angle = Car is pointing RIGHT of Track Center
+        local errAngle = 0.0
+        if nav.closestPointData and nav.closestPointData.baseNode then
+            local trackFwd = nav.closestPointData.baseNode.outVector
+            local carFwd = tm.rotations.at
+            local carRight = tm.rotations.right
+            
+            -- If Car Forward dot Track Right is positive, we are pointing right
+            local dotRight = carFwd:dot(sm.vec3.new(trackFwd.y, -trackFwd.x, 0)) -- approx right vec
+            -- Better approach using your car's coordinate system vs track
+            local forwardDot = carFwd:dot(trackFwd)
+            -- We want angle. 
+            local angleRad = math.acos(math.min(math.max(forwardDot, -1), 1))
+            
+            -- Determine Sign (Cross product Z)
+            -- If Cross Z is positive, it usually means Left in standard coords, 
+            -- but let's check your Steer logic:
+            -- Your steer uses `dot(carRight)`, so let's stick to that.
+            -- If Track Forward is to our RIGHT, error is NEGATIVE (we are pointing Left).
+            -- If Track Forward is to our LEFT, error is POSITIVE (we are pointing Right).
+            local trackRelY = trackFwd:dot(carRight) 
+            -- If track is to our right (trackRelY > 0), we are pointing LEFT. 
+            -- We want: +1 = Right Turn. If we are pointing Left, we need +Steer.
+            -- So if trackRelY > 0 (Track is Right), Error is "Left" (-).
+            
+            errAngle = math.deg(angleRad)
+            if trackRelY > 0 then errAngle = -errAngle end 
+            -- Result: Positive Angle = We are pointing RIGHT of the track.
+        end
+        
+        -- Aim Angle (Where the steering WANTS to go)
+        local ppY = self.dbg_PP_Y or 0
+        local ppDist = self.dbg_PP_Dist or 1
+        -- ppY is derived from dot(carRight). So Positive ppY = Target is Right.
+        local aimAngle = math.deg(math.atan(ppY / ppDist))
+        
+        -- 2. Format String
+        -- [Mode] Segment | Spd: Curr/Tgt | Pos: Lat (Width) | Aim: Dist (Ang) | In: T/B/S | Err: HdgErr
+        local logString = string.format(
+            "[%s] %s | Spd: %02.0f/%02.0f | Lat: %+.1f (W:%.0f) | Aim: %.1fm (%+.0f°) | In: T%.1f B%.1f S%+.2f | Err: %+.0f°",
+            self.currentMode or "Race",
+            (self.isCornering and ("Corn"..self.cornerPhase)) or "Str",
+            spd,
+            targetSpeedForLog,
+            latMeters,
+            trkWidth,
+            ppDist,
+            aimAngle,
+            controls.throttle,
+            controls.brake,
+            controls.steer,
+            errAngle
+        )
+        print(logString)
+    end
+
+    self.controls = controls
+    return controls
+end
+
+function DecisionModule.server_onFixedUpdate_old(self,perceptionData,dt)
     local controls = {}
     controls.resetCar = self:checkUtility(perceptionData,dt)
 
