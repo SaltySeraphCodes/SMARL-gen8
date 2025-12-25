@@ -333,16 +333,20 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
     local telemetry_data = self.perceptionData.Telemetry or {}
     local nav = navigation_data or {}
     nav.trackPositionBias = 0.0 
-    nav.racingLineBias = 0.0 -- [NEW]
+    nav.racingLineBias = 0.0 
     nav.nodeGoalDirection = sm.vec3.new(0, 1, 0)
+    nav.trackWidth = 20.0 -- Default width fallback [NEW]
     
     if not navigation_data.closestPointData then return nav end
     
     local closestPointData = navigation_data.closestPointData
     local baseNode = closestPointData.baseNode
     
+    -- [NEW] Store Width explicitly for Debugging
+    if baseNode.width then nav.trackWidth = baseNode.width end
+
     -- 1. Lookahead Logic
-    local baseLookahead = 12.0 -- [FIX] Match the constant above
+    local baseLookahead = 12.0 
     local speedFactor = 0.6   
     local lookaheadDist = baseLookahead + telemetry_data.speed * speedFactor
     local lookaheadTarget = self:getPointInDistance(
@@ -362,30 +366,37 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
         local segmentPerp = sm.vec3.new(-segmentDir.y, segmentDir.x, 0)
         local halfWidth = node1.width / 2
 
-        -- [FIX] Calculate Car Bias relative to MID (Center)
+        -- Calculate Car Bias relative to MID
         local offsetVector = telemetry_data.location - node1.mid 
         local lateralOffset = offsetVector:dot(segmentPerp)
+        
+        -- [NEW] Store raw meters for debug before normalizing
+        nav.lateralMeters = lateralOffset 
+
         nav.trackPositionBias = -math.min(math.max(lateralOffset / halfWidth, -1.0), 1.0)
 
-        -- [NEW] Calculate Racing Line Bias relative to MID
+        -- Calculate Racing Line Bias relative to MID
         local racingOffset = node1.location - node1.mid
         local racingLateral = racingOffset:dot(segmentPerp)
         nav.racingLineBias = -math.min(math.max(racingLateral / halfWidth, -1.0), 1.0)
     else
         nav.trackPositionBias = 0.0
         nav.racingLineBias = 0.0
+        nav.lateralMeters = 0.0
     end
 
     -- 3. Visual/Navigation Targets
     if node1.perp and node1.width then
         local perpVector = node1.perp:normalize() 
         local halfWidth = node1.width / 2
+        local lane_width = LANE_SLOT_WIDTH or 0.33
+        local car_bias = CAR_WIDTH_BIAS or 0.2
         
         nav.centerlineTarget = lookaheadTarget 
         local target_mid_loc = node1.location + (lookaheadTarget - closestPointData.point) 
         
-        nav.lookaheadTargetLeft = target_mid_loc + perpVector * (halfWidth * (-LANE_SLOT_WIDTH - CAR_WIDTH_BIAS))
-        nav.lookaheadTargetRight = target_mid_loc + perpVector * (halfWidth * (LANE_SLOT_WIDTH + CAR_WIDTH_BIAS))
+        nav.lookaheadTargetLeft = target_mid_loc + perpVector * (halfWidth * (-lane_width - car_bias))
+        nav.lookaheadTargetRight = target_mid_loc + perpVector * (halfWidth * (lane_width + car_bias))
     else
         nav.centerlineTarget = lookaheadTarget
         nav.lookaheadTargetLeft = lookaheadTarget
@@ -394,6 +405,7 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
 
     return nav
 end
+
 function PerceptionModule.build_navigation_data(self) 
     local navigationData = {}
     navigationData.closestPointData = self:findClosestPointOnTrack(nil, self.chain) 
