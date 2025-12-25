@@ -421,37 +421,33 @@ end
 function RaceControl.exportSimplifyChain(self, nodeChain)
     local simpChain = {}
     for k, v in ipairs(nodeChain) do
-        local x, y, z
-        local mx, my, mz
-        if type(v.location) == "table" and v.location.x then
-             x, y, z = v.location.x, v.location.y, v.location.z
-        elseif type(v.location) == "userdata" then
-             x, y, z = v.location.x, v.location.y, v.location.z
-        else x, y, z = 0, 0, 0 end
+        local x, y, z = 0, 0, 0
+        local mx, my, mz = 0, 0, 0
 
+        -- 1. GET RACING LINE (Try 'location' first, then 'pos')
+        if v.location then -- Live Userdata or Table
+            if type(v.location) == "userdata" then x, y, z = v.location.x, v.location.y, v.location.z
+            elseif type(v.location) == "table" then x, y, z = v.location.x, v.location.y, v.location.z end
+        elseif v.pos then -- Loaded from Storage
+            x, y, z = v.pos.x, v.pos.y, v.pos.z
+        end
 
-        if type(v.mid) == "table" then
-             mx, my, mz = v.mid.x, v.mid.y, v.mid.z
-        elseif type(v.mid) == "userdata" then
-            mx, my, mz = v.mid.x, v.mid.y, v.mid.z
-        else mx, my, mz = 0, 0, 0 end
+        -- 2. GET CENTER LINE (Try 'mid' as userdata or table)
+        if v.mid then
+            if type(v.mid) == "userdata" then mx, my, mz = v.mid.x, v.mid.y, v.mid.z
+            elseif type(v.mid) == "table" then mx, my, mz = v.mid.x, v.mid.y, v.mid.z end
+        end
         
         local newNode = {
-            id = v.id, midX = mx, midY = my, midZ = mz,
+            id = v.id, 
+            midX = mx, midY = my, midZ = mz,
             raceX = x, raceY = y, raceZ = z,
-            width = v.width, sid = v.sectorID or 1
+            width = v.width, 
+            sid = v.sectorID or 1
         }
         table.insert(simpChain, newNode)
     end
     return simpChain
-end
-
-function RaceControl.sv_export_map_for_overlay(self)
-    local nodeChain = self.trackNodeChain
-    if nodeChain then
-        local exportableChain = self:exportSimplifyChain(nodeChain)
-        sm.json.save(exportableChain, MAP_DATA_PATH)
-    end
 end
 
 -- --- CLEANUP & INTERACTION ---

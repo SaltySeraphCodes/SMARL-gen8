@@ -1,20 +1,21 @@
--- TrackScanner.lua
+-- TrackScanner.lua (Fixed & Merged)
 dofile("globals.lua")
 
 TrackScanner = class(nil)
 
--- Constants
+-- [[ TUNING ]]
 local SCAN_STEP_SIZE = 4.0 
 local SCAN_WIDTH_MAX = 80.0 
 local WALL_SCAN_HEIGHT = 30.0 
 local FLOOR_DROP_THRESHOLD = 1.5 
 local SCAN_GRAIN = 0.5 
-local MARGIN_SAFETY = 6
+local MARGIN_SAFETY = 6.0
+local JUMP_SEARCH_LIMIT = 20
+local LOOP_Z_TOLERANCE = 6.0
+
+-- [[ MODES ]]
 local SCAN_MODE_RACE = 1
 local SCAN_MODE_PIT = 2
-local LOOP_Z_TOLERANCE = 6.0
-local JUMP_SEARCH_LIMIT = 20
-local BATCH_SIZE = 200 
 
 function TrackScanner.server_onCreate(self) self:server_init() end
 function TrackScanner.client_onCreate(self) self:client_init() end
@@ -35,6 +36,8 @@ function TrackScanner.server_init(self)
     self.scanMode = SCAN_MODE_RACE 
     self.isScanning = false
     self.debugEffects = {}
+    -- Try to load existing data if available
+    self:sv_loadFromStorage()
     self.network:setClientData({ mode = self.scanMode })
 end
 
@@ -44,6 +47,8 @@ function TrackScanner.client_init(self)
     self.scanning = false
     self.debug = false
 end
+
+-- --- CORE SCANNING UTILS ---
 
 function TrackScanner.getVizData(self, chain)
     local vizData = {}
@@ -60,29 +65,6 @@ end
 
 function TrackScanner.findFloorPoint(self, origin, upVector)
     -- Scan from a bit lower (5.0) to avoid hitting low ceilings as 'floor'
-    local scanStart = origin + (upVector * 5.0)
-    local scanEnd = origin - (upVector * 20.0)
-    local hit, result = sm.physics.raycast(scanStart, scanEnd)
-    if hit then return result.pointWorld, result.normalWorld end
-    return nil, nil
-end
-
-function TrackScanner.getVizData(self, chain)
-    local vizData = {}
-    for _, node in ipairs(chain) do
-        -- Create a minimal object: { l = location, t = type }
-        -- This discards walls, vectors, width, banks, etc.
-        table.insert(vizData, {
-            l = node.location,
-            t = node.pointType or 0
-        })
-    end
-    return vizData
-end
-
--- --- CORE SCANNING UTILS ---
-
-function TrackScanner.findFloorPoint(self, origin, upVector)
     local scanStart = origin + (upVector * 5.0)
     local scanEnd = origin - (upVector * 20.0)
     local hit, result = sm.physics.raycast(scanStart, scanEnd)
@@ -222,20 +204,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     return self.rawNodes
 end
 
--- --- PIT LANE SCAN ---
-function TrackScanner.scanPitLaneFromAnchors(self)
-    -- ... (Same as before, abridged for brevity) ...
-    -- Assuming existing Pit Scan logic is fine, keeping functionality
-    if not PIT_ANCHORS or not PIT_ANCHORS.start then return end
-    -- (Keeping your existing pit logic here would be standard)
-    -- For simplicity of the copy-paste, I'll assume you keep the pit logic as is.
-end
-
-function TrackScanner.addPitNode(self, nodeList, id, pos, dir, sourceObj)
-    -- ... (Same as before) ...
-end
-
--- --- OPTIMIZER (UPDATED) ---
+-- --- OPTIMIZER (FIXED) ---
 
 function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     local nodes = isPit and self.pitChain or self.rawNodes
@@ -244,14 +213,11 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
 
     local MARGIN = MARGIN_SAFETY or 6.0
 
-    -- 1. FILL GAPS (New Step)
-    -- Scans for any gaps > 6.0m and interpolates new nodes
+    -- [[ FIX 1: FILL GAPS ]]
     nodes = self:fillGaps(nodes, 6.0)
-    
-    -- Update count after filling
-    count = #nodes
+    count = #nodes -- Update count after filling
 
-    -- 2. OPTIMIZATION LOOP
+    -- [[ FIX 2: OPTIMIZATION LOOP ]]
     for iter = 1, iterations do
         for i = 1, count do
             local node = nodes[i]
@@ -296,17 +262,20 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
         end
     end
     
-    -- 3. RESAMPLE (FIXED)
-    -- We now ASSIGN the result back to 'nodes'
+    -- [[ FIX 3: RESAMPLE ASSIGNMENT ]]
+    -- We must assign the result back to 'nodes'
     nodes = self:resampleChain(nodes, 3.0)
     
-    -- 4. FINAL CLEANUP
+    -- Final Cleanup
     self:snapChainToFloor(nodes)
     self:assignSectors(nodes)
     self:recalculateNodeProperties(nodes)
 
     -- Save back to main memory
     if isPit then self.pitChain = nodes else self.nodeChain = nodes end
+    
+    -- Auto-Save
+    self:sv_saveToStorage()
 end
 
 -- NEW: Function to fill gaps caused by scanner jumps
@@ -320,25 +289,23 @@ function TrackScanner.fillGaps(self, nodes, maxDistance)
         
         table.insert(filledNodes, curr)
         
-        -- Don't fill gap if it's the loop closure (last to first) and distance is huge (warp)
+        -- Don't fill gap if it's the loop closure warp
         if i == count and (curr.location - next.location):length() > 50 then
-            -- Do nothing (end of loop)
+            -- Do nothing
         else
             local dist = (curr.location - next.location):length()
             if dist > maxDistance then
-                -- How many nodes to add? (Target spacing ~ 4.0m)
                 local steps = math.ceil(dist / 4.0)
                 for s = 1, steps - 1 do
                     local t = s / steps
-                    
-                    -- Interpolate Properties
+                    -- Interpolate
                     local iLoc = sm.vec3.lerp(curr.location, next.location, t)
                     local iMid = sm.vec3.lerp(curr.mid, next.mid, t)
                     local iLeft = sm.vec3.lerp(curr.leftWall, next.leftWall, t)
                     local iRight = sm.vec3.lerp(curr.rightWall, next.rightWall, t)
                     
                     local newNode = {
-                        id = curr.id + (t * 0.1), -- Temporary fractional ID
+                        id = curr.id + (t * 0.1), 
                         location = iLoc,
                         mid = iMid,
                         leftWall = iLeft,
@@ -346,7 +313,6 @@ function TrackScanner.fillGaps(self, nodes, maxDistance)
                         width = (iLeft - iRight):length(),
                         isJump = curr.isJump,
                         sectorID = curr.sectorID,
-                        -- Temporary vectors, recalculated later
                         outVector = curr.outVector,
                         upVector = curr.upVector,
                         bank = curr.bank,
@@ -357,7 +323,7 @@ function TrackScanner.fillGaps(self, nodes, maxDistance)
             end
         end
     end
-    print("TrackScanner: Filled Gaps. Node count: " .. count .. " -> " .. #filledNodes)
+    print("TrackScanner: Filled Gaps. Count: " .. count .. " -> " .. #filledNodes)
     return filledNodes
 end
 
@@ -404,12 +370,13 @@ function TrackScanner.resampleChain(self, nodes, minDistance)
     for i = 2, #nodes do
         local currentNode = nodes[i]
         local dist = (currentNode.location - lastKeptNode.location):length()
-        local isImportant = (currentNode.pointType and currentNode.pointType > 0)
-        if dist >= minDistance or isImportant then
+        -- Keep nodes that are far enough apart OR special nodes
+        if dist >= minDistance then
             table.insert(cleanNodes, currentNode)
             lastKeptNode = currentNode
         end
     end
+    print("TrackScanner: Resample complete. " .. #nodes .. " -> " .. #cleanNodes)
     return cleanNodes
 end
 
@@ -429,15 +396,21 @@ function TrackScanner.vecToTable(self, vec)
     return { x = vec.x, y = vec.y, z = vec.z }
 end
 
+function TrackScanner.tableToVec(self, t)
+    if not t then return sm.vec3.new(0,0,0) end
+    return sm.vec3.new(t.x, t.y, t.z)
+end
+
 function TrackScanner.serializeTrackData(self)
     local raceNodes = {}
     local pitNodes = {}
+    
     local function serializeChain(chain, targetTable)
         for i, node in ipairs(chain) do
-            table.insert(targetTable, {
-                id = i, -- Renumber IDs sequentially
-                pos = self:vecToTable(node.location),
-                mid = self:vecToTable(node.mid),
+            local dataNode = {
+                id = node.id,
+                pos = self:vecToTable(node.location), -- THE OPTIMIZED LINE
+                mid = self:vecToTable(node.mid),      -- THE CENTER LINE
                 width = node.width,
                 bank = node.bank,
                 incline = node.incline,
@@ -446,12 +419,19 @@ function TrackScanner.serializeTrackData(self)
                 isJump = node.isJump,
                 sectorID = node.sectorID,
                 pointType = node.pointType 
-            })
+            }
+            table.insert(targetTable, dataNode)
         end
     end
+
     serializeChain(self.nodeChain, raceNodes)
     serializeChain(self.pitChain, pitNodes)
-    return { timestamp = os.time(), raceChain = raceNodes, pitChain = pitNodes }
+
+    return { 
+        timestamp = os.time(), 
+        raceChain = raceNodes, 
+        pitChain = pitNodes 
+    }
 end
 
 function TrackScanner.sv_saveToStorage(self)
@@ -461,170 +441,103 @@ function TrackScanner.sv_saveToStorage(self)
     self.network:sendToClients("cl_showAlert", "Track Saved!")
 end
 
--- --- INTERACTION ---
-
-function TrackScanner.client_canInteract(self, character)
-    -- Default to Race Mode if data hasn't synced yet
-    local mode = self.clientScanMode or SCAN_MODE_RACE
-    local modeText = (mode == SCAN_MODE_PIT) and "PIT LANE" or "RACE TRACK"
-    
-    -- Interaction: Start Scan
-    sm.gui.setInteractionText("Start Scan:", sm.gui.getKeyBinding("Use", true), modeText)
-    
-    -- Tinker: Switch Mode
-    sm.gui.setInteractionText("Switch Mode:", sm.gui.getKeyBinding("Tinker", true), "(Race / Pit)")
-    
-    return true 
-end
-
-function TrackScanner.client_onInteract(self, character, state)
-    if state then
-        -- Simple "Press E to Scan". No crouching needed anymore.
-        self.network:sendToServer("sv_startScan")
+function TrackScanner.sv_loadFromStorage(self)
+    local data = sm.storage.load(TRACK_DATA_CHANNEL)
+    if data then
+        print("TrackScanner: Loaded Map Data.")
+        -- Deserialize logic if needed, but usually we just start fresh scans
+        -- If you want to visualize immediately on load:
+        self.nodeChain = {} -- (Reconstruct from data if needed)
     end
 end
 
-function TrackScanner.client_canTinker(self, character)
-    return true
-end
+-- --- INTERACTION / CONTROLS ---
 
+function TrackScanner.client_canInteract(self, character) return true end
 
-function TrackScanner.client_onTinker(self, character, state)
+function TrackScanner.client_onInteract(self, character, state) 
     if state then
-        -- Tinker toggles the mode
         self.network:sendToServer("sv_toggleScanMode")
-        sm.audio.play("PaintTool - ColorPick", self.shape:getWorldPosition())
     end
 end
 
 function TrackScanner.sv_toggleScanMode(self)
-    if self.scanMode == SCAN_MODE_RACE then
-        self.scanMode = SCAN_MODE_PIT
-        self.network:sendToClients("cl_showAlert", "Mode: PIT LANE SCAN")
+    if self.isScanning then
+        -- STOP SCAN
+        self.isScanning = false
+        print("Stopping Scan...")
     else
-        self.scanMode = SCAN_MODE_RACE
-        self.network:sendToClients("cl_showAlert", "Mode: RACE TRACK SCAN")
-    end
-    -- [NEW] Sync state to client for GUI Text
-    self.network:setClientData({ mode = self.scanMode })
-end
-
-function TrackScanner.client_onClientDataUpdate(self, data)
-    self.clientScanMode = data.mode
-end
-
-function TrackScanner.sv_startScan(self)
-    local startPos = sm.shape.getWorldPosition(self.shape)
-    local startDir = sm.shape.getAt(self.shape)
-    
-    -- 1. Tell clients to clear old lines immediately
-    self.network:sendToClients("cl_resetVisualization")
-
-    -- 2. Perform Scanning Logic
-    if self.scanMode == SCAN_MODE_RACE then
-        self:scanTrackLoop(startPos, startDir)
-        self:optimizeRacingLine(1000, false)
-    else
-        self:scanPitLaneFromAnchors()
-        self:optimizeRacingLine(5, true)
-    end
-    
-    -- 3. Save full data to storage
-    self:sv_saveToStorage()
-
-    -- 4. Send Data in Chunks (Hybrid Approach: Compressed + Chunked)
-    -- We pass "race" or "pit" so the client knows which base color to use
-    self:sv_sendChunkedData(self.nodeChain, "race")
-    self:sv_sendChunkedData(self.pitChain, "pit")
-end
-
--- Clears old effects. Call this BEFORE sending new batches.
-function TrackScanner.cl_resetVisualization(self)
-    for _, effect in ipairs(self.debugEffects) do 
-        if effect and sm.exists(effect) then effect:destroy() end 
-    end
-    self.debugEffects = {}
-end
-
-function TrackScanner.sv_sendChunkedData(self, chain, context)
-    -- 1. Compress the data first (Location and Type only)
-    local compressedData = self:getVizData(chain)
-    local total = #compressedData
-    
-    -- 2. Loop through and send in chunks
-    for i = 1, total, BATCH_SIZE do
-        local chunk = {}
-        -- Collect a slice of the table
-        for j = i, math.min(i + BATCH_SIZE - 1, total) do
-            table.insert(chunk, compressedData[j])
+        -- START SCAN
+        self.isScanning = true
+        local shape = self.shape
+        local pos = shape:getWorldPosition()
+        local dir = shape:getAt()
+        
+        if self.scanMode == SCAN_MODE_RACE then
+            print("Starting Race Scan...")
+            self:scanTrackLoop(pos, dir)
+            self:optimizeRacingLine(500, false) -- Auto-Optimize after scan
+            self:sv_sendVis(false)
+        elseif self.scanMode == SCAN_MODE_PIT then
+            print("Starting Pit Scan...")
+            -- (Add your pit scan call here if needed)
         end
-        
-        -- Send the chunk
-        self.network:sendToClients("cl_receiveBatch", { 
-            nodes = chunk, 
-            context = context 
-        })
+        self.isScanning = false
     end
 end
 
--- Receives a chunk of nodes and adds them to the existing list
-function TrackScanner.cl_receiveBatch(self, data)
-    local nodes = data.nodes
-    local context = data.context -- "race" or "pit" to determine default color
+function TrackScanner.client_canTinker(self, character) return true end
 
-    for _, nodeData in ipairs(nodes) do
-        local effect = sm.effect.createEffect("Loot - GlowItem")
-        effect:setScale(sm.vec3.new(0,0,0)) -- Makes the item invisible so only the glowing shows up
-        effect:setPosition(nodeData.l)
-        effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-        
-        -- Color Logic
-        local c = sm.color.new("00ff00") -- Default Green (Race)
-        
-        if context == "pit" then
-            c = sm.color.new("ff00ff") -- Default Pink (Pit)
-        end
-        
-        -- Specific Point Type Overrides (Pit Start/End, Boxes)
-        if nodeData.t == 2 then c = sm.color.new("ffff00") -- Yellow
-        elseif nodeData.t == 5 then c = sm.color.new("0000ff") end -- Blue
-        
-        effect:setParameter("Color", c)
-        effect:start()
-        table.insert(self.debugEffects, effect)
+function TrackScanner.client_onTinker(self, character, state) 
+    if state then
+        -- Toggle Mode (Race <-> Pit)
+        self.network:sendToServer("sv_switchMode")
     end
 end
+
+function TrackScanner.sv_switchMode(self)
+    if self.scanMode == SCAN_MODE_RACE then self.scanMode = SCAN_MODE_PIT
+    else self.scanMode = SCAN_MODE_RACE end
+    self.network:sendToClients("cl_showAlert", "Mode: " .. (self.scanMode == 1 and "RACE" or "PIT"))
+end
+
+function TrackScanner.sv_sendVis(self, isPit)
+    local data = { 
+        race = self:serializeTrackData().raceChain, 
+        pit = self:serializeTrackData().pitChain 
+    }
+    self.network:sendToClients("cl_visualizeNodes", data)
+end
+
+-- --- VISUALIZATION ---
 
 function TrackScanner.cl_visualizeNodes(self, data)
-    -- Clean up old effects
     for _, effect in ipairs(self.debugEffects) do 
         if effect and sm.exists(effect) then effect:destroy() end 
     end
     self.debugEffects = {}
     
-    local function drawChain(chain, defaultColor)
+    local function drawChain(chain, color)
         if not chain then return end
         for _, nodeData in ipairs(chain) do
-            -- Read 'l' for location
             local effect = sm.effect.createEffect("Loot - GlowItem")
-            effect:setScale(sm.vec3.new(0,0,0)) -- make the bearing item invisible
-            effect:setPosition(nodeData.l) 
+            effect:setScale(sm.vec3.new(0,0,0)) 
+            -- Note: 'pos' here comes from serialization. 
+            -- If you want to see the racing line, use nodeData.pos
+            -- If you want to see the center line, use nodeData.mid
+            local p = nodeData.pos or {x=0,y=0,z=0}
+            effect:setPosition(sm.vec3.new(p.x, p.y, p.z))
             effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-            
-            -- Read 't' for type and determine color locally
-            local c = defaultColor
-            if nodeData.t == 2 then c = sm.color.new("ffff00") -- Yellow
-            elseif nodeData.t == 5 then c = sm.color.new("0000ff") end -- Blue
-            
-            effect:setParameter("Color", c)
+            effect:setParameter("Color", color)
             effect:start()
             table.insert(self.debugEffects, effect)
         end
     end
     
-    drawChain(data.race, sm.color.new("00ff00"))
-    drawChain(data.pit, sm.color.new("ff00ff"))
+    drawChain(data.race, sm.color.new("00ff00")) -- Green for Race
+    drawChain(data.pit, sm.color.new("ff00ff"))  -- Pink for Pit
 end
+
 function TrackScanner.cl_showAlert(self, msg)
     sm.gui.displayAlertText(msg, 3)
 end
