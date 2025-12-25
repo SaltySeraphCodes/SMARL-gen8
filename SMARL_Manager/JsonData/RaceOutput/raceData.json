@@ -8,53 +8,5 @@
 		"status" : 1.0
 	},
 	"qd" : null,
-	"rt" : 
-	[
-		
-		{
-			"bestLap" : 0.0,
-			"fl" : 1.0,
-			"gapToLeader" : 0.0,
-			"gapToNext" : 0.0,
-			"gl" : 0.50,
-			"id" : 30811.0,
-			"lapNum" : 0.0,
-			"lastLap" : 0.0,
-			"locX" : -557.179199218750,
-			"locY" : -293.6164855957031,
-			"owner" : 30811.0,
-			"pitState" : 0.0,
-			"pitTimer" : 0.0,
-			"place" : 2.0,
-			"sa" : 0.50,
-			"speed" : 4.005168437957764,
-			"st" : [ 0.0, 0.0, 0.0 ],
-			"th" : 1.0,
-			"timeSplit" : 0.0,
-			"tt" : 2.0
-		},
-		
-		{
-			"bestLap" : 0.0,
-			"fl" : 1.0,
-			"gapToLeader" : 0.0,
-			"gapToNext" : 0.0,
-			"gl" : 0.50,
-			"id" : 30811.0,
-			"lapNum" : 0.0,
-			"lastLap" : 0.0,
-			"locX" : -557.179199218750,
-			"locY" : -293.6164855957031,
-			"owner" : 30811.0,
-			"pitState" : 0.0,
-			"pitTimer" : 0.0,
-			"place" : 2.0,
-			"sa" : 0.50,
-			"speed" : 4.005168437957764,
-			"st" : [ 0.0, 0.0, 0.0 ],
-			"th" : 1.0,
-			"timeSplit" : 0.0,
-			"tt" : 2.0
-		}
-	]
+	"rt" : null
 }
