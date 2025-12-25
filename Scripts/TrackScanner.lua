@@ -368,8 +368,103 @@ function TrackScanner.addPitNode(self, nodeList, id, pos, dir, sourceObj)
 end
 
 -- --- OPTIMIZER ---
-
 function TrackScanner.optimizeRacingLine(self, iterations, isPit)
+    local nodes = isPit and self.pitChain or self.rawNodes
+    local count = #nodes
+    if count < 3 then return end
+
+    local MARGIN = MARGIN_SAFETY or 6.0
+    -- Optimization Loop
+    for iter = 1, iterations do
+        -- We shuffle indices or just iterate. Standard iteration is fine for this.
+        for i = 1, count do
+            local node = nodes[i]
+            if not node.isJump then 
+                local prev = nodes[(i - 2) % count + 1]
+                local next = nodes[(i % count) + 1]
+
+                -- 1. Calculate Vectors
+                local wallVec = node.rightWall - node.leftWall
+                local trackWidth = wallVec:length()
+                local wallDir = wallVec:normalize()
+
+                -- 2. Find Current Position on the Width Line (0.0 to TrackWidth)
+                local currentRel = node.location - node.leftWall
+                local currentDist = currentRel:dot(wallDir)
+
+                -- 3. Calculate "Gradient" (Which direction makes the curve flatter?)
+                -- We sample 3 spots: Left (-0.5m), Current, Right (+0.5m)
+                local step = 0.5
+                local pCurrent = node.location
+                local pLeft    = node.location - (wallDir * step)
+                local pRight   = node.location + (wallDir * step)
+
+                local rCurrent = self:getLocalRadius(prev.location, pCurrent, next.location)
+                local rLeft    = self:getLocalRadius(prev.location, pLeft, next.location)
+                local rRight   = self:getLocalRadius(prev.location, pRight, next.location)
+
+                -- 4. Move towards the larger radius (The flatter curve)
+                local move = 0.0
+                if rLeft > rCurrent and rLeft > rRight then
+                    move = -step -- Move Left
+                elseif rRight > rCurrent and rRight > rLeft then
+                    move = step -- Move Right
+                else
+                    -- If current is best, apply slight smoothing (rubber band) to fix kinks
+                    local smoothPos = (prev.location + next.location) * 0.5
+                    local smoothRel = smoothPos - node.leftWall
+                    local smoothDist = smoothRel:dot(wallDir)
+                    local diff = smoothDist - currentDist
+                    move = diff * 0.1 -- Weak smoothing factor
+                end
+                
+                -- 5. Apply Move & Clamp
+                local newDist = currentDist + move
+                
+                -- SAFETY CLAMP: Keep car away from walls
+                newDist = math.max(MARGIN, math.min(trackWidth - MARGIN, newDist))
+                
+                -- Update Node
+                node.location = node.leftWall + (wallDir * newDist)
+            end
+        end
+    end
+    
+    -- Final Clean-up
+    self:resampleChain(nodes, 3.0)
+    self:snapChainToFloor(nodes)
+    self:assignSectors(nodes)
+    self.nodeChain = nodes
+    self:recalculateNodeProperties(nodes)
+end
+
+-- HELPER: Calculate Radius of 3 points (2D XY Plane is usually enough)
+function TrackScanner.getLocalRadius(self, p1, p2, p3)
+    local v1 = p2 - p1
+    local v2 = p3 - p2
+    -- Flatten Z for cleaner corner radii optimization
+    v1.z = 0 
+    v2.z = 0
+    
+    local L1 = v1:length()
+    local L2 = v2:length()
+    local chord = (p3 - p1):length()
+    
+    -- Heron's Formula Approach or Cosine Rule
+    -- Simple Curvature = 1/R. 
+    -- R = L / (2 * sin(theta)). 
+    -- Approximate via Menger Curvature: 4 * Area / (L1*L2*L3)
+    
+    local s = (L1 + L2 + chord) * 0.5
+    local areaSq = s * (s - L1) * (s - L2) * (s - chord)
+    if areaSq <= 0.001 then return 10000.0 end -- Straight line
+    
+    local area = math.sqrt(areaSq)
+    local R = (L1 * L2 * chord) / (4.0 * area)
+    return R
+end
+
+function TrackScanner.optimizeRacingLine_old_laplac(self, iterations, isPit)
     local nodes = isPit and self.pitChain or self.rawNodes
     local count = #nodes
     if count < 3 then return end
@@ -613,7 +708,7 @@ function TrackScanner.sv_startScan(self)
     -- 2. Perform Scanning Logic
     if self.scanMode == SCAN_MODE_RACE then
         self:scanTrackLoop(startPos, startDir)
-        self:optimizeRacingLine(500, false)
+        self:optimizeRacingLine(1000, false)
     else
         self:scanPitLaneFromAnchors()
         self:optimizeRacingLine(5, true)
