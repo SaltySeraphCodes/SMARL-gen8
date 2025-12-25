@@ -425,3 +425,171 @@ function TrackScanner.sv_saveToStorage(self)
     sm.storage.save(TRACK_DATA_CHANNEL, data)
     self.network:sendToClients("cl_showAlert", "Track Saved!")
 end
+
+-- --- INTERACTION ---
+
+function TrackScanner.client_canInteract(self, character)
+    -- Default to Race Mode if data hasn't synced yet
+    local mode = self.clientScanMode or SCAN_MODE_RACE
+    local modeText = (mode == SCAN_MODE_PIT) and "PIT LANE" or "RACE TRACK"
+    
+    -- Interaction: Start Scan
+    sm.gui.setInteractionText("Start Scan:", sm.gui.getKeyBinding("Use", true), modeText)
+    
+    -- Tinker: Switch Mode
+    sm.gui.setInteractionText("Switch Mode:", sm.gui.getKeyBinding("Tinker", true), "(Race / Pit)")
+    
+    return true 
+end
+
+function TrackScanner.client_onInteract(self, character, state)
+    if state then
+        -- Simple "Press E to Scan". No crouching needed anymore.
+        self.network:sendToServer("sv_startScan")
+    end
+end
+
+function TrackScanner.client_canTinker(self, character)
+    return true
+end
+
+
+function TrackScanner.client_onTinker(self, character, state)
+    if state then
+        -- Tinker toggles the mode
+        self.network:sendToServer("sv_toggleScanMode")
+        sm.audio.play("PaintTool - ColorPick", self.shape:getWorldPosition())
+    end
+end
+
+function TrackScanner.sv_toggleScanMode(self)
+    if self.scanMode == SCAN_MODE_RACE then
+        self.scanMode = SCAN_MODE_PIT
+        self.network:sendToClients("cl_showAlert", "Mode: PIT LANE SCAN")
+    else
+        self.scanMode = SCAN_MODE_RACE
+        self.network:sendToClients("cl_showAlert", "Mode: RACE TRACK SCAN")
+    end
+    -- [NEW] Sync state to client for GUI Text
+    self.network:setClientData({ mode = self.scanMode })
+end
+
+function TrackScanner.client_onClientDataUpdate(self, data)
+    self.clientScanMode = data.mode
+end
+
+function TrackScanner.sv_startScan(self)
+    local startPos = sm.shape.getWorldPosition(self.shape)
+    local startDir = sm.shape.getAt(self.shape)
+    
+    -- 1. Tell clients to clear old lines immediately
+    self.network:sendToClients("cl_resetVisualization")
+
+    -- 2. Perform Scanning Logic
+    if self.scanMode == SCAN_MODE_RACE then
+        self:scanTrackLoop(startPos, startDir)
+        self:optimizeRacingLine(1000, false)
+    else
+        self:scanPitLaneFromAnchors()
+        self:optimizeRacingLine(5, true)
+    end
+    
+    -- 3. Save full data to storage
+    self:sv_saveToStorage()
+
+    -- 4. Send Data in Chunks (Hybrid Approach: Compressed + Chunked)
+    -- We pass "race" or "pit" so the client knows which base color to use
+    self:sv_sendChunkedData(self.nodeChain, "race")
+    self:sv_sendChunkedData(self.pitChain, "pit")
+end
+
+-- Clears old effects. Call this BEFORE sending new batches.
+function TrackScanner.cl_resetVisualization(self)
+    for _, effect in ipairs(self.debugEffects) do 
+        if effect and sm.exists(effect) then effect:destroy() end 
+    end
+    self.debugEffects = {}
+end
+
+function TrackScanner.sv_sendChunkedData(self, chain, context)
+    -- 1. Compress the data first (Location and Type only)
+    local compressedData = self:getVizData(chain)
+    local total = #compressedData
+    
+    -- 2. Loop through and send in chunks
+    for i = 1, total, BATCH_SIZE do
+        local chunk = {}
+        -- Collect a slice of the table
+        for j = i, math.min(i + BATCH_SIZE - 1, total) do
+            table.insert(chunk, compressedData[j])
+        end
+        
+        -- Send the chunk
+        self.network:sendToClients("cl_receiveBatch", { 
+            nodes = chunk, 
+            context = context 
+        })
+    end
+end
+
+-- Receives a chunk of nodes and adds them to the existing list
+function TrackScanner.cl_receiveBatch(self, data)
+    local nodes = data.nodes
+    local context = data.context -- "race" or "pit" to determine default color
+
+    for _, nodeData in ipairs(nodes) do
+        local effect = sm.effect.createEffect("Loot - GlowItem")
+        effect:setScale(sm.vec3.new(0,0,0)) -- Makes the item invisible so only the glowing shows up
+        effect:setPosition(nodeData.l)
+        effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+        
+        -- Color Logic
+        local c = sm.color.new("00ff00") -- Default Green (Race)
+        
+        if context == "pit" then
+            c = sm.color.new("ff00ff") -- Default Pink (Pit)
+        end
+        
+        -- Specific Point Type Overrides (Pit Start/End, Boxes)
+        if nodeData.t == 2 then c = sm.color.new("ffff00") -- Yellow
+        elseif nodeData.t == 5 then c = sm.color.new("0000ff") end -- Blue
+        
+        effect:setParameter("Color", c)
+        effect:start()
+        table.insert(self.debugEffects, effect)
+    end
+end
+
+function TrackScanner.cl_visualizeNodes(self, data)
+    -- Clean up old effects
+    for _, effect in ipairs(self.debugEffects) do 
+        if effect and sm.exists(effect) then effect:destroy() end 
+    end
+    self.debugEffects = {}
+    
+    local function drawChain(chain, defaultColor)
+        if not chain then return end
+        for _, nodeData in ipairs(chain) do
+            -- Read 'l' for location
+            local effect = sm.effect.createEffect("Loot - GlowItem")
+            effect:setScale(sm.vec3.new(0,0,0)) -- make the bearing item invisible
+            effect:setPosition(nodeData.l) 
+            effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+            
+            -- Read 't' for type and determine color locally
+            local c = defaultColor
+            if nodeData.t == 2 then c = sm.color.new("ffff00") -- Yellow
+            elseif nodeData.t == 5 then c = sm.color.new("0000ff") end -- Blue
+            
+            effect:setParameter("Color", c)
+            effect:start()
+            table.insert(self.debugEffects, effect)
+        end
+    end
+    
+    drawChain(data.race, sm.color.new("00ff00"))
+    drawChain(data.pit, sm.color.new("ff00ff"))
+end
+function TrackScanner.cl_showAlert(self, msg)
+    sm.gui.displayAlertText(msg, 3)
+end
