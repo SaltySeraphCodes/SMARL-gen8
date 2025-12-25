@@ -825,71 +825,38 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     end
     self.lastSpeed = spd
 
-    -- [[ NEW DEBUG LOGGING ]]
     local tick = sm.game.getServerTick()
     if spd > 1.0 and tick % 4 == 0 then 
         
-        -- 1. Gather Data
+        -- 1. Get Physical Wheel Angle
+        local actualWheelAngle = 0.0
+        local bearings = sm.interactable.getBearings(self.Driver.interactable)
+        if #bearings > 0 then
+            -- Get angle in radians, convert to "Steer Factor" (-1 to 1)
+            -- Assumes MAX_WHEEL_ANGLE_RAD is 0.8 as defined at top of DecisionModule
+            actualWheelAngle = bearings[1]:getAngle() / 0.8 
+        end
+
         local nav = perceptionData.Navigation
         local tm = perceptionData.Telemetry
         
         -- Lateral Position
         local latMeters = nav.lateralMeters or 0.0
-        local trkWidth = nav.trackWidth or 20.0
         
-        -- Heading Error (Angle between Car Forward and Track Forward)
-        -- Rule: Positive Angle = Car is pointing RIGHT of Track Center
-        local errAngle = 0.0
-        if nav.closestPointData and nav.closestPointData.baseNode then
-            local trackFwd = nav.closestPointData.baseNode.outVector
-            local carFwd = tm.rotations.at
-            local carRight = tm.rotations.right
-            
-            -- If Car Forward dot Track Right is positive, we are pointing right
-            local dotRight = carFwd:dot(sm.vec3.new(trackFwd.y, -trackFwd.x, 0)) -- approx right vec
-            -- Better approach using your car's coordinate system vs track
-            local forwardDot = carFwd:dot(trackFwd)
-            -- We want angle. 
-            local angleRad = math.acos(math.min(math.max(forwardDot, -1), 1))
-            
-            -- Determine Sign (Cross product Z)
-            -- If Cross Z is positive, it usually means Left in standard coords, 
-            -- but let's check your Steer logic:
-            -- Your steer uses `dot(carRight)`, so let's stick to that.
-            -- If Track Forward is to our RIGHT, error is NEGATIVE (we are pointing Left).
-            -- If Track Forward is to our LEFT, error is POSITIVE (we are pointing Right).
-            local trackRelY = trackFwd:dot(carRight) 
-            -- If track is to our right (trackRelY > 0), we are pointing LEFT. 
-            -- We want: +1 = Right Turn. If we are pointing Left, we need +Steer.
-            -- So if trackRelY > 0 (Track is Right), Error is "Left" (-).
-            
-            errAngle = math.deg(angleRad)
-            if trackRelY > 0 then errAngle = -errAngle end 
-            -- Result: Positive Angle = We are pointing RIGHT of the track.
-        end
-        
-        -- Aim Angle (Where the steering WANTS to go)
+        -- Aim Angle
         local ppY = self.dbg_PP_Y or 0
         local ppDist = self.dbg_PP_Dist or 1
-        -- ppY is derived from dot(carRight). So Positive ppY = Target is Right.
         local aimAngle = math.deg(math.atan(ppY / ppDist))
         
-        -- 2. Format String
-        -- [Mode] Segment | Spd: Curr/Tgt | Pos: Lat (Width) | Aim: Dist (Ang) | In: T/B/S | Err: HdgErr
+        -- Format String
+        -- Added "W": Actual Wheel Factor
         local logString = string.format(
-            "[%s] %s | Spd: %02.0f/%02.0f | Lat: %+.1f (W:%.0f) | Aim: %.1fm (%+.0f°) | In: T%.1f B%.1f S%+.2f | Err: %+.0f°",
-            self.currentMode or "Race",
-            (self.isCornering and ("Corn"..self.cornerPhase)) or "Str",
-            spd,
-            targetSpeedForLog,
+            "Lat: %+.1f | Aim: %+.0f° | Steer: Cmd %+.2f vs Act %+.2f | Lag: %+.2f",
             latMeters,
-            trkWidth,
-            ppDist,
             aimAngle,
-            controls.throttle,
-            controls.brake,
             controls.steer,
-            errAngle
+            actualWheelAngle,
+            controls.steer - actualWheelAngle
         )
         print(logString)
     end

@@ -204,8 +204,8 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
 
             table.insert(self.rawNodes, {
                 id = iterations + 1,
-                location = midPoint, -- This will Move later during Optimization
-                mid = midPoint,     -- STAYS as the Geometric Center reference 
+                location = midPoint, -- Racing line (RaceX,Y,Z) Line -- This will Move later during Optimization
+                mid = midPoint,     -- Mid Line (MidX,Y,Z) -- STAYS as the Geometric Center reference 
                 leftWall = leftWall,
                 rightWall = rightWall,
                 width = trackWidth,
@@ -339,7 +339,7 @@ function TrackScanner.addPitNode(self, nodeList, id, pos, dir, sourceObj)
 
     local node = {
         id = id,
-        location = pos,
+        location = pos, 
         mid = pos, 
         width = 15.0, 
         outVector = dir,

@@ -422,14 +422,20 @@ function RaceControl.exportSimplifyChain(self, nodeChain)
     local simpChain = {}
     for k, v in ipairs(nodeChain) do
         local x, y, z
+        local mx, my, mz
         if type(v.location) == "table" and v.location.x then
              x, y, z = v.location.x, v.location.y, v.location.z
         elseif type(v.location) == "userdata" then
              x, y, z = v.location.x, v.location.y, v.location.z
+        elseif type(v.mid) == "userdata" then
+             mx, my, mz = v.mid.x, v.mid.y, v.mid.z
+        elseif type(v.mid) == "userdata" then
+            mx, my, mz = v.mid.x, v.mid.y, v.mid.z
         else x, y, z = 0, 0, 0 end
         
         local newNode = {
-            id = v.id, midX = x, midY = y, midZ = z, 
+            id = v.id, midX = mx, midY = my, midZ = mz,
+            raceX = x, raceY = y, raceZ = z,
             width = v.width, sid = v.sectorID or 1
         }
         table.insert(simpChain, newNode)
