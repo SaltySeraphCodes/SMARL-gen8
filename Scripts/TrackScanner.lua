@@ -45,6 +45,41 @@ function TrackScanner.client_init(self)
     self.debug = false
 end
 
+function TrackScanner.getVizData(self, chain)
+    local vizData = {}
+    for _, node in ipairs(chain) do
+        -- Create a minimal object: { l = location, t = type }
+        -- This discards walls, vectors, width, banks, etc.
+        table.insert(vizData, {
+            l = node.location,
+            t = node.pointType or 0
+        })
+    end
+    return vizData
+end
+
+function TrackScanner.findFloorPoint(self, origin, upVector)
+    -- Scan from a bit lower (5.0) to avoid hitting low ceilings as 'floor'
+    local scanStart = origin + (upVector * 5.0)
+    local scanEnd = origin - (upVector * 20.0)
+    local hit, result = sm.physics.raycast(scanStart, scanEnd)
+    if hit then return result.pointWorld, result.normalWorld end
+    return nil, nil
+end
+
+function TrackScanner.getVizData(self, chain)
+    local vizData = {}
+    for _, node in ipairs(chain) do
+        -- Create a minimal object: { l = location, t = type }
+        -- This discards walls, vectors, width, banks, etc.
+        table.insert(vizData, {
+            l = node.location,
+            t = node.pointType or 0
+        })
+    end
+    return vizData
+end
+
 -- --- CORE SCANNING UTILS ---
 
 function TrackScanner.findFloorPoint(self, origin, upVector)
