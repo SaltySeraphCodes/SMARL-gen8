@@ -501,41 +501,73 @@ function TrackScanner.sv_switchMode(self)
     self.network:sendToClients("cl_showAlert", "Mode: " .. (self.scanMode == 1 and "RACE" or "PIT"))
 end
 
-function TrackScanner.sv_sendVis(self, isPit)
-    local data = { 
-        race = self:serializeTrackData().raceChain, 
-        pit = self:serializeTrackData().pitChain 
-    }
-    self.network:sendToClients("cl_visualizeNodes", data)
+function TrackScanner.sv_sendVis(self)
+    local data = self:serializeTrackData()
+    
+    -- Helper to chunk and send data
+    local function sendBatches(chain, chainType)
+        if not chain then return end
+        local batchSize = 50 -- Safe limit (approx 20kb per packet)
+        
+        -- 1. Send Start Signal (Clears old effects on client)
+        self.network:sendToClients("cl_visEvent", { type = "start", chain = chainType })
+        
+        -- 2. Send Chunks
+        local currentBatch = {}
+        for i, node in ipairs(chain) do
+            table.insert(currentBatch, node)
+            if #currentBatch >= batchSize then
+                self.network:sendToClients("cl_visEvent", { type = "batch", chain = chainType, nodes = currentBatch })
+                currentBatch = {}
+            end
+        end
+        
+        -- 3. Send Remainder
+        if #currentBatch > 0 then
+            self.network:sendToClients("cl_visEvent", { type = "batch", chain = chainType, nodes = currentBatch })
+        end
+    end
+    sendBatches(data.raceChain, "race")
+    sendBatches(data.pitChain, "pit")
 end
 
 -- --- VISUALIZATION ---
 
-function TrackScanner.cl_visualizeNodes(self, data)
-    for _, effect in ipairs(self.debugEffects) do 
-        if effect and sm.exists(effect) then effect:destroy() end 
-    end
-    self.debugEffects = {}
+function TrackScanner.cl_visEvent(self, data)
+    -- Initialize container if missing
+    if not self.debugEffects then self.debugEffects = {} end
     
-    local function drawChain(chain, color)
-        if not chain then return end
-        for _, nodeData in ipairs(chain) do
+    -- CASE 1: START (Clear previous effects)
+    if data.type == "start" then
+        if data.chain == "race" then
+            -- Clear everything when race scan starts to prevent ghosts
+            for _, effect in ipairs(self.debugEffects) do 
+                if effect and sm.exists(effect) then effect:destroy() end 
+            end
+            self.debugEffects = {}
+        end
+        
+    -- CASE 2: BATCH (Add new effects)
+    elseif data.type == "batch" then
+        local color = sm.color.new("00ff00") -- Green (Race)
+        if data.chain == "pit" then color = sm.color.new("ff00ff") end -- Pink (Pit)
+        
+        for _, nodeData in ipairs(data.nodes) do
+            -- Create Effect
             local effect = sm.effect.createEffect("Loot - GlowItem")
             effect:setScale(sm.vec3.new(0,0,0)) 
-            -- Note: 'pos' here comes from serialization. 
-            -- If you want to see the racing line, use nodeData.pos
-            -- If you want to see the center line, use nodeData.mid
-            local p = nodeData.pos or {x=0,y=0,z=0}
+            
+            -- Handle key mismatch (pos vs location)
+            local p = nodeData.pos or nodeData.location or {x=0,y=0,z=0}
             effect:setPosition(sm.vec3.new(p.x, p.y, p.z))
+            
             effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
             effect:setParameter("Color", color)
             effect:start()
+            
             table.insert(self.debugEffects, effect)
         end
     end
-    
-    drawChain(data.race, sm.color.new("00ff00")) -- Green for Race
-    drawChain(data.pit, sm.color.new("ff00ff"))  -- Pink for Pit
 end
 
 function TrackScanner.cl_showAlert(self, msg)
