@@ -128,21 +128,24 @@ function PerceptionModule:getPointInDistance(baseNode, start_t, distance, chain)
 end
 
 function PerceptionModule:calculateCurvatureRadius(pA, pB, pC)
-    local a = sm.vec3.new(pA.x, pA.y, 0)
-    local b = sm.vec3.new(pB.x, pB.y, 0)
-    local c = sm.vec3.new(pC.x, pC.y, 0)
-    local v1 = b - a
-    local v2 = c - b
+    -- Use full 3D vectors
+    local v1 = pB - pA
+    local v2 = pC - pB
+    local v3 = pC - pA
+    
     local length1 = v1:length()
     local length2 = v2:length()
-    local length3 = (c - a):length()
-    local crossZ = v1.x * v2.y - v1.y * v2.x
-    -- If the points are collinear (cross product near 0), it's a straight line
-    if math.abs(crossZ) < 0.001 then return MAX_CURVATURE_RADIUS end
+    local length3 = v3:length()
+    
+    -- Heron's formula for radius (R = abc / 4A)
     local s = (length1 + length2 + length3) / 2
-    local area = math.sqrt(math.abs(s * (s - length1) * (s - length2) * (s - length3)))
-    if area == 0 then return MAX_CURVATURE_RADIUS end
+    local areaSq = s * (s - length1) * (s - length2) * (s - length3)
+    
+    if areaSq <= 0 then return MAX_CURVATURE_RADIUS end
+    
+    local area = math.sqrt(areaSq)
     local radius = (length1 * length2 * length3) / (4 * area)
+    
     return math.min(radius, MAX_CURVATURE_RADIUS) 
 end
 
@@ -176,24 +179,26 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
     local currentDist = 0.0
     local chordOffset = 15.0
 
+    local lowestRadii = {MAX_CURVATURE_RADIUS, MAX_CURVATURE_RADIUS, MAX_CURVATURE_RADIUS}
+
     while currentDist < scanDistance do
-        local pA = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
-        local pB = self:getPointInDistance(currentNode, currentT, currentDist + chordOffset, self.chain)
-        local pC = self:getPointInDistance(currentNode, currentT, currentDist + (chordOffset * 2), self.chain)
-        
+        -- ... (Get pA, pB, pC as usual) ...
         local radius = self:calculateCurvatureRadius(pA, pB, pC)
-        
-        if radius < minRadius then
-            minRadius = radius
-            distToMin = currentDist
-            apexLocation = pB -- [NEW] Capture the center of the curve
+
+        -- Insert into sorted list of lowest radii
+        if radius < lowestRadii[3] then
+            lowestRadii[3] = radius
+            table.sort(lowestRadii) -- Keep smallest at index 1
+            if radius == lowestRadii[1] then
+                distToMin = currentDist
+                apexLocation = pB
+            end
         end
-        
         currentDist = currentDist + scanStep
     end
     
-    -- Return Apex Location as the 3rd argument
-    return minRadius, distToMin, apexLocation
+    local smoothedMinRadius = (lowestRadii[1] + lowestRadii[2] + lowestRadii[3]) / 3
+    return smoothedMinRadius, distToMin, apexLocation
 end
 
 

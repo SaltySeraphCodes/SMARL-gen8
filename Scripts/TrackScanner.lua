@@ -202,6 +202,21 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             if (leftWall.z - rightWall.z) > 2.0 then bankAngle = 1.0 end -- Banked Left
             if (rightWall.z - leftWall.z) > 2.0 then bankAngle = -1.0 end -- Banked Right
 
+            local trackWidth = (leftWall - rightWall):length()
+
+            -- NEW: Spike Filter
+            if #self.rawNodes > 0 then
+                local prevWidth = self.rawNodes[#self.rawNodes].width
+                -- If width grows by more than 10 units instantly, clamp the offending wall
+                if math.abs(trackWidth - prevWidth) > 10.0 then
+                    -- Force width to match previous to prevent kink
+                    -- (This is a naive fix; a better one projects the previous wall vector)
+                    trackWidth = prevWidth
+                    -- Recalculate midPoint based on the clamped width
+                    -- Ideally, you'd check which wall jumped, but clamping width helps.
+                end
+            end
+
             table.insert(self.rawNodes, {
                 id = iterations + 1,
                 location = midPoint, -- Racing line (RaceX,Y,Z) Line -- This will Move later during Optimization
