@@ -146,24 +146,37 @@ end
 
 function DecisionModule:updateTrackState(perceptionData)
     local tick = sm.game.getServerTick()
-    -- [UPDATED] Retrieve 3 values: Radius, Distance, and Apex Point
+    
+    -- [UPDATED] Update the scan every 4 ticks (0.1 seconds) to save CPU
     if tick % 4 == 0 or not self.cachedMinRadius then
          self.cachedMinRadius, self.cachedDist, self.cachedApex = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
     end
     
-    -- Smoothing (Existing Logic)
     local rawRadius = self.cachedMinRadius or 1000.0
+    
+    -- [FIX] KINK REJECTION
+    -- If the radius drops suddenly (e.g. from 1000 to 50), do not apply it instantly.
+    -- Require it to persist for a few frames, or blend it slower.
+    
     if rawRadius < self.smoothedRadius then
-        self.smoothedRadius = rawRadius
+        -- Instead of snapping instantly, we interpolate down.
+        -- This acts as a low-pass filter. 
+        -- If it's a 1-frame kink, smoothedRadius won't drop all the way down before it clears.
+        local dropRate = 0.2 -- 20% blend per update
+        self.smoothedRadius = self.smoothedRadius + (rawRadius - self.smoothedRadius) * dropRate
+        
         self.radiusHoldTimer = 1.0 
     else
+        -- Recovering speed (track straightening out)
         if self.radiusHoldTimer > 0 then
             self.radiusHoldTimer = self.radiusHoldTimer - (1.0/40.0) 
         else
-            self.smoothedRadius = self.smoothedRadius + 5.0 
+            self.smoothedRadius = self.smoothedRadius + 15.0 -- Recovery rate
         end
     end
-    if self.smoothedRadius > rawRadius then self.smoothedRadius = rawRadius end
+
+    -- Clamp limits
+    if self.smoothedRadius < rawRadius then self.smoothedRadius = rawRadius end -- Don't be "slower" than the actual turn
     if self.smoothedRadius > 1000.0 then self.smoothedRadius = 1000.0 end
     
     self.dbg_Radius = self.smoothedRadius
@@ -171,6 +184,50 @@ function DecisionModule:updateTrackState(perceptionData)
 end
 
 function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
+    local effectiveRadius = self.smoothedRadius
+    local distToApex = self.cachedDist or 0.0
+    local currentSpeed = perceptionData.Telemetry.speed or 0.0
+
+    -- 1. PHYSICS SETUP
+    local friction = self.dynamicGripFactor or 0.8
+    -- Conservative Factor: Treat the corner as 10% tighter than it looks
+    local safetyRadius = math.max(effectiveRadius * 0.9, 10.0)
+
+    -- 2. CALCULATE MAX CORNERING SPEED (v^2/r = u*g)
+    -- Multiplier 15.0 is essentially Gravity (10) * Safety/Tuning (1.5)
+    local maxCornerSpeed = math.sqrt(safetyRadius * friction * 15.0) 
+    
+    -- Clamp limits
+    maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
+    maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
+    
+    -- 3. BRAKING DISTANCE CALCULATION (Kinematics)
+    local brakingForce = (self.Driver.Optimizer and self.Driver.Optimizer.brakingFactor) or self.brakingForceConstant
+    
+    -- [CRITICAL FIX] Reaction Time Buffer
+    -- Subtract the distance we will cover while the brakes are physically engaging (approx 0.2s)
+    -- If we are moving 40 m/s, we lose 8 meters here. This prevents overshoot.
+    local latencyMeters = currentSpeed * 0.2
+    local effectiveBrakingDist = math.max(0.0, distToApex - latencyMeters)
+    
+    -- Formula: v_entry = sqrt( v_corner^2 + 2 * a * d )
+    local allowableSpeed = math.sqrt((maxCornerSpeed^2) + (2 * brakingForce * effectiveBrakingDist))
+
+    -- Debug values for your print log
+    self.dbg_MaxCorner = maxCornerSpeed
+    self.dbg_Allowable = allowableSpeed
+
+    local targetSpeed = math.min(self.dynamicMaxSpeed, allowableSpeed)
+
+    -- Context Overrides (Pit/Caution)
+    if self.currentMode == "Caution" then targetSpeed = 15.0 end 
+    if self.pitState > 0 then targetSpeed = 15.0 end
+    if self.pitState == 3 then targetSpeed = 5.0 end
+
+    return targetSpeed
+end
+
+function DecisionModule.getTargetSpeed_old(self, perceptionData, steerInput)
     -- [DEBUG] FORCE CONSTANT SPEED
     -- Returns 50 (approx 40 km/h) to isolate steering logic.
     -- Remove this line once steering is stable!

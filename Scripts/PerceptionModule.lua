@@ -7,6 +7,7 @@ local LOOKAHEAD_DISTANCE_1 = 12.0
 local LOOKAHEAD_DISTANCE_2 = 45.0  
 local MAX_CURVATURE_RADIUS = 1000.0 
 local LONG_LOOKAHEAD_DISTANCE = 80.0
+local TRACK_LOOKAHEAD = 150 -- How far ahead to scan for turns
 
 
 local LANE_SLOT_WIDTH = 0.33 
@@ -15,6 +16,7 @@ local MAX_DRAFTING_ANGLE = 0.9
 local CAR_WIDTH_BIAS = 0.2 
 local CRITICAL_WALL_MARGIN = 0.5 
 local WALL_LOOKAHEAD_DIST = 10.0 
+
 
 function PerceptionModule.server_init(self,driver)
     self.Driver = driver
@@ -128,7 +130,6 @@ function PerceptionModule:getPointInDistance(baseNode, start_t, distance, chain)
 end
 
 function PerceptionModule:calculateCurvatureRadius(pA, pB, pC)
-    -- Use full 3D vectors
     local v1 = pB - pA
     local v2 = pC - pB
     local v3 = pC - pA
@@ -137,16 +138,15 @@ function PerceptionModule:calculateCurvatureRadius(pA, pB, pC)
     local length2 = v2:length()
     local length3 = v3:length()
     
-    -- Heron's formula for radius (R = abc / 4A)
+    -- Heron's Formula (Standard)
     local s = (length1 + length2 + length3) / 2
     local areaSq = s * (s - length1) * (s - length2) * (s - length3)
     
     if areaSq <= 0 then return MAX_CURVATURE_RADIUS end
-    
     local area = math.sqrt(areaSq)
     local radius = (length1 * length2 * length3) / (4 * area)
     
-    return math.min(radius, MAX_CURVATURE_RADIUS) 
+    return math.min(radius, MAX_CURVATURE_RADIUS)
 end
 
 function PerceptionModule.get_artificial_downforce(self) 
@@ -162,6 +162,7 @@ function PerceptionModule.get_artificial_downforce(self)
     return totalDownforce
 end
 
+
 function PerceptionModule:scanTrackCurvature(scanDistance)
     local nav = self.perceptionData.Navigation
     if not nav or not nav.closestPointData then 
@@ -171,38 +172,94 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
     local currentNode = nav.closestPointData.baseNode
     local currentT = nav.closestPointData.tOnSegment
     
-    local minRadius = MAX_CURVATURE_RADIUS
-    local distToMin = 0.0
-    local apexLocation = nil -- [NEW] To store the physical point of the apex
+    local minSustainedRadius = MAX_CURVATURE_RADIUS
+    local distToApex = 0.0
+    local apexLocation = nil 
     
+    -- Optimization: Skip very close range to prevent jitter from the node we are standing on
+    local currentDist = 5.0 
     local scanStep = 5.0 
-    local currentDist = 0.0
-    local chordOffset = 15.0
-
-    local lowestRadii = {MAX_CURVATURE_RADIUS, MAX_CURVATURE_RADIUS, MAX_CURVATURE_RADIUS}
-
+    
     while currentDist < scanDistance do
-        -- ... (Get pA, pB, pC as usual) ...
-        local radius = self:calculateCurvatureRadius(pA, pB, pC)
+        -- 1. Sample geometry at Current Distance
+        local pA = self:getPointInDistance(currentNode, currentT, currentDist - 5.0, self.chain)
+        local pB = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
+        local pC = self:getPointInDistance(currentNode, currentT, currentDist + 5.0, self.chain)
+        local radiusCurrent = self:calculateCurvatureRadius(pA, pB, pC)
 
-        -- Insert into sorted list of lowest radii
-        if radius < lowestRadii[3] then
-            lowestRadii[3] = radius
-            table.sort(lowestRadii) -- Keep smallest at index 1
-            if radius == lowestRadii[1] then
-                distToMin = currentDist
-                apexLocation = pB
-            end
+        -- 2. Sample geometry 10 meters ahead (Look-ahead validation)
+        -- We reuse pC as the 'back' of the next segment to save one calc
+        local pD = self:getPointInDistance(currentNode, currentT, currentDist + 10.0, self.chain)
+        local pE = self:getPointInDistance(currentNode, currentT, currentDist + 15.0, self.chain)
+        local radiusAhead = self:calculateCurvatureRadius(pC, pD, pE)
+
+        -- 3. KINK REJECTION FILTER
+        -- A turn is only valid if it exists "Here" AND "There". 
+        -- We take the larger (safer) radius of the two.
+        -- If it's a kink, one of these will be huge (1000), effectively filtering the small one out.
+        local effectiveRadius = math.max(radiusCurrent, radiusAhead)
+
+        if effectiveRadius < minSustainedRadius then
+            minSustainedRadius = effectiveRadius
+            distToApex = currentDist
+            apexLocation = pB
         end
+        
         currentDist = currentDist + scanStep
     end
     
-    local smoothedMinRadius = (lowestRadii[1] + lowestRadii[2] + lowestRadii[3]) / 3
-    return smoothedMinRadius, distToMin, apexLocation
+    return minSustainedRadius, distToApex, apexLocation
+end
+
+function PerceptionModule:scanTrackCurvature_old(scanDistance)
+    local nav = self.perceptionData.Navigation
+    if not nav or not nav.closestPointData then 
+        return MAX_CURVATURE_RADIUS, 0.0, nil 
+    end
+
+    local currentNode = nav.closestPointData.baseNode
+    local currentT = nav.closestPointData.tOnSegment
+    
+    local minAvgRadius = MAX_CURVATURE_RADIUS
+    local distToMin = 0.0
+    local apexLocation = nil 
+    
+    local scanStep = 5.0 -- Step size in meters
+    local currentDist = 0.0
+    
+    -- We will store a buffer of the last 3 radii calculated to smooth out "kinks"
+    local radiusHistory = {MAX_CURVATURE_RADIUS, MAX_CURVATURE_RADIUS, MAX_CURVATURE_RADIUS}
+    
+    while currentDist < scanDistance do
+        -- Sampling 3 points: A (Back), B (Center), C (Front)
+        local pA = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
+        local pB = self:getPointInDistance(currentNode, currentT, currentDist + 15, self.chain)
+        local pC = self:getPointInDistance(currentNode, currentT, currentDist + 30, self.chain)
+        
+        local rawRadius = self:calculateCurvatureRadius(pA, pB, pC)
+
+        -- Push new radius into history, pop old one (Rolling buffer)
+        table.remove(radiusHistory, 1)
+        table.insert(radiusHistory, rawRadius)
+
+        -- Calculate the average of this 15-meter window
+        -- This filters out single-node "kinks" because they only affect 1 of the 3 numbers
+        local avgRadiusInWindow = (radiusHistory[1] + radiusHistory[2] + radiusHistory[3]) / 3.0
+
+        if avgRadiusInWindow < minAvgRadius then
+            minAvgRadius = avgRadiusInWindow
+            distToMin = currentDist
+            apexLocation = pB
+        end
+        
+        currentDist = currentDist + scanStep
+    end
+    
+    return minAvgRadius, distToMin, apexLocation
 end
 
 
-function PerceptionModule:scanTrackCurvature_old(scanDistance)
+function PerceptionModule:scanTrackCurvature_older(scanDistance)
     local nav = self.perceptionData.Navigation
     if not nav or not nav.closestPointData then 
         return MAX_CURVATURE_RADIUS, 0.0 
