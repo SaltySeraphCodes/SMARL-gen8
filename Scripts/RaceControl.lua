@@ -450,6 +450,14 @@ function RaceControl.exportSimplifyChain(self, nodeChain)
     return simpChain
 end
 
+function RaceControl.sv_export_map_for_overlay(self)
+    local nodeChain = self.trackNodeChain
+    if nodeChain then
+        local exportableChain = self:exportSimplifyChain(nodeChain)
+        sm.json.save(exportableChain, MAP_DATA_PATH)
+    end
+end
+
 -- --- CLEANUP & INTERACTION ---
 
 function RaceControl.server_onDestroy(self)
