@@ -13,7 +13,7 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
 local DEFAULT_STEERING_Kp = 0.45  
-local DEFAULT_STEERING_Kd = 0.40  
+local DEFAULT_STEERING_Kd = 0.50  
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
@@ -719,9 +719,10 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
         lookaheadDist = lookaheadDist * optimizer.lookaheadMult
     end
 
-    -- [[ FIX 1: DYNAMIC LOOKAHEAD (Anti-Oscillation) ]]
-    -- If we are far off the racing line, look further ahead to smooth the merge.
-    local errorScale = math.abs(localY) * 0.8 
+    -- NEW CODE:
+    -- Reduce the multiplier from 0.8 to 0.3 or remove it entirely.
+    -- This ensures that when the car is offline, it looks closer and steers harder to get back.
+    local errorScale = math.abs(localY) * 0.3 
     lookaheadDist = lookaheadDist + errorScale
 
     -- [[ FIX 2: LOW SPEED STABILITY (Anti-Wobble) ]]

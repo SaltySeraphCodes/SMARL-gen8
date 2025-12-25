@@ -427,7 +427,7 @@ function RaceControl.exportSimplifyChain(self, nodeChain)
              x, y, z = v.location.x, v.location.y, v.location.z
         elseif type(v.location) == "userdata" then
              x, y, z = v.location.x, v.location.y, v.location.z
-        elseif type(v.mid) == "userdata" then
+        elseif type(v.mid) == "table" then
              mx, my, mz = v.mid.x, v.mid.y, v.mid.z
         elseif type(v.mid) == "userdata" then
             mx, my, mz = v.mid.x, v.mid.y, v.mid.z
