@@ -795,7 +795,38 @@ function DriverGen8.client_canTinker(self, character) return true end
 function DriverGen8.client_onTinker(self, character, state) end
 
 
+function DriverGen8:drawDebugLine(startPos, endPos, color, poolName)
+    if not self[poolName] then self[poolName] = {} end
+    local pool = self[poolName]
+    
+    local diff = endPos - startPos
+    local dist = diff:length()
+    local step = 0.5 -- One dot every 0.5 meters
+    local count = math.floor(dist / step)
+    local dir = diff:normalize()
 
+    -- 1. Update/Create active dots
+    for i = 0, count do
+        local pos = startPos + (dir * (i * step))
+        local eff = pool[i+1]
+        
+        if not eff then
+            eff = sm.effect.createEffect("Loot - GlowItem")
+            eff:setScale(sm.vec3.new(0.2, 0.2, 0.2))
+            eff:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+            table.insert(pool, eff)
+        end
+        
+        if not eff:isPlaying() then eff:start() end
+        eff:setPosition(pos)
+        eff:setParameter("Color", color)
+    end
+    
+    -- 2. Hide unused dots from previous frames
+    for i = count + 2, #pool do
+        if pool[i] then pool[i]:stop() end
+    end
+end
 
 function DriverGen8.client_onUpdate(self, dt)
     -- Initialize Pool if missing
@@ -895,7 +926,7 @@ function DriverGen8.client_onUpdate(self, dt)
     if self.Decision and self.Decision.latestDebugData then
         local dbg = self.Decision.latestDebugData
         
-        -- 1. MAGENTA: The Final Target (Where we are driving)
+        -- 1. MAGENTA: The Final Target
         if dbg.targetPoint then
             if not self.effTarget then 
                 self.effTarget = sm.effect.createEffect("Loot - GlowItem")
@@ -907,9 +938,7 @@ function DriverGen8.client_onUpdate(self, dt)
             self.effTarget:setPosition(dbg.targetPoint)
         end
 
-        -- 2. CYAN: The "Future Center" (The anchor point on the track spine)
-        -- If this is steady but Magenta jumps -> Your Bias/Offset math is wrong.
-        -- If this jumps -> Your "Chain Walker" function is wrong.
+        -- 2. CYAN: The "Future Center" (The Anchor)
         if dbg.futureCenter then
             if not self.effCenter then 
                 self.effCenter = sm.effect.createEffect("Loot - GlowItem")
@@ -921,12 +950,11 @@ function DriverGen8.client_onUpdate(self, dt)
             self.effCenter:setPosition(dbg.futureCenter)
         end
         
-        -- 3. YELLOW LINE: The "Perp" Vector (Which way is 'Left'?)
-        -- If this flips 180 degrees rapidly, the target will teleport across the track.
+        -- 3. YELLOW LINE: The "Perp" Vector
         if dbg.futureCenter and dbg.usedPerp then
-            local start = dbg.futureCenter
-            local endP = dbg.futureCenter + (dbg.usedPerp * 5.0)
-            sm.visualization.drawMeshLine(start, endP, sm.color.new(1,1,0,1))
+            local startP = dbg.futureCenter
+            local endP = dbg.futureCenter + (dbg.usedPerp * 5.0) -- Draw 5m line showing "Left"
+            self:drawDebugLine(startP, endP, sm.color.new(1,1,0,1), "perpLinePool")
         end
     end
 
