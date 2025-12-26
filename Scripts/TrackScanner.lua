@@ -162,15 +162,15 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     local loopClosed = false
     local jumpCounter = 0
     
-    -- Gap Rejection Memory
+    -- [[ FIX 1: Relaxed Gap Tolerance ]]
+    -- Was 5.0, now 12.0 to prevent rejecting real walls in sharp turns
     local prevLeftDist = 10.0 
     local prevRightDist = 10.0
-    local GAP_TOLERANCE = 5.0
+    local GAP_TOLERANCE = 12.0 
     
-    -- Adaptive Step Size
     local currentStepSize = SCAN_STEP_SIZE 
 
-    print("TrackScanner: Starting 3D Race Scan (Anti-Reverse Enabled)...")
+    print("TrackScanner: Starting 3D Race Scan (Robust Gap Logic)...")
 
     while not loopClosed and iterations < maxIterations do
         local floorPos, floorNormal = self:findFloorPoint(currentPos, currentUp)
@@ -191,9 +191,12 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             local validLeft = false
             if rawLeft then
                 local dist = (rawLeft - currentPos):length()
-                if iterations == 0 or (dist < prevLeftDist + GAP_TOLERANCE) then
-                    prevLeftDist = dist
-                    validLeft = true
+                -- Filter hits that are suspiciously close (floor noise/curbs)
+                if dist > 1.5 then 
+                    if iterations == 0 or (dist < prevLeftDist + GAP_TOLERANCE) then
+                        prevLeftDist = dist
+                        validLeft = true
+                    end
                 end
             end
             if not validLeft then leftWall = currentPos + (-rightVec * prevLeftDist) end
@@ -203,9 +206,11 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             local validRight = false
             if rawRight then
                 local dist = (rawRight - currentPos):length()
-                if iterations == 0 or (dist < prevRightDist + GAP_TOLERANCE) then
-                    prevRightDist = dist
-                    validRight = true
+                if dist > 1.5 then
+                    if iterations == 0 or (dist < prevRightDist + GAP_TOLERANCE) then
+                        prevRightDist = dist
+                        validRight = true
+                    end
                 end
             end
             if not validRight then rightWall = currentPos + (rightVec * prevRightDist) end
@@ -229,7 +234,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 rightWall = rightWall,
                 width = trackWidth,
                 inVector = currentDir, 
-                outVector = currentDir, -- Will be updated below
+                outVector = currentDir, 
                 upVector = bankUp, 
                 bank = bankAngle,
                 incline = currentDir.z,
@@ -243,36 +248,32 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 local prevNode = self.rawNodes[#self.rawNodes-1]
                 local newDir = (midPoint - prevNode.location):normalize()
                 
-                -- [[ FIX 1: ANTI-REVERSE CHECK ]]
-                -- If newDir points backwards relative to previous (dot < 0), ignore it.
+                -- Anti-Reverse: If we turned > 90 degrees, ignore the turn and keep going straight
                 if newDir:dot(prevNode.outVector) < 0.0 then
-                    print("TrackScanner: Detected U-Turn Glitch at Node " .. iterations .. ". Forcing Forward.")
+                    -- print("TrackScanner: Glitch Turn Ignored.")
                     newDir = prevNode.outVector
                 end
                 
-                -- Update vectors
                 prevNode.outVector = newDir
                 currentDir = newDir
                 
-                -- Check turn sharpness
                 local dot = prevNode.inVector:dot(newDir)
                 turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
             end
             
-            -- Slow down if turning > 10 degrees per step
             if turnAngle > 10.0 then currentStepSize = 2.0 else currentStepSize = 4.0 end
 
             -- Move Forward
             currentPos = midPoint + (currentDir * currentStepSize)
             iterations = iterations + 1
 
-            -- [[ FIX 2: DIRECTIONAL LOOP CLOSURE ]]
+            -- [[ FIX 2: Relaxed Loop Closure ]]
+            -- Increased check distance to 25.0m (roughly track width)
+            -- This catches the loop even if the scanner drifted to the side
             local distToStart = (currentPos - startPos):length()
-            -- Only close loop if we are close AND facing the same way (dot > 0.8)
             local isAligned = currentDir:dot(startDir) > 0.8
             
-            -- Increased min iterations to 40 (approx 160m) to prevent tiny loop glitches
-            if iterations > 40 and distToStart < (currentStepSize * 2.0) and isAligned then
+            if iterations > 40 and distToStart < 25.0 and isAligned then
                 print("TrackScanner: Loop Closed successfully.")
                 loopClosed = true
                 local lastNode = self.rawNodes[#self.rawNodes]
