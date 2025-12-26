@@ -330,7 +330,8 @@ function RaceControl.sv_output_data(self)
         local nav = driver.perceptionData and driver.perceptionData.Navigation
         local tel = driver.perceptionData and driver.perceptionData.Telemetry
 
-        local shapeColor = driver.shape:getColor()
+        local shapeColor = sm.color.new(0,0,0) -- Placeholder until we get function that counts first second and third most color
+                                                -- can scan and set when doing car dimensions
         local hexColor = tostring(shapeColor) -- Usually returns hex string in recent SM versions
         local data = {
             id = driver.id,

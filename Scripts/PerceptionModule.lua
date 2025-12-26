@@ -140,6 +140,131 @@ function PerceptionModule.findClosestPointOnTrack(self, location, chain)
     return closestPoint
 end
 
+
+function PerceptionModule:getPointInDistance(baseNode, start_t, distance, chain)
+    local remainingDistance = distance
+    local currentNode = baseNode
+    if not currentNode or distance <= 0 then return baseNode.location end
+    local nextNode = getNextItem(chain, currentNode.id, 1)
+    if nextNode then
+        local segmentVector = nextNode.location - currentNode.location
+        local segmentLength = segmentVector:length()
+        local distanceToEndOfSegment = segmentLength * (1.0 - start_t)
+        if distanceToEndOfSegment >= remainingDistance then
+            local target_t = start_t + (remainingDistance / segmentLength)
+            return currentNode.location + segmentVector * target_t
+        else
+            remainingDistance = remainingDistance - distanceToEndOfSegment
+            currentNode = nextNode
+        end
+    end
+    local nodeDitsTimeout = 0
+    local timeoutLimit = 300 
+    while remainingDistance > 0 and nodeDitsTimeout < timeoutLimit do
+        nextNode = getNextItem(chain, currentNode.id, 1)
+        if not nextNode then return currentNode.location end 
+        local segmentVector = nextNode.location - currentNode.location
+        local segmentLength = segmentVector:length()
+        if segmentLength >= remainingDistance then
+            local target_t = remainingDistance / segmentLength
+            return currentNode.location + segmentVector * target_t
+        else
+            remainingDistance = remainingDistance - segmentLength
+            currentNode = nextNode
+            nodeDitsTimeout = nodeDitsTimeout + 1
+        end
+    end
+    return currentNode.location 
+end
+
+
+function PerceptionModule.get_artificial_downforce(self) 
+    local totalDownforce = 0 
+    local parents = self.Driver.interactable:getParents() 
+    if #parents > 0 then
+        for k=1, #parents do local v=parents[k]
+            if tostring(v:getShape():getShapeUuid()) == DOWNFORCE_BLOCK_UUID then 
+                totalDownforce = v:getPower()
+            end
+        end 
+    end
+    return totalDownforce
+end
+
+
+function PerceptionModule:calculateCurvatureRadius(pA, pB, pC)
+    local v1 = pB - pA
+    local v2 = pC - pB
+    local v3 = pC - pA
+    
+    local length1 = v1:length()
+    local length2 = v2:length()
+    local length3 = v3:length()
+    
+    local s = (length1 + length2 + length3) / 2
+    local areaSq = s * (s - length1) * (s - length2) * (s - length3)
+    
+    if areaSq <= 0 then return MAX_CURVATURE_RADIUS end
+    local area = math.sqrt(areaSq)
+    local radius = (length1 * length2 * length3) / (4 * area)
+    
+    return math.min(radius, MAX_CURVATURE_RADIUS)
+end
+
+
+function PerceptionModule:scanTrackCurvature(scanDistance)
+    local nav = self.perceptionData.Navigation
+    if not nav or not nav.closestPointData then 
+        return MAX_CURVATURE_RADIUS, 0.0, nil 
+    end
+
+    local currentNode = nav.closestPointData.baseNode
+    local currentT = nav.closestPointData.tOnSegment
+    
+    local minSustainedRadius = MAX_CURVATURE_RADIUS
+    local distToApex = 0.0
+    local apexLocation = nil 
+    
+    local currentDist = 5.0 
+    local scanStep = 5.0 
+    
+    while currentDist < scanDistance do
+        local pA = self:getPointInDistance(currentNode, currentT, currentDist - 5.0, self.chain)
+        local pB = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
+        local pC = self:getPointInDistance(currentNode, currentT, currentDist + 5.0, self.chain)
+        local radiusCurrent = self:calculateCurvatureRadius(pA, pB, pC)
+
+        local pD = self:getPointInDistance(currentNode, currentT, currentDist + 10.0, self.chain)
+        local pE = self:getPointInDistance(currentNode, currentT, currentDist + 15.0, self.chain)
+        local radiusAhead = self:calculateCurvatureRadius(pC, pD, pE)
+
+        local effectiveRadius = math.max(radiusCurrent, radiusAhead)
+
+        if effectiveRadius < minSustainedRadius then
+            minSustainedRadius = effectiveRadius
+            distToApex = currentDist
+            apexLocation = pB
+        end
+        
+        currentDist = currentDist + scanStep
+    end
+    
+    return minSustainedRadius, distToApex, apexLocation
+end
+
+function PerceptionModule.get_world_rotations(self) 
+    local rotationData = {}
+    rotationData.at = self.Driver.shape:getAt()
+    rotationData.up = self.Driver.shape:getUp()
+    rotationData.right = self.Driver.shape:getRight()
+    rotationData.back = rotationData.at * -1 
+    rotationData.down = rotationData.up * -1
+    rotationData.left = rotationData.right * -1 
+    return rotationData
+end 
+
+
+
 function PerceptionModule:getPointInDistance(baseNode, start_t, distance, chain)
     local remainingDistance = distance
     local currentNode = baseNode
