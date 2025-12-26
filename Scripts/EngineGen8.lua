@@ -286,7 +286,6 @@ function Engine.calculateRPM(self)
                         
                         -- Send to Optimizer to Save
                         if self.driver.Optimizer then
-                            print("Updating traction Const",finalConst)
                             self.driver.Optimizer:updateTractionConstant(finalConst)
                         end
                         
@@ -397,6 +396,7 @@ function Engine._applyGearLimits(self, nextRPM)
 end
 
 function Engine._applyHardLimiter(self, nextRPM)
+    print(nextRPM,self.curRPM)
     local increment = nextRPM - self.curRPM
     
     local tractionConst = 2.6
@@ -425,8 +425,10 @@ function Engine._applyHardLimiter(self, nextRPM)
     -- Apply Limit
     if nextRPM >= calculatedLimit and increment > 0 then
         -- Soft limiter: Reduce the acceleration increment
+        print("soft limit",nextRPM,calculatedLimit,increment)
         nextRPM = nextRPM - (increment * 1.05)
     elseif nextRPM <= -40 and increment < 0 then
+        print("reverse?",nextRPM,increment)
         nextRPM = -40
     end
 
