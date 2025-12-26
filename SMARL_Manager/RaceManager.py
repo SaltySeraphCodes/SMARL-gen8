@@ -329,24 +329,32 @@ class RaceManager():
                 **racer_details, 
                 # Race Data (direct mapping and conversion)
                 'pos': int(data.get('place', 0)),
-                'lapNum': int(data.get('lapNum', 0)),
+                
+                # [UPDATED] Key names matched to Lua
+                'lapNum': int(data.get('lap', 0)),     # Was 'lapNum', now 'lap'
                 'lastLap': helpers.get_time_from_seconds(float(data.get('lastLap', 0.0))),
                 'bestLap': helpers.get_time_from_seconds(float(data.get('bestLap', 0.0))),
-                'timeSplit': data.get('timeSplit', "0.000"),
-                'gapToLeader': data.get('gapToLeader', "0.000"),
-                'gapToNext': data.get('gapToNext', "0.000"),
+                
+                # [UPDATED] Gaps are now explicitly named
+                'gapToLeader': data.get('gapTime', "0.000"), # Was 'gapToLeader', now 'gapTime'
+                'gapToNext': data.get('interval', "0.000"),  # Was 'gapToNext', now 'interval'
+                
                 'locX': data.get('locX', 0.0),
                 'locY': data.get('locY', 0.0),
                 'speed': data.get('speed', 0.0),
-                'isFocused': data.get('isFocused', 'false') == 'true', # Convert to boolean
+                
+                # [NEW] Map Visualization Helpers
+                'prog': data.get('prog', 0.0), 
+                'dist': data.get('dist', 0.0),
+
+                'isFocused': data.get('isFocused', 'false') == 'true', 
                 
                 # Enhanced Data (direct mapping)
                 'st': data.get('st', ""),
                 'fl': data.get('fl', 0.0),
                 'th': data.get('th', 0.0),
-                'as': data.get('as', 0.0),
-                'ts': data.get('ts', 0.0),
                 'ps': data.get('pitState', 'N/A'),
+                'finished': data.get('finished', False)
             }
             raceData.append(racer_data)
         outputData['realtime_data'] = raceData

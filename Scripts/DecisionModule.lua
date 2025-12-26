@@ -714,11 +714,11 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
             end
             
             -- Fallback: If node data is missing perp, assume Up is Z and Cross with OutVector
-            if not usePerp then
-                local nodeUp = futureNode.upVector or sm.vec3.new(0,0,1)
-                local nodeOut = futureNode.outVector or (futureCenter - carPos):normalize()
-                usePerp = nodeOut:cross(nodeUp):normalize() 
-            end
+            local nodeUp = futureNode.upVector or sm.vec3.new(0,0,1)
+            usePerp = trackDir:cross(nodeUp):normalize() * -1 -- Flip to match Left=-1 standard
+            
+            -- Fallback if the cross product failed (e.g. vertical track)
+            if usePerp:length() < 0.1 then usePerp = sm.vec3.new(1,0,0) end
             
             -- Apply Bias at the future point
             local futureHalfWidth = (futureNode.width or 20.0) / 2.0

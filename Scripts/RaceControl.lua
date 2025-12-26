@@ -315,8 +315,85 @@ function RaceControl.sv_sendCommand(self, command)
 end
 
 -- --- DATA OUPUT ---
-
 function RaceControl.sv_output_data(self)
+    local realtimeData = {}
+    local drivers = getAllDrivers()
+    
+    -- Sort by Position (already calculated in Leaderboard)
+    table.sort(drivers, function(a, b) return (a.racePosition or 99) < (b.racePosition or 99) end)
+
+    for i, driver in ipairs(drivers) do
+        local meta = driver.metaData or {}
+        local twitch = driver.twitchData or {}
+        
+        -- Safe access to navigation data
+        local nav = driver.perceptionData and driver.perceptionData.Navigation
+        local tel = driver.perceptionData and driver.perceptionData.Telemetry
+
+        local shapeColor = driver.shape:getColor()
+        local hexColor = tostring(shapeColor) -- Usually returns hex string in recent SM versions
+        local data = {
+            id = driver.id,
+            name = driver.tagText or "Racer " .. driver.id, -- Helpful if meta/twitch fails
+            owner = twitch.uid or meta.ID or driver.id, 
+            place = driver.racePosition or 0,
+            
+            -- [[ MAP DATA (Restored) ]] 
+            -- Used by live_map_2_new.js
+            locX = (tel and tel.location and tel.location.x) or 0.0,
+            locY = (tel and tel.location and tel.location.y) or 0.0,
+            locZ = (tel and tel.location and tel.location.z) or 0.0,
+
+            -- Colors (Optional: Python can override these)
+            primary_color = "#" .. string.sub(hexColor, 1, 6),
+            secondary_color = "#" .. string.sub(hexColor, 1, 6),
+
+            -- Laps & Times
+            lap = driver.currentLap or 0,
+            lastLap = driver.lastLap or 0.0,
+            bestLap = driver.bestLap or 0.0,
+            st = driver.sectorTimes or {0.0, 0.0, 0.0},
+            
+            -- Gaps (The new smoothed logic)
+            gapDist = driver.raceSplit or 0.0,          -- Meters behind leader
+            gapTime = driver.smoothGapToLeader or 0.0,  -- Seconds behind leader
+            interval = driver.gapToNext or 0.0,         -- Seconds behind next car
+            
+            -- Positioning
+            prog = (nav and nav.lapProgress) or 0.0,    -- 0.0 to 1.0 (Track % position)
+            dist = (nav and nav.totalRaceDistance) or 0.0, -- Absolute Meters
+            speed = (driver.perceptionData and driver.perceptionData.Telemetry.speed) or 0,
+            
+            -- Status
+            pitState = driver.pitState or 0, -- 0=Track, 1-4=Pitting
+            finished = driver.raceFinished or false,
+            
+            -- Car State
+            th = math.floor((driver.Tire_Health or 1.0) * 100), -- Send as % (0-100)
+            fl = math.floor((driver.Fuel_Level or 1.0) * 100),  -- Send as % (0-100)
+            tt = driver.Tire_Type or 2,     
+        }
+
+        table.insert(realtimeData, data)
+    end
+
+    local metaData = {
+        status = self.RaceManager and self.RaceManager.state or 0,
+        lapsLeft = self.RaceManager and (self.RaceManager.targetLaps - self.RaceManager.currentLap) or 0,
+        flag = (self.RaceManager and self.RaceManager.caution) and "YELLOW" or "GREEN"
+    }
+
+    local outputData = {
+        ["rt"] = realtimeData,
+        ["md"] = metaData,
+        ["fd"] = self.RaceManager and self.RaceManager.finishResults or {}
+    }
+    
+    -- Use pcall to prevent server crash if file is locked
+    pcall(sm.json.save, outputData, OUTPUT_DATA)
+end
+
+function RaceControl.sv_output_data_old(self)
     local realtimeData = {}
     local drivers = getAllDrivers()
     table.sort(drivers, function(a, b) return (a.racePosition or 99) < (b.racePosition or 99) end)

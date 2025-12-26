@@ -204,6 +204,33 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     return self.rawNodes
 end
 
+
+function TrackScanner.calculateTrackDistances(self, nodes)
+    local totalDist = 0.0
+    
+    -- 1. First Pass: Calculate Distances
+    for i, node in ipairs(nodes) do
+        if i == 1 then
+            node.distFromStart = 0.0
+        else
+            local prev = nodes[i-1]
+            -- Measure distance along the CENTER line (mid), not the racing line
+            local segDist = (node.mid - prev.mid):length()
+            totalDist = totalDist + segDist
+            node.distFromStart = totalDist
+        end
+    end
+    
+    -- Store total length on the scanner for reference
+    self.trackLength = totalDist
+    print("TrackScanner: Calculated Track Length: " .. string.format("%.2f", totalDist) .. "m")
+
+    -- 2. Second Pass: Normalize (0.0 - 1.0)
+    for _, node in ipairs(nodes) do
+        node.raceProgress = node.distFromStart / totalDist
+    end
+end
+
 -- --- OPTIMIZER (FIXED) ---
 
 function TrackScanner.optimizeRacingLine(self, iterations, isPit)
@@ -265,7 +292,9 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     -- [[ FIX 3: RESAMPLE ASSIGNMENT ]]
     -- We must assign the result back to 'nodes'
     nodes = self:resampleChain(nodes, 3.0)
-    
+
+    self:calculateTrackDistances(nodes)
+
     -- Final Cleanup
     self:snapChainToFloor(nodes)
     self:assignSectors(nodes)
@@ -420,6 +449,8 @@ function TrackScanner.serializeTrackData(self)
                 pos = self:vecToTable(node.location), -- THE OPTIMIZED LINE
                 mid = self:vecToTable(node.mid),      -- THE CENTER LINE
                 width = node.width,
+                dist = node.distFromStart,   -- Distance in meters
+                prog = node.raceProgress,    -- Normalized 0.0-1.0
                 bank = node.bank,
                 incline = node.incline,
                 out = self:vecToTable(node.outVector),

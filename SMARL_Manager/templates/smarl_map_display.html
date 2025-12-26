@@ -7,11 +7,10 @@
         <svg id="mapChart"></svg>
     </div>
         
-    <script src="{{ url_for('static', filename='src/live_map_2_new.js') }}"></script>
+    <script src="{{ url_for('static', filename='src/live_map.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/stream_brand.css') }}">
     <script>
-        // ... (data parsing remains the same) ...
         let all_cars_str = "{{ all_cars|safe }}"
         let current_map_str = "{{ map_data|safe }}"
         let valid_cars_str = all_cars_str.replace(/'/g,'"');

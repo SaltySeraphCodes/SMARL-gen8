@@ -59,7 +59,8 @@ function DriverGen8.server_init(self)
     self.liftPlaced = false
     self.resetPosTimeout = 0.0
     self.trackLoaded = false
-    
+
+ 
     -- Car Attributes
     self.Tire_Type = 2
     self.Tire_Health = 1.0
@@ -77,7 +78,12 @@ function DriverGen8.server_init(self)
     self.newLap = false 
     self.readyToLap = false 
     self.currentSector = 1
+
+    -- Sector timing
     self.lastSectorID = 0
+    self.sectorTimes = {0.0, 0.0, 0.0} -- [NEW] Storage for split times
+    self.lastSectorTimestamp = 0.0 -- [NEW] To calculate duration
+    
     
     -- Pit State
     self.pitState = 0 -- 0:Race, 1:Req, 2:InLane, 3:ApprBox, 4:Stopped, 5:ExitBox, 6:ExitLane
@@ -172,6 +178,8 @@ function DriverGen8.server_onFixedUpdate(self, dt)
     if perceptionData and self.Optimizer then
         self.Optimizer:recordFrame(perceptionData)
     end
+
+    self:calculatePrecisePosition()
 
     -- 2. LOGIC (PIT & RACE)
     -- Handle Pit State Machine overrides
@@ -621,9 +629,11 @@ function DriverGen8.deserializeTrackNode(self, dataNode)
     
     return {
         id = dataNode.id, 
-        location = toVec3(dataNode.pos), 
+        location = toVec3(dataNode.pos), -- Why should we change it to location? should we keep it at Pos? i know a lot of files use it...
         mid = toVec3(dataNode.mid) or toVec3(dataNode.pos),
-        width = dataNode.width, 
+        width = dataNode.width,
+        distFromStart = dataNode.dist or 0.0,
+        raceProgress = dataNode.prog or 0.0,
         bank = dataNode.bank, 
         incline = dataNode.incline,
         outVector = toVec3(dataNode.out), 
@@ -671,29 +681,79 @@ function DriverGen8.on_trackLoaded(self, data)
         self.Perception.chain = self.activeChain
         if self.Perception.currentNode == nil then self.Perception:findClosestPointOnTrack(nil, self.activeChain) end
     end
+
+    if self.nodeChain and #self.nodeChain > 0 then
+        -- The last node's distance is effectively the track length
+        self.trackLength = self.nodeChain[#self.nodeChain].distFromStart
+    else
+        self.trackLength = 1000.0 -- Fallback to prevent divide by zero
+    end
 end
 
 function DriverGen8.checkSectorCross(self)
     local currentNav = self.perceptionData and self.perceptionData.Navigation
-    if currentNav and currentNav.closestPointData then
-        local currentSector = currentNav.closestPointData.baseNode.sectorID
-        if self.lastSectorID ~= currentSector then
-             -- Calculate time taken for previous sector
-             -- TRIGGER OPTIMIZER
-             if self.Optimizer then
-                -- Calc duration
-                local now = sm.game.getServerTick() / 40.0
-                local last = self.lastSectorTime or now
-                self.Optimizer:onSectorComplete(self.lastSectorID, now - last)
-                self.lastSectorTime = now
-            end
-
-             self.lastSectorTime = now
-             self.lastSectorID = currentSector
-             self.currentSector = currentSector
-             self:sv_sendCommand({ car = self.id, type = "sector_cross", value = currentSector, time = now })
+    if not currentNav or not currentNav.closestPointData then return end
+    
+    local currentSector = currentNav.closestPointData.baseNode.sectorID
+    
+    -- Only act if we actually changed sectors
+    if self.lastSectorID ~= currentSector then
+        local now = sm.game.getServerTick() / 40.0 -- Current time in seconds
+        local lastTime = self.lastSectorTimestamp or now
+        local duration = now - lastTime
+        
+        -- 1. Record the time for the COMPLETED sector (the one we just left)
+        -- If we just entered S2, we finished S1. If we entered S1, we finished S3.
+        if self.lastSectorID and self.lastSectorID > 0 then
+             -- Round to 3 decimal places for clean JSON
+             self.sectorTimes[self.lastSectorID] = tonumber(string.format("%.3f", duration))
         end
+
+        -- 2. Handle New Lap (Entering Sector 1)
+        if currentSector == 1 then
+             -- Reset sectors for the new lap 
+             -- (Note: Sector 3 from previous lap is saved in 'lastLap' total time via checkLapCross)
+             self.sectorTimes = {0.0, 0.0, 0.0}
+        end
+        
+        -- 3. Trigger Optimizer (Existing)
+        if self.Optimizer then
+            self.Optimizer:onSectorComplete(self.lastSectorID, duration)
+        end
+
+        -- 4. Update State
+        self.lastSectorTimestamp = now
+        self.lastSectorID = currentSector
+        self.currentSector = currentSector
+        
+        -- Optional: Send event to RaceControl if you want server-side sector logging
+        -- self:sv_sendCommand({ car = self.id, type = "sector_cross", value = currentSector, time = duration })
     end
+end
+
+function DriverGen8.calculatePrecisePosition(self)
+    -- Safety checks
+    if not self.perceptionData or not self.perceptionData.Navigation then return 0 end
+    local nav = self.perceptionData.Navigation
+    if not nav.closestPointData or not nav.closestPointData.baseNode then return 0 end
+    
+    local node = nav.closestPointData.baseNode
+    local carPos = self.perceptionData.Telemetry.location
+    
+    -- 1. Base distance of the node
+    local baseDist = node.distFromStart or 0.0
+    
+    -- 2. Add fine-tuning (how far past the node are we?)
+    -- Project the car's offset onto the node's forward vector
+    local offset = carPos - node.mid
+    local fineDist = offset:dot(node.outVector)
+    
+    -- 3. Calculate Total Linear Distance (Absolute Race Score)
+    -- Lap 0 = 0m+, Lap 1 = 1000m+, etc.
+    local lapOffset = (self.currentLap or 0) * (self.trackLength or 0)
+    
+    self.totalRaceDistance = lapOffset + baseDist + fineDist
+    return self.totalRaceDistance
 end
 
 function DriverGen8.checkLapCross(self)

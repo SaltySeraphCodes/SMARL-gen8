@@ -18,7 +18,7 @@ function findIndexByKey(array, key, value) {
 
 class LiveMap {
 
-    constructor(_config, _car_data,_map_data) {
+    constructor(_config, _car_data, _map_data) {
       this.config = {
         parentElement: _config.parentElement,
         containerWidth: _config.containerWidth || 700,
@@ -28,18 +28,17 @@ class LiveMap {
       this.map_data = _map_data;
       this.racer_data = _car_data;
       this.rt_data = [];
-      // Call a class function
       this.initVis();
     }
   
     initVis() {
       let vis = this;
       vis.startTime = Date.now();
-	    vis.splitTime = vis.startTime;
+      vis.splitTime = vis.startTime;
       vis.width = vis.config.containerWidth - vis.config.margin.left - vis.config.margin.right;
       vis.height = vis.config.containerHeight - vis.config.margin.top - vis.config.margin.bottom;
   
-      // Setup Socket for local TCP data serving, TODO: add one for database for SMARL website
+      // Setup Socket for local TCP data serving
       var socket = io.connect('http://' + location.hostname + ':' + location.port);
       socket.on( 'connect', function() {
         console.log("Socket connected!")    
@@ -49,31 +48,59 @@ class LiveMap {
         if (data == null){return}
         let size = Object.keys(data).length; 
         if(size > 0){
-          //console.log('set data',data)
           vis.rt_data = data.realtime_data;
-          vis.updateVis(vis.racer_data);
+          vis.updateVis();
         }else{
           console.log("Data Size 0");
         }
       });
       vis.all_elements = [];
 
-      // Atttempting to get things working just from using the scaled domain and range
-      // We may need to get an offset value to apply across X and y if this doesnt work.
+      /// 1. Calculate the actual bounds of the track (unchanged)
+      const xExtent = d3.extent(vis.map_data, d => d.midX);
+      const yExtent = d3.extent(vis.map_data, d => d.midY);
+
+      const xRange = xExtent[1] - xExtent[0];
+      const yRange = yExtent[1] - yExtent[0];
+
+      // 2. Determine the maximum dimension to maintain aspect ratio (unchanged)
+      const maxRange = Math.max(xRange, yRange);
+
+      // 3. Define a padding ratio for better aesthetics (e.g., 10%) (unchanged)
+      const paddingRatio = 1.1; 
+      const paddedMaxRange = maxRange * paddingRatio;
+
+      // 4. Center the domain (unchanged)
+      const xCenter = (xExtent[0] + xExtent[1]) / 2;
+      const yCenter = (yExtent[0] + yExtent[1]) / 2;
+
+      const xMin = xCenter - paddedMaxRange / 2;
+      const xMax = xCenter + paddedMaxRange / 2;
+
+      const yMin = yCenter - paddedMaxRange / 2;
+      const yMax = yCenter + paddedMaxRange / 2;
+
+      // 5. Update Scales with the squared/centered domain (unchanged)
       vis.xScale = d3.scaleLinear()
-          .domain(d3.extent(this.map_data, d=> d.midX))
+          .domain([xMin, xMax])
           .range([0, vis.width]);
-  
+
       vis.yScale = d3.scaleLinear()
-          .domain(d3.extent(this.map_data, d => d.midY))
-          .range([vis.height, 0]) // May need to inverse?
-       
-  
-      // Define size of SVG drawing area
+          .domain([yMin, yMax])
+          .range([vis.height, 0]); 
+            
+      // Define size of SVG drawing area (unchanged)
       vis.svg = d3.select(vis.config.parentElement)
           .attr('width', vis.config.containerWidth)
           .attr('height', vis.config.containerHeight);
-  
+      
+      // Add a background rectangle for the map visualization
+      vis.svg.append('rect')
+          .attr('width', vis.config.containerWidth)
+          .attr('height', vis.config.containerHeight)
+          .attr('fill', 'var(--brand-dark)') // Use main dark background color
+          .attr('opacity',0);
+
       // Append group element that will contain our actual chart (see margin convention)
       vis.chart = vis.svg.append('g')
           .attr('transform', `translate(${vis.config.margin.left},${vis.config.margin.top})`);
@@ -85,243 +112,148 @@ class LiveMap {
       vis.line = d3.line() // Sets up Line for track path
           .x(d => vis.xScale(vis.xValue(d)))
           .y(d => vis.yScale(vis.yValue(d)));
-      // Set the scale input domains
-      //vis.xScale.domain(d3.extent(vis.map_data, vis.xValue)); // Uses extent of track path for scaling??
-      //vis.yScale.domain(d3.extent(vis.map_data, vis.yValue));   
-  
-     //console.log(vis.map_data)
-      // Outer path outline 
-      /* Removed because unecessary
+     
+      // --- TRACK PATH / OUTLINE ---
       vis.chart.append('path')
-      //.data([vis.data])
-      .attr('class', 'chart-line')
+      .attr('class', 'track-outline')
       .attr('d',vis.line(vis.map_data))
       .attr("fill", "none")
-      .attr("stroke", "black")
-      .attr("stroke-width",45)
-      */
+      // --- BRANDING: Use a faint version of the main brand color for the track outline ---
+      .attr("stroke", "var(--brand-text)") 
+      .attr("stroke-width", 50) 
+      .attr("opacity", 0.4);
 
-      // inner path outline
-      vis.chart.append('path')
-      //.data([vis.data])
-      .attr('class', 'chart-line')
-      .attr('d',vis.line(vis.map_data))
-      .attr("fill", "none")
-      .attr("stroke", "#FFFFFFB0")
-      .attr("stroke-width",45) // TODO make a scale function that scales according to chart size
 
       vis.updateVis();
     }
   
   
-    //We will add live Cars and live data 
-   updateVis(racer_data) { 
-    let vis = this;
-    vis.racer_data = racer_data || [];
+    // We will add live Cars and live data 
+    updateVis() { 
+      let vis = this;
+      const TRANSITION_DURATION = 500; // Fixed duration for smooth, snappy updates
+      let rt_racers = vis.rt_data; // Realtime Data
+      if (rt_racers == null){ rt_racers = []} 
+  
+      // --- 1. Secondary Marker (Thin Ring) ---
+      vis.racerMarkerS = vis.chart.selectAll(".racerMarkerS")
+      .data(rt_racers, d => d.id) 
+      
+      // ENTER
+      vis.racerMarkerS.enter()
+      .append('circle')
+      .attr("class","racerMarkerS mapEl")
+      .attr("cx", d => vis.xScale(d.locX))
+      .attr('cy', d => vis.yScale(d.locY))
+      .attr("opacity",0)
+      .attr("r", 15)
+      .attr("fill", d => (d['secondary_color'].charAt(0) === '#') ? d['secondary_color'] : "#" + d['secondary_color'])
+      .attr('stroke', d => (d['tertiary_color'].charAt(0) === '#') ? d['tertiary_color'] : "#" + d['tertiary_color'])
+      .attr("stroke-width", 2)
+      .transition()
+      .attr("opacity", 0.80)
+      .duration(100)
 
-    let elapsedTime = Date.now() - vis.splitTime;
-    vis.splitTime = Date.now() // immediately reset??
-  //console.log("updating live map",elapsedTime);
-    // Initial creation of live cars
-    let rt_racers = vis.rt_data; // Realtime Data
-    console.log("Rtracer",rt_racers)
-    if (rt_racers == null){ rt_racers = []}	
- 
-    // Secondary color (background thin ring)
-    vis.racerMarkerS = vis.chart.selectAll(".racerMarkerS") // Secondary color
-    .data(rt_racers)
-    vis.racerMarkerS.enter()
-    .append('circle')
-    .attr("class","racerMarkerS")
-    .attr("cx",function(d,i){
-      return vis.xScale(d.locX)
-    })
-    .attr('cy',function(d,i){
-      console.log("set y",d)
-      return vis.yScale(d.locY)
-    })
-    .attr("opacity",0)
-    .transition() // spawned in
-    .attr("cx",function(d,i){
-      return vis.xScale(d.locX)
-    })
-    .attr('cy',function(d,i){
-      return vis.yScale(d.locY)
-    })
-    .attr("opacity",0.90)
-    .attr("r",function(d,i){
-      return 20
-    })
-    .attr("fill",function(d,i){ 
-      let color = d['secondary_color'];
-			// If the first character is NOT '#', prepend '#'
-			return (color.charAt(0) === '#') ? color : "#" + color;
-    })
-    .attr('stroke',function(d,i){
-      let color = d['tertiary_color'];
-			// If the first character is NOT '#', prepend '#'
-			return (color.charAt(0) === '#') ? color : "#" + color;
-    })
-    .attr("stroke-width",2) // TODO make a scale function that scales according to chart size
+      // UPDATE
+      vis.racerMarkerS.transition()
+      .attr("cx", d => vis.xScale(d.locX))
+      .attr('cy', d => vis.yScale(d.locY))
+      .attr("opacity", 0.90)
+      .attr("r", 15)
+      .ease(d3.easeLinear)
+      .duration(TRANSITION_DURATION)
 
-    .duration(100)
+      // EXIT
+      vis.racerMarkerS.exit()
+      .transition()
+      .attr("opacity", 0)
+      .attr("r", 0) 
+      .duration(750) 
+      .remove()
 
-    vis.racerMarkerS.transition() // when racer moves
-    .attr("cx",function(d,i){
-      return vis.xScale(d.locX)
-    })
-    .attr('cy',function(d,i){
-      return vis.yScale(d.locY)
-    })
-    .attr("opacity",0.90)
-    .attr("r",function(d,i){
-      return 20
-    })
+      
+      // --- 2. Primary Marker (Core Dot) ---
+      vis.racerMarker = vis.chart.selectAll(".racerMarker")
+      .data(rt_racers, d => d.id) 
 
-    .ease(d3.easeLinear)
-    .duration(elapsedTime)
+      // ENTER
+      vis.racerMarker.enter()
+      .append('circle')
+      .attr("class","racerMarker mapEl")
+      .attr("cx", d => vis.xScale(d.locX))
+      .attr('cy', d => vis.yScale(d.locY))
+      .attr("opacity",0)
+      .attr("r", 8)
+      .attr("fill", d => (d['primary_color'].charAt(0) === '#') ? d['primary_color'] : "#" + d['primary_color'])
+      .attr('stroke', "none")
+      .transition()
+      .attr("opacity", 0.8)
+      .duration(100)
 
-    vis.racerMarkerS.exit()
-    .transition()
-    .attr("opacity",0)
-    .attr("r",function(d,i){
-      return 0 
-    }) 
-    .duration("750")
-    .remove()
+      // UPDATE
+      vis.racerMarker.transition()
+      .attr("cx", d => vis.xScale(d.locX))
+      .attr('cy', d => vis.yScale(d.locY))
+      .attr("r", 8)
+      .attr("opacity", 0.8)
+      .ease(d3.easeLinear)
+      .duration(TRANSITION_DURATION)
 
-    
-    vis.racerMarker = vis.chart.selectAll(".racerMarker")
-    .data(rt_racers)
-    vis.racerMarker.enter()
-    .append('circle')
-    .attr("class","racerMarker")
-    .attr("cx",function(d,i){
-      return vis.xScale(d.locX)
-    })
-    .attr('cy',function(d,i){
-      return vis.yScale(d.locY)
-    })
-    .attr("opacity",0)
-    .transition() // spawned in
-    .attr("cx",function(d,i){
-      return vis.xScale(d.locX)
-    })
-    .attr('cy',function(d,i){
-      return vis.yScale(d.locY)
-    })
-    .attr("opacity",1)
-    .attr("r",function(d,i){
-      return 13
-    }) 
-    .attr("fill",function(d,i){ // TODO: make based off of car primary color?, stroke off of secondary
-      //let car = findObjectByKey(vis.racer_data,'id',d.id)
-      let color = d['primary_color'];
-			// If the first character is NOT '#', prepend '#'
-			return (color.charAt(0) === '#') ? color : "#" + color;
-    })
-    .attr('stroke',function(d,i){
-      return "none"
-    })	
-    .duration(100)
+      // EXIT
+      vis.racerMarker.exit()
+      .transition()
+      .attr("opacity",0)
+      .attr("r", 0)
+      .duration(750)
+      .remove()
 
-    vis.racerMarker.transition() // when racer moves
-    .attr("cx",function(d,i){
-      return vis.xScale(d.locX)
-    })
-    .attr('cy',function(d,i){
-      return vis.yScale(d.locY)
-    })
-    .attr("r",function(d,i){
-      return 13
-    })
-    .attr("opacity",1)
+      /*
+      // --- 3. Racer ID Text Label (Car Number/Short ID) ---
+      vis.racerIDText = vis.chart.selectAll(".racerIDText")
+      .data(rt_racers, d => d.id)
 
-    .ease(d3.easeLinear)
-    .duration(elapsedTime)
+      // ENTER
+      vis.racerIDText.enter()
+      .append('text')
+      .attr("class", "racerIDText mapEl headerText")
+      .attr("x", d => vis.xScale(d.locX))
+      .attr("y", d => vis.yScale(d.locY))
+      .attr("opacity", 0)
+      .attr('font-size', '12px')
+      .attr('font-weight', 'bold')
+      .attr('fill', 'var(--brand-dark)') // Use dark text for contrast on bright primary/secondary car color
+      .attr('text-anchor', 'middle')
+      .attr('alignment-baseline', 'central')
+      .text(d => d.id) // Assuming 'id' is the car number/short ID
+      .transition()
+      .attr("opacity", 1)
+      .duration(100);
 
-    vis.racerMarker.exit()
-    .transition()
-    .attr("opacity",0)
-    .attr("r",function(d,i){
-      return 0 
-    }) // TODO: make proportionate to health??
-    .duration("750")
-    .remove()
+      // UPDATE
+      vis.racerIDText.transition()
+      .attr("x", d => vis.xScale(d.locX))
+      .attr("y", d => vis.yScale(d.locY))
+      .text(d => d.id) 
+      .ease(d3.easeLinear)
+      .duration(TRANSITION_DURATION);
 
+      // EXIT
+      vis.racerIDText.exit()
+      .transition()
+      .attr("opacity", 0)
+      .duration(750)
+      .remove();*/
 
       vis.renderVis();
-   }
-   
-  
+    }
   
     /**
      * This function contains the D3 code for binding data to visual elements
-     * Important: the chart is not interactive yet and renderVis() is intended
-     * to be called only once; otherwise new paths would be added on top
+     * Important: renderVis() is intended to be called only once
      */
     renderVis() {
       let vis = this;
-
-      
-      
-     
-  
-          
-          // racer usernames
-          /*
-          nameText = interactive_chart.selectAll(".nameText")
-          .data(all_cows)
-    
-          nameText.enter()
-          .append('text')
-          .attr('class','nameText')
-          .attr("x", function(d,i){
-            return xScale(d.p['x'])
-          })
-          .attr('y',function(d,i){
-            return xScale(d.p['y']) - 10 // TODO: figure out good/dynamic height
-          })
-          .attr('dx',"0em") // put offset here?
-          .attr('dy',"0em")
-          .text(function(d,i){ return d['n']})
-          .attr('font-family',"sans-serif")
-          .attr('font-size','12px')
-          .attr('stroke','white')
-          .attr('stroke-width',0.3)			
-          .attr('fill','#3377ff')
-          .attr('text-anchor', 'middle')
-          .attr('alignment-baseline', 'central')
-          .attr("opacity",0)
-          .transition()
-          .attr("opacity",1)
-          .duration(500)
-    
-          nameText.transition()
-          .attr("x", function(d,i){
-            return xScale(d.p['x'])
-          })
-          .attr('y',function(d,i){
-            return xScale(d.p['y']) - 10 // TODO: figure out good/dynamic height
-          })
-          .attr('dx',"0em") // put offset here?
-          .attr('dy',"0em")
-          .attr('fill','#3377ff')
-          .attr("opacity",1)
-          .text(function(d,i){ return d['n']})
-          .ease(d3.easeLinear)
-          .duration(elapsedTime)
-    
-    
-          nameText.exit()
-          .transition()
-          .attr("opacity",0)
-          .duration(500)
-          .remove()
-          all_elements.push(nameText)
-          */
-
-
+      // No static elements to render here, this is the final draw loop
     }
   
-  }
+}
