@@ -17,14 +17,17 @@ function Leaderboard.updateRealTimePositions(self)
     
     -- 1. SORT BY ABSOLUTE DISTANCE (Meters)
     table.sort(allDrivers, function(a, b)
+        -- [SAFE ACCESS] Check if perception exists before reading
         local distA = (a.perceptionData and a.perceptionData.Navigation and a.perceptionData.Navigation.totalRaceDistance) or -1.0
         local distB = (b.perceptionData and b.perceptionData.Navigation and b.perceptionData.Navigation.totalRaceDistance) or -1.0
+        
         if distA ~= distB then return distA > distB end
         return (a.id or 0) > (b.id or 0)
     end)
     
     -- 2. CALCULATE SPLITS
     local leaderDist = 0.0
+    -- [SAFE ACCESS] Leader check
     if allDrivers[1] and allDrivers[1].perceptionData and allDrivers[1].perceptionData.Navigation then 
         leaderDist = allDrivers[1].perceptionData.Navigation.totalRaceDistance or 0.0
         self.leaderID = allDrivers[1].id
@@ -34,28 +37,23 @@ function Leaderboard.updateRealTimePositions(self)
         driver.racePosition = rank
         
         -- A. GET DISTANCE GAP (Meters)
+        -- [SAFE ACCESS] My Distance
         local myDist = (driver.perceptionData and driver.perceptionData.Navigation and driver.perceptionData.Navigation.totalRaceDistance) or 0.0
         local distGap = math.max(0.0, leaderDist - myDist)
         
-        -- B. CALCULATE SMOOTHED SPEED (for stable time conversion)
+        -- B. CALCULATE SMOOTHED SPEED
         local rawSpeed = 0.0
         if driver.perceptionData and driver.perceptionData.Telemetry then 
             rawSpeed = driver.perceptionData.Telemetry.speed or 0.0
         end
         
-        -- Use a "running average" to smooth out braking/acceleration spikes
-        -- 0.95 keeps history, 0.05 adds new data (slow moving average)
         driver.avgSpeed = (driver.avgSpeed or rawSpeed) * 0.95 + rawSpeed * 0.05
-        
-        -- Safety: Don't divide by 0. Assume at least 10 m/s (approx 36kph) for gap calcs
-        -- This prevents gaps exploding to "999 seconds" when a car is stopped.
         local calcSpeed = math.max(driver.avgSpeed, 10.0)
         
-        -- C. CONVERT TO TIME (Seconds)
+        -- C. CONVERT TO TIME
         local timeGap = distGap / calcSpeed
         
-        -- D. SMOOTH THE TIME GAP ITSELF
-        -- Even with smoothed speed, distance can jump. Smooth the final output too.
+        -- D. SMOOTH THE TIME GAP
         driver.smoothGapToLeader = (driver.smoothGapToLeader or timeGap) * 0.9 + timeGap * 0.1
         
         -- E. GAP TO NEXT CAR (Interval)
@@ -63,13 +61,20 @@ function Leaderboard.updateRealTimePositions(self)
             driver.gapToNext = 0.0
         else
             local carAhead = allDrivers[rank - 1]
-            local distToNext = (carAhead.perceptionData.Navigation.totalRaceDistance or 0) - myDist
-            -- Calculate interval based on MY speed (how long to reach them)
+            
+            -- [SAFE ACCESS] FIX FOR CRASH
+            -- Previous code assumed carAhead.perceptionData always existed.
+            -- Now we check it first.
+            local aheadDist = 0.0
+            if carAhead and carAhead.perceptionData and carAhead.perceptionData.Navigation then
+                aheadDist = carAhead.perceptionData.Navigation.totalRaceDistance or 0.0
+            end
+            
+            local distToNext = aheadDist - myDist
             local timeToNext = distToNext / calcSpeed
             driver.gapToNext = (driver.gapToNext or timeToNext) * 0.9 + timeToNext * 0.1
         end
         
-        -- Save for Export (keep old raceSplit as distance for debug if needed)
         driver.raceSplit = distGap 
     end
 end
