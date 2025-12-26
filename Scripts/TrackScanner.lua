@@ -231,6 +231,97 @@ function TrackScanner.calculateTrackDistances(self, nodes)
     end
 end
 
+
+-- --- PIT LANE SCAN (ANCHOR BASED) ---
+
+function TrackScanner.scanPitLaneFromAnchors(self)
+    print("TrackScanner: Starting Anchor-Based Pit Scan...")
+
+    if not PIT_ANCHORS.start or not PIT_ANCHORS.endPoint then
+        print("Error: Missing Pit Start (Green) or Pit End (Red) anchors!")
+        self.network:sendToClients("cl_showAlert", "Missing Start/End Anchors!")
+        return
+    end
+
+    local nodes = {}
+
+    -- 1. Gather Key Points in Order
+    local keyPoints = {}
+    table.insert(keyPoints, PIT_ANCHORS.start)
+    if PIT_ANCHORS.entry then table.insert(keyPoints, PIT_ANCHORS.entry) end
+
+    -- Sort Pit Boxes by distance from Start
+    local startLoc = PIT_ANCHORS.start.shape:getWorldPosition()
+    local sortedBoxes = {}
+    for _, box in ipairs(PIT_ANCHORS.boxes) do table.insert(sortedBoxes, box) end
+    table.sort(sortedBoxes, function(a,b) 
+        return (a.shape:getWorldPosition() - startLoc):length() < (b.shape:getWorldPosition() - startLoc):length() 
+    end)
+    for _, box in ipairs(sortedBoxes) do table.insert(keyPoints, box) end
+
+    if PIT_ANCHORS.exit then table.insert(keyPoints, PIT_ANCHORS.exit) end
+    table.insert(keyPoints, PIT_ANCHORS.endPoint)
+
+    -- 2. Scan Segments
+    local nodeIdCounter = 1
+
+    for i = 1, #keyPoints - 1 do
+        local startObj = keyPoints[i]
+        local endObj = keyPoints[i+1]
+
+        local startPos = startObj.shape:getWorldPosition()
+        local endPos = endObj.shape:getWorldPosition()
+
+        local segmentDir = (endPos - startPos):normalize()
+        local segmentDist = (endPos - startPos):length()
+        local steps = math.floor(segmentDist / SCAN_STEP_SIZE)
+
+        -- Add Start Anchor Node
+        self:addPitNode(nodes, nodeIdCounter, startPos, segmentDir, startObj)
+        nodeIdCounter = nodeIdCounter + 1
+
+        -- Add Intermediate Nodes
+        for s = 1, steps do
+            local currentPos = startPos + (segmentDir * (s * SCAN_STEP_SIZE))
+
+            -- Raycast to stick to floor
+            local hit, res = sm.physics.raycast(currentPos + sm.vec3.new(0,0,5), currentPos - sm.vec3.new(0,0,5))
+            if hit then currentPos = res.pointWorld end
+
+            self:addPitNode(nodes, nodeIdCounter, currentPos, segmentDir, nil)
+            nodeIdCounter = nodeIdCounter + 1
+        end
+    end
+
+    -- Add Final Node
+    self:addPitNode(nodes, nodeIdCounter, PIT_ANCHORS.endPoint.shape:getWorldPosition(), PIT_ANCHORS.endPoint.shape:getAt(), PIT_ANCHORS.endPoint)
+
+    self.pitChain = nodes
+    print("TrackScanner: Pit Scan Complete. Nodes: " .. #nodes)
+end
+
+function TrackScanner.addPitNode(self, nodeList, id, pos, dir, sourceObj)
+    local pType = 0
+    if sourceObj then
+        if sourceObj.pointType then pType = sourceObj.pointType end 
+        if sourceObj.boxDimensions then pType = 5 end -- PitBox
+    end
+
+    local node = {
+        id = id,
+        location = pos,
+        mid = pos, 
+        width = 15.0, 
+        outVector = dir,
+        perp = dir:cross(sm.vec3.new(0,0,1)):normalize(),
+        bank = 0,
+        incline = 0,
+        sectorID = 4, 
+        pointType = pType
+    }
+    table.insert(nodeList, node)
+end
+
 -- --- OPTIMIZER (FIXED) ---
 
 function TrackScanner.optimizeRacingLine(self, iterations, isPit)
@@ -240,15 +331,16 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
 
     local MARGIN = MARGIN_SAFETY or 6.0
 
-    -- [[ FIX 1: FILL GAPS ]]
+    -- [[ Gap Filling ]]
     nodes = self:fillGaps(nodes, 6.0)
     count = #nodes -- Update count after filling
 
-    -- [[ FIX 2: OPTIMIZATION LOOP ]]
+    -- [[ OPTIMIZATION LOOP ]]
     for iter = 1, iterations do
         for i = 1, count do
             local node = nodes[i]
-            if not node.isJump then 
+            -- Safety: Only optimize if walls exist (Race Mode)
+            if not node.isJump and node.leftWall and node.rightWall then 
                 local prev = nodes[(i - 2) % count + 1]
                 local next = nodes[(i % count) + 1]
 
@@ -270,10 +362,8 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
                 local rRight   = self:getLocalRadius(prev.location, pRight, next.location)
 
                 local move = 0.0
-                if rLeft > rCurrent and rLeft > rRight then
-                    move = -step
-                elseif rRight > rCurrent and rRight > rLeft then
-                    move = step
+                if rLeft > rCurrent and rLeft > rRight then move = -step
+                elseif rRight > rCurrent and rRight > rLeft then move = step
                 else
                     -- Smoothing
                     local smoothPos = (prev.location + next.location) * 0.5
@@ -290,20 +380,13 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     end
     
     -- [[ FIX 3: RESAMPLE ASSIGNMENT ]]
-    -- We must assign the result back to 'nodes'
     nodes = self:resampleChain(nodes, 3.0)
-
     self:calculateTrackDistances(nodes)
-
-    -- Final Cleanup
     self:snapChainToFloor(nodes)
     self:assignSectors(nodes)
-    self:recalculateNodeProperties(nodes)
+    self:recalculateNodeProperties(nodes) -- This now handles the Pit Open-Chain logic
 
-    -- Save back to main memory
     if isPit then self.pitChain = nodes else self.nodeChain = nodes end
-    
-    -- Auto-Save
     self:sv_saveToStorage()
 end
 
@@ -411,19 +494,37 @@ end
 
 function TrackScanner.recalculateNodeProperties(self, nodes)
     local count = #nodes
+    -- Detect if this is a closed loop (Race) or open chain (Pit)
+    -- If Start and End are far apart (>20m), assume it's Open.
+    local isLoop = (nodes[1].location - nodes[count].location):length() < 20.0
+
     for i = 1, count do
         local node = nodes[i]
-        local nextNode = nodes[(i % count) + 1]
+        local nextNode = nil
+
+        if i < count then
+            nextNode = nodes[i + 1]
+        elseif isLoop then
+            nextNode = nodes[1] -- Wrap around for loops
+        else
+            -- Open Chain (Pit): Project forward based on previous direction
+            local prev = nodes[i-1] or nodes[1]
+            local dir = (node.location - prev.location):normalize()
+            -- Create a fake target 5m ahead so the vector stays straight
+            nextNode = { 
+                location = node.location + (dir * 5.0), 
+                mid = node.mid + (dir * 5.0) 
+            }
+        end
         
-        -- 1. Keep outVector aligned with the RACING LINE (for AI/playback)
+        -- 1. Racing Vector
         node.outVector = (nextNode.location - node.location):normalize()
         
-        -- 2. Calculate a temporary vector based on the CENTER LINE (mid)
-        --    Use this specifically to find the true track perpendicular
+        -- 2. Center Vector (for perpendiculars)
         local midDir = (nextNode.mid - node.mid):normalize()
         local nodeUp = node.upVector or sm.vec3.new(0,0,1)
         
-        -- 3. Generate perp from the MID path, not the optimized path
+        -- 3. Perpendicular (Points to the side of the track)
         node.perp = midDir:cross(nodeUp):normalize() 
     end
 end
@@ -528,12 +629,10 @@ function TrackScanner.client_onTinker(self, character, state)
 end
 
 function TrackScanner.sv_startScan(self)
-    if self.isScanning then -- Screen will be frozen anyway... any way to do this "in the background?"
-        -- STOP SCAN
+    if self.isScanning then 
         self.isScanning = false
         print("Stopping Scan...")
     else
-        -- START SCAN
         self.isScanning = true
         local shape = self.shape
         local pos = shape:getWorldPosition()
@@ -542,11 +641,18 @@ function TrackScanner.sv_startScan(self)
         if self.scanMode == SCAN_MODE_RACE then
             print("Starting Race Scan...")
             self:scanTrackLoop(pos, dir)
-            self:optimizeRacingLine(500, false) -- Auto-Optimize after scan
+            -- Optimize for 1000 iterations (Uses walls to find center)
+            self:optimizeRacingLine(1000, false) 
             self:sv_sendVis()
+            
         elseif self.scanMode == SCAN_MODE_PIT then
             print("Starting Pit Scan...")
-            -- (Add your pit scan call here if needed)
+            self:scanPitLaneFromAnchors()
+            -- Optimize for 0 iterations.
+            -- Why 0? Because Pit Nodes have no walls, so we skip the 
+            -- wall-bouncing physics but keep the gap-filling and math fixes.
+            self:optimizeRacingLine(0, true) 
+            self:sv_sendVis()
         end
         self.isScanning = false
     end
