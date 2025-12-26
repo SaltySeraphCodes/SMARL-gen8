@@ -541,6 +541,114 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     if count < 3 then return end
 
     local MARGIN = MARGIN_SAFETY or 6.0
+    -- Tuning: How strongly the line wants to stay in the center (0.0 = Pure Racing Line, 1.0 = Center Line)
+    local CENTER_BIAS = 0.05 
+
+    -- [[ 1. FILL GAPS FIRST ]]
+    nodes = self:fillGaps(nodes, 6.0)
+    count = #nodes 
+
+    print("TrackScanner: Optimizing ("..iterations.." passes) with Center Tether...")
+
+    -- [[ 2. OPTIMIZATION LOOP ]]
+    for iter = 1, iterations do
+        for i = 1, count do
+            local node = nodes[i]
+            -- Safety: Only optimize valid track nodes
+            if not node.isJump and node.leftWall and node.rightWall then 
+                local prev = nodes[(i - 2) % count + 1]
+                local next = nodes[(i % count) + 1]
+
+                local wallVec = node.rightWall - node.leftWall
+                local trackWidth = wallVec:length()
+                local wallDir = wallVec:normalize()
+
+                -- Current Position vs Center
+                local currentDist = (node.location - node.leftWall):dot(wallDir)
+                local midDist = (node.mid - node.leftWall):dot(wallDir)
+
+                -- Gradient Descent for Radius
+                local step = 0.2 -- Slower, more stable steps
+                
+                -- We test moving Left and Right
+                local pCurrent = node.location
+                local pLeft    = node.location - (wallDir * step)
+                local pRight   = node.location + (wallDir * step)
+
+                local rCurrent = self:getLocalRadius(prev.location, pCurrent, next.location)
+                local rLeft    = self:getLocalRadius(prev.location, pLeft, next.location)
+                local rRight   = self:getLocalRadius(prev.location, pRight, next.location)
+
+                -- [[ TETHER LOGIC ]]
+                -- Penalize radius gain if it moves too far from center
+                -- We artificially reduce the 'score' of a move if it goes away from midDist
+                local distLeft = math.abs((currentDist - step) - midDist)
+                local distRight = math.abs((currentDist + step) - midDist)
+                local distCurr = math.abs(currentDist - midDist)
+                
+                -- Apply Bias: Reduce effective radius by distance cost
+                -- (Larger radius is better, so we subtract cost)
+                rLeft = rLeft - (distLeft * CENTER_BIAS * 100) 
+                rRight = rRight - (distRight * CENTER_BIAS * 100)
+                
+                local move = 0.0
+                if rLeft > rCurrent and rLeft > rRight then 
+                    move = -step
+                elseif rRight > rCurrent and rRight > rLeft then 
+                    move = step
+                else
+                    -- If no radius gain, gently drift back to center (Smoothing)
+                    move = (midDist - currentDist) * 0.05 
+                end
+                
+                local newDist = currentDist + move
+                newDist = math.max(MARGIN, math.min(trackWidth - MARGIN, newDist))
+                node.location = node.leftWall + (wallDir * newDist)
+            end
+        end
+    end
+    
+    -- [[ 3. SMOOTHING PASS ]]
+    -- This deletes the "One Node Jump" artifact by averaging neighbors
+    self:smoothPositions(nodes)
+
+    -- [[ 4. RESAMPLE & FINALIZE ]]
+    nodes = self:resampleChain(nodes, 3.0)
+    self:calculateTrackDistances(nodes)
+    self:snapChainToFloor(nodes)
+    self:assignSectors(nodes)
+    self:recalculateNodeProperties(nodes) 
+
+    if isPit then self.pitChain = nodes else self.nodeChain = nodes end
+    self:sv_saveToStorage()
+end
+
+-- NEW HELPER: Averages node positions to remove spikes
+function TrackScanner.smoothPositions(self, nodes)
+    print("TrackScanner: Smoothing Path...")
+    local count = #nodes
+    -- We do 5 passes of smoothing to iron out the "River" effect
+    for pass = 1, 5 do
+        for i = 1, count do
+            local prev = nodes[(i - 2) % count + 1]
+            local curr = nodes[i]
+            local next = nodes[(i % count) + 1]
+            
+            -- Simple average of P_prev, P_curr, P_next
+            local avgPos = (prev.location + curr.location + next.location) / 3.0
+            
+            -- Blend it: 50% keep original, 50% take average
+            curr.location = sm.vec3.lerp(curr.location, avgPos, 0.5)
+        end
+    end
+end
+
+function TrackScanner.optimizeRacingLine_old(self, iterations, isPit)
+    local nodes = isPit and self.pitChain or self.rawNodes
+    local count = #nodes
+    if count < 3 then return end
+
+    local MARGIN = MARGIN_SAFETY or 6.0
 
     -- [[ Gap Filling ]]
     nodes = self:fillGaps(nodes, 6.0)
