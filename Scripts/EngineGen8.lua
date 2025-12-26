@@ -237,7 +237,7 @@ function Engine.calculateRPM(self)
         local isLearning = false
         local steerInput = math.abs(self.driver.perceptionData.steer or 0)
         
-        if carSpeed > 15 and self.accelInput > 0.1 and self.accelInput < 0.5 and steerInput < 0.2 then
+        if carSpeed > 5 and self.accelInput > 0.1 and self.accelInput < 0.6 and steerInput < 0.2 then
             isLearning = true
         end
 
@@ -405,15 +405,20 @@ function Engine._applyHardLimiter(self, nextRPM)
         baseSpeed = baseSpeed * DRAFTING_SPEED_MULT
     end
     
-    -- Convert Velocity to RPM Limit
-    local calculatedLimit = (baseSpeed * 2 * math.pi) / tractionConst
-    if calculatedLimit < 50 then calculatedLimit = 50 end
+    -- [[ FIX: UNIT CORRECTION ]]
+    -- OLD (BROKEN): local calculatedLimit = (baseSpeed * 2 * math.pi) / tractionConst
+    -- This confused Radians (2pi) with RPM (60). 
+    -- Since tractionConst = (Speed * 60) / RPM, we must use 60 here to reverse it.
+    
+    local calculatedLimit = (baseSpeed * 60.0) / tractionConst
+    
+    -- Sanity Check: Don't let the limit crush the engine below idle
+    if calculatedLimit < 250 then calculatedLimit = 250 end
 
     -- Apply Limit
     if nextRPM >= calculatedLimit and increment > 0 then
-        -- Soft limiter
+        -- Soft limiter: Reduce the acceleration increment
         nextRPM = nextRPM - (increment * 1.05)
-        
     elseif nextRPM <= -40 and increment < 0 then
         nextRPM = -40
     end
