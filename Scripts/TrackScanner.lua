@@ -106,12 +106,50 @@ function TrackScanner.findWallFlat(self, origin, direction, upVector)
 end
 
 function TrackScanner.findWallPoint(self, origin, direction, upVector)
+    -- [[ FIX: CONE SEARCH ]]
+    -- Scan a sector to find the wall even if the perp vector is angled wrong
+    local bestPoint = nil
+    local minDst = 999.0
+    
+    -- Check 3 angles: Perfect Left/Right, and +/- 15 degrees lead/lag
+    local angles = { 0, 15, -15 } 
+    
+    for _, ang in ipairs(angles) do
+        -- Rotate the scan direction
+        local rot = sm.quat.angleAxis(math.rad(ang), upVector)
+        local scanDir = rot * direction
+        
+        -- 1. Try Top-Down (Best for barriers)
+        local floorZ = origin.z
+        local p = self:findWallTopDown(origin, scanDir, upVector, floorZ)
+        
+        -- 2. Fallback to Flat Raycast
+        if not p then 
+            p = self:findWallFlat(origin, scanDir, upVector) 
+        end
+        
+        -- Keep the CLOSEST valid wall hit
+        if p then
+            local dst = (p - origin):length()
+            if dst < minDst then
+                minDst = dst
+                bestPoint = p
+            end
+        end
+    end
+    
+    return bestPoint
+end
+
+function TrackScanner.findWallPoint_old(self, origin, direction, upVector)
     local floorZ = origin.z
     local wallPoint = self:findWallTopDown(origin, direction, upVector, floorZ)
     if wallPoint then return wallPoint end
     wallPoint = self:findWallFlat(origin, direction, upVector)
     return wallPoint
 end
+
+
 
 -- --- TRACK SCAN (LOOP) ---
 function TrackScanner.scanTrackLoop(self, startPos, startDir)
@@ -124,12 +162,15 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     local loopClosed = false
     local jumpCounter = 0
     
-    -- [[ NEW: Gap Rejection Memory ]]
-    local prevLeftDist = 10.0 -- Default start width (will update on first hit)
+    -- Gap Rejection Memory
+    local prevLeftDist = 10.0 
     local prevRightDist = 10.0
-    local GAP_TOLERANCE = 4.0 -- If wall jumps > 4m outward, it's a gap (Pit Lane)
+    local GAP_TOLERANCE = 5.0 -- Relaxed slightly to handle hairpins
+    
+    -- [[ NEW: Adaptive Step Size ]]
+    local currentStepSize = SCAN_STEP_SIZE -- Starts at 4.0
 
-    print("TrackScanner: Starting Robust 3D Race Scan (Auto-Gap Fill)...")
+    print("TrackScanner: Starting 3D Race Scan (Cone Search + Adaptive Step)...")
 
     while not loopClosed and iterations < maxIterations do
         local floorPos, floorNormal = self:findFloorPoint(currentPos, currentUp)
@@ -138,31 +179,28 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             currentPos = floorPos
             currentUp = sm.vec3.lerp(currentUp, floorNormal, 0.5):normalize()
             jumpCounter = 0
+            
             local rightVec = currentDir:cross(currentUp):normalize() * -1 
             
-            -- 1. Raycast
+            -- [[ CONE SEARCH happens inside findWallPoint now ]]
             local rawLeft = self:findWallPoint(currentPos, -rightVec, currentUp) 
             local rawRight = self:findWallPoint(currentPos, rightVec, currentUp) 
             
-            -- [[ NEW: Gap Logic Left ]]
+            -- [[ LOGIC: Left Wall ]]
             local leftWall = rawLeft
             local validLeft = false
             if rawLeft then
                 local dist = (rawLeft - currentPos):length()
-                -- If it's the first node, trust it. Otherwise check for spikes.
+                -- Only reject if wall is WAY FURTHER away (Gap). 
+                -- If it's closer (Turning in), we accept it.
                 if iterations == 0 or (dist < prevLeftDist + GAP_TOLERANCE) then
                     prevLeftDist = dist
                     validLeft = true
                 end
             end
-            
-            if not validLeft then
-                -- CREATE PHANTOM WALL
-                -- Project a wall using the previous known width
-                leftWall = currentPos + (-rightVec * prevLeftDist)
-            end
+            if not validLeft then leftWall = currentPos + (-rightVec * prevLeftDist) end
 
-            -- [[ NEW: Gap Logic Right ]]
+            -- [[ LOGIC: Right Wall ]]
             local rightWall = rawRight
             local validRight = false
             if rawRight then
@@ -172,13 +210,9 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                     validRight = true
                 end
             end
-            
-            if not validRight then
-                -- CREATE PHANTOM WALL
-                rightWall = currentPos + (rightVec * prevRightDist)
-            end
+            if not validRight then rightWall = currentPos + (rightVec * prevRightDist) end
 
-            -- Continue with normal logic using the (potentially phantom) walls
+            -- Calculate Metrics
             local trackWidth = (leftWall - rightWall):length()
             local midPoint = (leftWall + rightWall) * 0.5
             midPoint.z = currentPos.z + 0.5 
@@ -186,8 +220,8 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             local wallSlopeVec = (rightWall - leftWall):normalize()
             local bankUp = wallSlopeVec:cross(currentDir):normalize()
             local bankAngle = 0.0
-            if (leftWall and rightWall) and (leftWall.z - rightWall.z) > 2.0 then bankAngle = 1.0 end 
-            if (leftWall and rightWall) and (rightWall.z - leftWall.z) > 2.0 then bankAngle = -1.0 end 
+            if (leftWall.z - rightWall.z) > 2.0 then bankAngle = 1.0 end 
+            if (rightWall.z - leftWall.z) > 2.0 then bankAngle = -1.0 end 
 
             table.insert(self.rawNodes, {
                 id = iterations + 1,
@@ -205,19 +239,36 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 sectorID = 1 
             })
 
-            -- (Rest of loop remains the same...)
-            if iterations > 0 and #self.rawNodes > 1 then
+            -- [[ ADAPTIVE GRANULARITY ]]
+            -- Calculate how much we turned this frame
+            local turnAngle = 0
+            if iterations > 0 then
                 local prevNode = self.rawNodes[#self.rawNodes-1]
                 local newDir = (midPoint - prevNode.location):normalize()
+                
+                -- Update vectors
                 prevNode.outVector = newDir
                 currentDir = newDir
+                
+                -- Check turn sharpness
+                local dot = prevNode.inVector:dot(newDir)
+                turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
+            end
+            
+            -- If turning sharply (> 10 degrees per step), slow down for the NEXT step
+            if turnAngle > 10.0 then
+                currentStepSize = 2.0 -- High Precision Mode
+            else
+                currentStepSize = 4.0 -- Speed Mode
             end
 
-            currentPos = midPoint + (currentDir * SCAN_STEP_SIZE)
+            -- Move Forward
+            currentPos = midPoint + (currentDir * currentStepSize)
             iterations = iterations + 1
 
+            -- Check for Loop Closure
             local distToStart = (currentPos - startPos):length()
-            if iterations > 20 and distToStart < (SCAN_STEP_SIZE * 1.5) then
+            if iterations > 20 and distToStart < (currentStepSize * 1.5) then
                 print("TrackScanner: Loop Closed successfully.")
                 loopClosed = true
                 local lastNode = self.rawNodes[#self.rawNodes]
@@ -225,14 +276,15 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 lastNode.outVector = (firstNode.location - lastNode.location):normalize()
             end
         else
-            -- Jump logic (unchanged)
+            -- Jump / Void Logic
             jumpCounter = jumpCounter + 1
             local jumpGravity = sm.vec3.new(0,0,-0.5) * (jumpCounter * 0.5)
-            currentPos = currentPos + (currentDir * SCAN_STEP_SIZE) + jumpGravity
+            currentPos = currentPos + (currentDir * currentStepSize) + jumpGravity
             if jumpCounter > JUMP_SEARCH_LIMIT then break end
             iterations = iterations + 1
         end
     end
+    
     return self.rawNodes
 end
 
