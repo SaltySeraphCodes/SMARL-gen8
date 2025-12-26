@@ -327,8 +327,6 @@ function Engine._calculateBaseRPMIncrement(self)
         -- Accelerating Forward
         if self.curGear > 0 then
             local gearAccel = self:getGearAccel(self.curGear)
-            -- Add handicap assist to acceleration?
-            -- local assist = ((self.driver.handicap or 1) / 2000) 
             increment = ratioConversion(0, 1, gearAccel, 0, input)
             
         elseif self.curGear < 0 then
@@ -378,6 +376,8 @@ function Engine._applyPerformanceModifiers(self, increment)
         -- Apply percentage boost instead of flat adder for better scaling
         increment = increment * DRAFTING_ACCEL_MULT
     end
+
+    -- HANDICAP BONUS/REDUCTION (Acceleration) (TODO)
     
     self.totalSpeedModifier = 0 
     return increment
@@ -389,6 +389,7 @@ function Engine._applyGearLimits(self, nextRPM)
     
     -- Rev Limiter Bounce
     if nextVRPM > limit then
+        print("rev limit bounce")
         nextRPM = self.curRPM - 5 
     end
     
