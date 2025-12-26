@@ -1105,18 +1105,18 @@ function TrackScanner.redrawVisualization(self)
         
         if self.visMode == 1 then
             -- MODE 1: RACING LINE (Green)
-            self:spawnDot(node.pos, sm.color.new("00ff00"))
+            self:spawnDot(node.pos, sm.color.new("00ff00ff"))
 
         elseif self.visMode == 2 then
             -- MODE 2: CENTER LINE (Blue)
-            self:spawnDot(node.mid, sm.color.new("00ffff"))
+            self:spawnDot(node.mid, sm.color.new("0000ffff"))
 
         elseif self.visMode == 3 then
             -- MODE 3: DEBUG SKELETON (Walls = Red, Mid = Blue)
             -- This reveals EXACTLY what the scanner hit
-            self:spawnDot(node.mid, sm.color.new("00ffff")) -- Center
-            self:spawnDot(node.left, sm.color.new("ff0000")) -- Left Wall Hit
-            self:spawnDot(node.right, sm.color.new("ff0000")) -- Right Wall Hit
+            self:spawnDot(node.mid, sm.color.new("0000ffff")) -- Center
+            self:spawnDot(node.left, sm.color.new("ff0000ff")) -- Left Wall Hit
+            self:spawnDot(node.right, sm.color.new("ff0000ff")) -- Right Wall Hit
         end
     end
 end
