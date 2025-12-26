@@ -833,7 +833,6 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local telemetry = perceptionData.Telemetry
 
     -- 1. GET SAFE BIAS & CLAMP IT
-    -- [FIX 2a] Strict Clamping: Never ask for a point outside 90% of track width
     local safeBias = self:getFinalTargetBias(perceptionData)
     safeBias = math.min(math.max(safeBias, -0.9), 0.9)
     self.smoothedBias = safeBias 
@@ -853,32 +852,43 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local carPos = telemetry.location
     local vecToTarget = targetPoint - carPos
     local lookaheadDist = vecToTarget:length()
+    
+    -- [TUNING] Lower stability floor to be more responsive
+    -- Was: 12.0 + speed * 0.5 (Too stiff)
+    local minStabilityDist = 6.0 + (telemetry.speed * 0.4) 
 
-    -- [FIX 2b] LOOKAHEAD RETRACTION
-    -- If we are cornering, looking too far ahead makes us "cut" through walls.
-    -- Limit the lookahead to be no further than the Apex + 5 meters.
+    -- [FIX 2b] LOOKAHEAD RETRACTION (Prioritized)
+    -- If we are cornering, we MUST look at the Apex, even if it's close.
+    -- We allow the lookahead to drop below minStabilityDist if the apex is closer.
     if self.isCornering and self.activeApexLocation then
         local toApex = self.activeApexLocation - carPos
         local distToApex = toApex:length()
         
-        -- If the standard lookahead is trying to look PAST the corner, clamp it.
-        if lookaheadDist > distToApex + 5.0 then
-            lookaheadDist = distToApex + 5.0
-            -- Recalculate target point based on shorter distance to keep it on track
-            -- (Simple approximation: just pull the existing vector in)
+        -- Clamp lookahead to the Apex + buffer
+        -- We apply this limit AFTER the stability check logic would normally happen
+        -- to ensure we don't "look through" the wall.
+        local maxLookahead = distToApex + 4.0
+        
+        if lookaheadDist > maxLookahead then
+            lookaheadDist = maxLookahead
+            -- Pull the target point in
             vecToTarget = vecToTarget:normalize() * lookaheadDist
-            targetPoint = carPos + vecToTarget
         end
+        
+        -- In cornering, the ceiling is the Apex, the floor is reduced
+        -- allowing the car to actually turn.
+        minStabilityDist = math.min(minStabilityDist, maxLookahead)
     end
 
     -- PURE PURSUIT LOGIC
     local carRight = telemetry.rotations.right
     local localY = vecToTarget:dot(carRight)
     
-    -- Stability adjustments
+    -- Stability adjustments (Standard)
     local errorScale = math.abs(localY) * 0.3 
     lookaheadDist = lookaheadDist + errorScale
-    local minStabilityDist = 12.0 + (telemetry.speed * 0.5)
+    
+    -- Apply the floor (which we may have lowered if cornering)
     lookaheadDist = math.max(lookaheadDist, minStabilityDist)
 
     local curvature = (2.0 * localY) / (lookaheadDist * lookaheadDist)
