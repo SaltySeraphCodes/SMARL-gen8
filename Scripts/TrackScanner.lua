@@ -205,7 +205,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             -- [[ FIX 1: LIFT THE EYES ]]
             -- We raise the scan origin 1.0 unit off the floor. 
             -- This clears small bumps, curbs, and camber.
-            local scanOrigin = currentPos + (floorNormal * 1.0)
+            local scanOrigin = currentPos + (floorNormal * 0.5)
 
             -- [[ FIX 2: STABLE HORIZON ]]
             local stableUp = sm.vec3.new(0, 0, 1)
@@ -217,7 +217,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 local hit, result = sm.physics.raycast(origin, origin + (dir * 50)) -- 50 unit range
                 if hit then
                     -- If the surface we hit is pointing UP (> 0.7), it's floor. Ignore it.
-                    if result.normal.z > 0.7 then 
+                    if result.normalWorld.z > 0.7 then 
                         return nil 
                     end
                     return result.pointWorld
