@@ -7,8 +7,7 @@ local LOOKAHEAD_DISTANCE_1 = 12.0
 local LOOKAHEAD_DISTANCE_2 = 45.0  
 local MAX_CURVATURE_RADIUS = 1000.0 
 local LONG_LOOKAHEAD_DISTANCE = 80.0
-local TRACK_LOOKAHEAD = 150 -- How far ahead to scan for turns
-
+local TRACK_LOOKAHEAD = 150 
 
 local LANE_SLOT_WIDTH = 0.33 
 local MIN_DRAFTING_DIST = 30.0 
@@ -20,11 +19,16 @@ local WALL_LOOKAHEAD_DIST = 10.0
 
 function PerceptionModule.server_init(self,driver)
     self.Driver = driver
-    self.Driver.carDimensions = self:scanCarDimensions()
-
-    local aabb_min, aabb_max = self.Driver.body:getWorldAabb()
-    local dimensions = aabb_max - aabb_min
-    self.carHalfWidth = math.max(dimensions.x, dimensions.y) / 2.0
+    
+    -- [ROBUSTNESS] Ensure body exists before scanning
+    if self.Driver.body then
+        self.Driver.carDimensions = self:scanCarDimensions()
+        local aabb_min, aabb_max = self.Driver.body:getWorldAabb()
+        local dimensions = aabb_max - aabb_min
+        self.carHalfWidth = math.max(dimensions.x, dimensions.y) / 2.0
+    else
+        self.carHalfWidth = 1.5 -- Default fallback
+    end
     
     self.perceptionData = {
         ["Telemetry"] = nil, 
@@ -39,33 +43,31 @@ end
 function PerceptionModule.scanCarDimensions(self)
     -- Generates the front/rear/left/right offsets using Global helpers
     local body = self.Driver.shape:getBody()
+    if not body then return nil end -- Safety check
+
     local shapes = body:getCreationShapes()
     local origin = self.Driver.shape:getWorldPosition()
     
     local at = self.Driver.shape:getAt()
     local right = self.Driver.shape:getRight()
     
-    -- Use globals.lua helper: getDirectionOffset(shapeList, direction, origin)
     local front = getDirectionOffset(shapes, at, origin)
     local rear = getDirectionOffset(shapes, at * -1, origin)
     local left = getDirectionOffset(shapes, right * -1, origin)
     local rightVec = getDirectionOffset(shapes, right, origin)
     
-    -- Calculate Center (Midpoint logic)
     local frontLeft = origin + front + left
     local rearRight = origin + rightVec + rear
-    local center = getMidpoint(frontLeft, rearRight) -- Global helper
+    local center = getMidpoint(frontLeft, rearRight) 
     
     local centerOffset = center - origin
     
-    -- Calculate center rotation/length relative to car
     local centerLen = centerOffset:length()
     local centerRot = sm.vec3.new(0,0,0)
     if centerLen > 0.001 then
         centerRot = sm.vec3.getRotation(at, centerOffset:normalize())
     end
     
-    -- Returns the exact table structure CameraManager expects
     return {
         front = front,
         rear = rear,
@@ -79,6 +81,8 @@ function PerceptionModule:findClosestNodeFallback(chain, carLocation)
     if not chain or #chain == 0 then return nil end
     local minDistanceSq = math.huge
     local closestNode = nil
+    
+    -- Optimized Global Search: Check Z-height first to exclude flyovers/tunnels
     for i = 1, #chain do 
         local node = chain[i]
         local zDiffSq = (carLocation.z - node.location.z)^2
@@ -138,7 +142,6 @@ function PerceptionModule:calculateCurvatureRadius(pA, pB, pC)
     local length2 = v2:length()
     local length3 = v3:length()
     
-    -- Heron's Formula (Standard)
     local s = (length1 + length2 + length3) / 2
     local areaSq = s * (s - length1) * (s - length2) * (s - length3)
     
@@ -176,27 +179,19 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
     local distToApex = 0.0
     local apexLocation = nil 
     
-    -- Optimization: Skip very close range to prevent jitter from the node we are standing on
     local currentDist = 5.0 
     local scanStep = 5.0 
     
     while currentDist < scanDistance do
-        -- 1. Sample geometry at Current Distance
         local pA = self:getPointInDistance(currentNode, currentT, currentDist - 5.0, self.chain)
         local pB = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
         local pC = self:getPointInDistance(currentNode, currentT, currentDist + 5.0, self.chain)
         local radiusCurrent = self:calculateCurvatureRadius(pA, pB, pC)
 
-        -- 2. Sample geometry 10 meters ahead (Look-ahead validation)
-        -- We reuse pC as the 'back' of the next segment to save one calc
         local pD = self:getPointInDistance(currentNode, currentT, currentDist + 10.0, self.chain)
         local pE = self:getPointInDistance(currentNode, currentT, currentDist + 15.0, self.chain)
         local radiusAhead = self:calculateCurvatureRadius(pC, pD, pE)
 
-        -- 3. KINK REJECTION FILTER
-        -- A turn is only valid if it exists "Here" AND "There". 
-        -- We take the larger (safer) radius of the two.
-        -- If it's a kink, one of these will be huge (1000), effectively filtering the small one out.
         local effectiveRadius = math.max(radiusCurrent, radiusAhead)
 
         if effectiveRadius < minSustainedRadius then
@@ -209,90 +204,6 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
     end
     
     return minSustainedRadius, distToApex, apexLocation
-end
-
-function PerceptionModule:scanTrackCurvature_old(scanDistance)
-    local nav = self.perceptionData.Navigation
-    if not nav or not nav.closestPointData then 
-        return MAX_CURVATURE_RADIUS, 0.0, nil 
-    end
-
-    local currentNode = nav.closestPointData.baseNode
-    local currentT = nav.closestPointData.tOnSegment
-    
-    local minAvgRadius = MAX_CURVATURE_RADIUS
-    local distToMin = 0.0
-    local apexLocation = nil 
-    
-    local scanStep = 5.0 -- Step size in meters
-    local currentDist = 0.0
-    
-    -- We will store a buffer of the last 3 radii calculated to smooth out "kinks"
-    local radiusHistory = {MAX_CURVATURE_RADIUS, MAX_CURVATURE_RADIUS, MAX_CURVATURE_RADIUS}
-    
-    while currentDist < scanDistance do
-        -- Sampling 3 points: A (Back), B (Center), C (Front)
-        local pA = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
-        local pB = self:getPointInDistance(currentNode, currentT, currentDist + 15, self.chain)
-        local pC = self:getPointInDistance(currentNode, currentT, currentDist + 30, self.chain)
-        
-        local rawRadius = self:calculateCurvatureRadius(pA, pB, pC)
-
-        -- Push new radius into history, pop old one (Rolling buffer)
-        table.remove(radiusHistory, 1)
-        table.insert(radiusHistory, rawRadius)
-
-        -- Calculate the average of this 15-meter window
-        -- This filters out single-node "kinks" because they only affect 1 of the 3 numbers
-        local avgRadiusInWindow = (radiusHistory[1] + radiusHistory[2] + radiusHistory[3]) / 3.0
-
-        if avgRadiusInWindow < minAvgRadius then
-            minAvgRadius = avgRadiusInWindow
-            distToMin = currentDist
-            apexLocation = pB
-        end
-        
-        currentDist = currentDist + scanStep
-    end
-    
-    return minAvgRadius, distToMin, apexLocation
-end
-
-
-function PerceptionModule:scanTrackCurvature_older(scanDistance)
-    local nav = self.perceptionData.Navigation
-    if not nav or not nav.closestPointData then 
-        return MAX_CURVATURE_RADIUS, 0.0 
-    end
-
-    local currentNode = nav.closestPointData.baseNode
-    local currentT = nav.closestPointData.tOnSegment
-    
-    local minRadius = MAX_CURVATURE_RADIUS
-    local distToMin = 0.0
-    
-    -- Check points at intervals ahead
-    local scanStep = 5.0 -- Check every 5 meters
-    local currentDist = 0.0
-    
-    while currentDist < scanDistance do
-        -- Get three points centered around our scan distance
-        -- P_Prev -- P_Center -- P_Next
-        local pPrev = self:getPointInDistance(currentNode, currentT, currentDist - 3.0, self.chain)
-        local pCenter = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
-        local pNext = self:getPointInDistance(currentNode, currentT, currentDist + 3.0, self.chain)
-        
-        local radius = self:calculateCurvatureRadius(pPrev, pCenter, pNext)
-        
-        if radius < minRadius then
-            minRadius = radius
-            distToMin = currentDist
-        end
-        
-        currentDist = currentDist + scanStep
-    end
-    
-    return minRadius, distToMin
 end
 
 function PerceptionModule.get_world_rotations(self) 
@@ -308,6 +219,8 @@ end
 
 function PerceptionModule.build_telemetry_data(self)
     local driverBody = self.Driver.shape:getBody()
+    if not driverBody then return {} end -- Safety
+
     local telemetryData = {} 
     telemetryData.carDimensions = self.Driver.carDimensions or self:scanCarDimensions()
     telemetryData.velocity = driverBody:getVelocity()
@@ -316,7 +229,7 @@ function PerceptionModule.build_telemetry_data(self)
     telemetryData.speed = telemetryData.velocity:length() 
     telemetryData.mass = driverBody:getMass()
     local aabb_min, aabb_max = driverBody:getWorldAabb()
-    telemetryData.worldAabb = { min = aabb_min, max = aabb_max } -- Store table if needed, or just keep internal
+    telemetryData.worldAabb = { min = aabb_min, max = aabb_max } 
     local dims = aabb_max - aabb_min
     telemetryData.dimensions = dims
     telemetryData.carHalfWidth = self.carHalfWidth 
@@ -331,58 +244,77 @@ end
 
 function PerceptionModule.findClosestPointOnTrack(self, location, chain)
     local telemetry_data = self.perceptionData.Telemetry or {}
-    -- Default to current car position if no specific location is provided
     local carLocation = location or telemetry_data.location or self.Driver.body:getWorldPosition()
     
-    -- Find a starting point for the search (optimization)
-    local segmentStartNode = self.currentNode or self:findClosestNodeFallback(chain, carLocation) 
-    if not segmentStartNode then return nil end
+    -- 1. Try Local Search first (Optimization)
+    local segmentStartNode = self.currentNode
+    local fallbackNeeded = false
+
+    -- If we have no memory, we MUST use fallback
+    if not segmentStartNode then 
+        fallbackNeeded = true 
+    end
     
-    local searchWindow = 10 
     local closestPoint = nil
     local bestDistanceSq = math.huge
     
-    -- Search locally around the last known node
-    for i = -5, searchWindow - 6 do 
-        local node1 = getNextItem(chain, segmentStartNode.id, i)
-        local node2 = getNextItem(chain, node1.id, 1) 
-        if not node1 or not node2 then break end
-        
-        local segmentVector = node2.location - node1.location
-        local carVector = carLocation - node1.location
-        local segmentLengthSq = segmentVector:length2()
-        
-        -- Project car position onto the track segment line
-        local t = 0
-        if segmentLengthSq > 0.001 then
-            t = carVector:dot(segmentVector) / segmentLengthSq
+    if not fallbackNeeded then
+        -- Search -5 to +10 nodes relative to current
+        local searchWindow = 10 
+        for i = -5, searchWindow - 6 do 
+            local node1 = getNextItem(chain, segmentStartNode.id, i)
+            local node2 = getNextItem(chain, node1.id, 1) 
+            if not node1 or not node2 then break end
+            
+            local segmentVector = node2.location - node1.location
+            local carVector = carLocation - node1.location
+            local segmentLengthSq = segmentVector:length2()
+            
+            local t = 0
+            if segmentLengthSq > 0.001 then
+                t = carVector:dot(segmentVector) / segmentLengthSq
+            end
+            local clamped_t = math.max(0, math.min(1, t))
+            
+            local pointOnSegment = node1.location + segmentVector * clamped_t
+            local distanceSq = (carLocation - pointOnSegment):length2()
+            
+            if distanceSq < bestDistanceSq then
+                bestDistanceSq = distanceSq
+                closestPoint = {
+                    point = pointOnSegment,
+                    baseNode = node1, 
+                    segmentID = node1.id, 
+                    tOnSegment = clamped_t,
+                    distanceSq = distanceSq 
+                }
+            end
         end
-        local clamped_t = math.max(0, math.min(1, t))
         
-        local pointOnSegment = node1.location + segmentVector * clamped_t
-        local distanceSq = (carLocation - pointOnSegment):length2()
-        
-        if distanceSq < bestDistanceSq then
-            bestDistanceSq = distanceSq
-            closestPoint = {
-                point = pointOnSegment,
-                baseNode = node1, 
-                segmentID = node1.id, 
-                tOnSegment = clamped_t,
-                distanceSq = distanceSq 
-            }
+        -- [[ FIX: TRACKING LOSS DETECTION ]]
+        -- If the best point found locally is > 25m away (625 sq), assume we lost tracking.
+        -- This happens on resets, respawns, or massive crashes.
+        if bestDistanceSq > 625.0 then
+             fallbackNeeded = true
+             -- print(self.Driver.id, "Lost Tracking (Dist:", math.sqrt(bestDistanceSq), "). Recalculating...")
         end
     end
     
-    -- [UPDATED LOGIC]
+    -- 2. Global Fallback Search (Expensive but reliable)
+    if fallbackNeeded then
+        local globalNode = self:findClosestNodeFallback(chain, carLocation)
+        if globalNode then
+             -- Reset memory to the new node
+             self.currentNode = globalNode
+             -- Recursively call self (once) to perform the precise projection on the new node
+             -- We pass 'true' as a flag or just let it run naturally since currentNode is now set
+             return self:findClosestPointOnTrack(location, chain)
+        end
+    end
+    
+    -- 3. Update Memory
     if closestPoint and not location then
         self.currentNode = closestPoint.baseNode
-        
-        -- MEMORY UPDATE:
-        -- Update the Driver's memory of the last confirmed valid node.
-        -- 'baseNode' is the start of the current segment (the node behind the car).
-        -- We only update this if we are doing a real-time scan (not location is nil),
-        -- ensuring we don't overwrite memory when doing hypothetical checks.
         if self.Driver then
             self.Driver.lastPassedNode = closestPoint.baseNode
         end
@@ -397,17 +329,15 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
     nav.trackPositionBias = 0.0 
     nav.racingLineBias = 0.0 
     nav.nodeGoalDirection = sm.vec3.new(0, 1, 0)
-    nav.trackWidth = 20.0 -- Default width fallback [NEW]
+    nav.trackWidth = 20.0 
     
     if not navigation_data.closestPointData then return nav end
     
     local closestPointData = navigation_data.closestPointData
     local baseNode = closestPointData.baseNode
     
-    -- [NEW] Store Width explicitly for Debugging
     if baseNode.width then nav.trackWidth = baseNode.width end
 
-    -- 1. Lookahead Logic
     local baseLookahead = 12.0 
     local speedFactor = 0.6   
     local lookaheadDist = baseLookahead + telemetry_data.speed * speedFactor
@@ -419,7 +349,6 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
     )
     nav.nodeGoalDirection = (lookaheadTarget - telemetry_data.location):normalize() 
 
-    -- 2. Robust Track Position Bias Calculation
     local node1 = baseNode
     local node2 = getNextItem(self.chain, node1.id, 1)
 
@@ -428,16 +357,12 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
         local segmentPerp = sm.vec3.new(-segmentDir.y, segmentDir.x, 0)
         local halfWidth = node1.width / 2
 
-        -- Calculate Car Bias relative to MID
         local offsetVector = telemetry_data.location - node1.mid 
         local lateralOffset = offsetVector:dot(segmentPerp)
         
-        -- [NEW] Store raw meters for debug before normalizing
         nav.lateralMeters = lateralOffset 
-
         nav.trackPositionBias = -math.min(math.max(lateralOffset / halfWidth, -1.0), 1.0)
 
-        -- Calculate Racing Line Bias relative to MID
         local racingOffset = node1.location - node1.mid
         local racingLateral = racingOffset:dot(segmentPerp)
         nav.racingLineBias = -math.min(math.max(racingLateral / halfWidth, -1.0), 1.0)
@@ -447,7 +372,6 @@ function PerceptionModule.calculateNavigationInputs(self, navigation_data)
         nav.lateralMeters = 0.0
     end
 
-    -- 3. Visual/Navigation Targets
     if node1.perp and node1.width then
         local perpVector = node1.perp:normalize() 
         local halfWidth = node1.width / 2
@@ -476,7 +400,6 @@ function PerceptionModule.build_navigation_data(self)
         local tOnSegment = navigationData.closestPointData.tOnSegment
         local pA = navigationData.closestPointData.point 
         
-        -- Use the updated, wider lookahead distances
         local pB = self:getPointInDistance(baseNode, tOnSegment, LOOKAHEAD_DISTANCE_1, self.chain) 
         local pC = self:getPointInDistance(baseNode, tOnSegment, LOOKAHEAD_DISTANCE_2, self.chain) 
         local pD = self:getPointInDistance(baseNode, tOnSegment, LONG_LOOKAHEAD_DISTANCE, self.chain) 
@@ -486,9 +409,7 @@ function PerceptionModule.build_navigation_data(self)
         local crossZ_long = V_AC.x * V_CD.y - V_AC.y * V_CD.x
         
         navigationData.roadBankAngle = baseNode.bank or 0.0 
-        -- Long radius: Used for braking early
         navigationData.longCurvatureRadius = self:calculateCurvatureRadius(pA, pC, pD)
-        -- Short radius: Used for immediate cornering state
         navigationData.roadCurvatureRadius = self:calculateCurvatureRadius(pA, pB, pC)
         navigationData.longCurveDirection = getSign(crossZ_long) 
         navigationData.continuousPositionScore = baseNode.id + tOnSegment
@@ -519,19 +440,13 @@ function PerceptionModule.calculateWallAvoidance(self)
     
     local node = nav.closestPointData.baseNode
     local halfWidth = node.width / 2
-    local trackBias = nav.trackPositionBias -- Uses the fixed -1 to 1 bias
+    local trackBias = nav.trackPositionBias 
     
-    -- LATERAL CALCULATIONS (Current Position)
-    -- If Bias is -1 (Left), marginLeft should be 0.
-    -- If Bias is 1 (Right), marginRight should be 0.
     wallData.marginLeft = (1.0 + trackBias) * halfWidth - CAR_HALF_WIDTH_ACTUAL
     wallData.marginRight = (1.0 - trackBias) * halfWidth - CAR_HALF_WIDTH_ACTUAL
     
-    -- LOOKAHEAD CALCULATIONS (Predictive)
-    -- Optimized: Instead of a full search, we peek forward in the chain
-    local forwardNode = getNextItem(self.chain, node.id, 3) -- Peak ~12m ahead
+    local forwardNode = getNextItem(self.chain, node.id, 3) 
     if forwardNode then
-        -- We estimate forward bias based on current trajectory to save CPU
         local forwardHalfWidth = forwardNode.width / 2
         wallData.forwardMarginLeft = (1.0 + trackBias) * forwardHalfWidth - CAR_HALF_WIDTH_ACTUAL
         wallData.forwardMarginRight = (1.0 - trackBias) * forwardHalfWidth - CAR_HALF_WIDTH_ACTUAL
@@ -540,7 +455,6 @@ function PerceptionModule.calculateWallAvoidance(self)
         wallData.forwardMarginRight = wallData.marginRight
     end
     
-    -- CRITICAL FLAGS
     wallData.isLeftCritical = wallData.marginLeft <= CRITICAL_WALL_MARGIN
     wallData.isRightCritical = wallData.marginRight <= CRITICAL_WALL_MARGIN
     wallData.isForwardLeftCritical = wallData.forwardMarginLeft <= CRITICAL_WALL_MARGIN
