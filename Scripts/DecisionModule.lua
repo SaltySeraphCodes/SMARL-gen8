@@ -13,7 +13,7 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
 local DEFAULT_STEERING_Kp = 0.12  
-local DEFAULT_STEERING_Kd = 0.80 -- Increase damping. Resist the swing  
+local DEFAULT_STEERING_Kd = 0.1 -- Increase damping. Resist the swing  
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
