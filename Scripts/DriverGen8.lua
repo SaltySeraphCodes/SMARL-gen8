@@ -892,6 +892,44 @@ function DriverGen8.client_onUpdate(self, dt)
         end
     end
 
+    if self.Decision and self.Decision.latestDebugData then
+        local dbg = self.Decision.latestDebugData
+        
+        -- 1. MAGENTA: The Final Target (Where we are driving)
+        if dbg.targetPoint then
+            if not self.effTarget then 
+                self.effTarget = sm.effect.createEffect("Loot - GlowItem")
+                self.effTarget:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+                self.effTarget:setParameter("Color", sm.color.new(1, 0, 1, 1)) -- Magenta
+                self.effTarget:setScale(sm.vec3.new(0.5, 0.5, 0.5))
+                self.effTarget:start()
+            end
+            self.effTarget:setPosition(dbg.targetPoint)
+        end
+
+        -- 2. CYAN: The "Future Center" (The anchor point on the track spine)
+        -- If this is steady but Magenta jumps -> Your Bias/Offset math is wrong.
+        -- If this jumps -> Your "Chain Walker" function is wrong.
+        if dbg.futureCenter then
+            if not self.effCenter then 
+                self.effCenter = sm.effect.createEffect("Loot - GlowItem")
+                self.effCenter:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+                self.effCenter:setParameter("Color", sm.color.new(0, 1, 1, 1)) -- Cyan
+                self.effCenter:setScale(sm.vec3.new(0.3, 0.3, 0.3))
+                self.effCenter:start()
+            end
+            self.effCenter:setPosition(dbg.futureCenter)
+        end
+        
+        -- 3. YELLOW LINE: The "Perp" Vector (Which way is 'Left'?)
+        -- If this flips 180 degrees rapidly, the target will teleport across the track.
+        if dbg.futureCenter and dbg.usedPerp then
+            local start = dbg.futureCenter
+            local endP = dbg.futureCenter + (dbg.usedPerp * 5.0)
+            sm.visualization.drawMeshLine(start, endP, sm.color.new(1,1,0,1))
+        end
+    end
+
     -- Cleanup
     for i = activeDots + 1, #self.effectPool do
         local effect = self.effectPool[i]

@@ -688,7 +688,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     -- Dynamic Stability Floor: 12m + (Speed * 0.4)
     -- Speed 50 = ~32m lookahead
     local minStabilityDist = 12.0 + (telemetry.speed * 0.4) 
-
+    local futureCenter, futureNode, usePerp = nil, nil, nil
     if lookaheadDist < minStabilityDist then
         local pModule = self.Driver.Perception
         if pModule and nav.closestPointData then
@@ -724,6 +724,20 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     -- [[ DEBUG EXPORT ]]
     self.latestDebugData = self.latestDebugData or {}
     self.latestDebugData.targetPoint = targetPoint 
+
+    -- Capture the internal variables from the "Stabilized Lookahead" block
+    -- Note: You need to make sure 'futureCenter' and 'usePerp' are defined in the scope 
+    -- outside the 'if lookaheadDist < minStabilityDist' block, or capture them inside.
+    
+    -- (If we used the lookahead logic)
+    if futureCenter then 
+        self.latestDebugData.futureCenter = futureCenter
+        self.latestDebugData.usedPerp = usePerp -- The vector we used to calculate offset
+    else
+        -- (If we used close logic)
+        self.latestDebugData.futureCenter = centerTarget
+        self.latestDebugData.usedPerp = perp
+    end
 
     -- 4. PURE PURSUIT LOGIC
     local carRight = telemetry.rotations.right

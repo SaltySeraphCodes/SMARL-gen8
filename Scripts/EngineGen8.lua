@@ -164,30 +164,7 @@ function Engine.server_onFixedUpdate(self, dt)
         self.curVRPM = self:calculateVRPM(self.curGear, self.curRPM)
     end
 
-    -- 4. Safety Limiter
-    local maxSafeRPM = (self.engineStats.MAX_SPEED or ENGINE_SPEED_LIMIT) + 15
-    if self.curRPM >= maxSafeRPM then
-        -- print(self.driver.id, "WARNING: Engine Overspeed", self.curRPM)
-        self.curRPM = self.engineStats.MAX_SPEED * 0.8
-    end
-
-   -- [NEW] Push Wheel Data to Driver Telemetry for the Optimizer
-    if self.driver and self.driver.perceptionData and self.driver.perceptionData.Telemetry then
-        local totalAngularVel = 0
-        local count = 0
-        for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
-             -- getAngularVelocity returns Rad/s
-             local av = bearing:getAngularVelocity()
-             totalAngularVel = totalAngularVel + math.abs(av)
-             count = count + 1
-        end
-        if count > 0 then
-            local avgRadS = totalAngularVel / count
-            -- Store both units for convenience
-            self.driver.perceptionData.Telemetry.avgWheelRadS = avgRadS
-            self.driver.perceptionData.Telemetry.avgWheelRPM = (avgRadS * 60) / (2 * math.pi)
-        end
-    end
+    -- 4. Safety Limiter  Removed
 
     -- 5. Output to Wheels
     self:setRPM(self.curRPM)
@@ -397,7 +374,7 @@ function Engine._applyGearLimits(self, nextRPM)
 end
 
 function Engine._applyHardLimiter(self, nextRPM)
-    print(nextRPM,self.curRPM)
+    print("HL",nextRPM,self.curRPM)
     local increment = nextRPM - self.curRPM
     
     local tractionConst = 2.6
@@ -466,9 +443,25 @@ function Engine.setRPM(self, value)
          -- Simple scale: 500 torque for 1000kg, up to 7000 torque
          strength = math.max(500, math.min(7000, mass * 0.5))
     end
-
+    print("setting motor vel",value,strength)
+    local count = 0
+    local totalAngularVel = 0
+    
     for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
         sm.joint.setMotorVelocity(bearing, value, strength)
+        if self.driver and self.driver.perceptionData and self.driver.perceptionData.Telemetry then
+            local totalAngularVel = 0
+            local count = 0
+            local av = bearing:getAngularVelocity()
+             totalAngularVel = totalAngularVel + math.abs(av)
+             count = count + 1
+        end
+        if count > 0 then
+            local avgRadS = totalAngularVel / count
+            -- Store both units for convenience
+            self.driver.perceptionData.Telemetry.avgWheelRadS = avgRadS
+            self.driver.perceptionData.Telemetry.avgWheelRPM = (avgRadS * 60) / (2 * math.pi)
+        end
     end
 end
 
