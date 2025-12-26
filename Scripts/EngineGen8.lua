@@ -217,10 +217,10 @@ function Engine.calculateRPM(self)
         
         -- [[ FIX: ALLOW HIGH THROTTLE LEARNING ]]
         -- If we are stuck at low speed (speed < 30) with high throttle, we FORCE learning.
-        local isDesperate = (speed > 5.0 and speed < 25.0 and self.accelInput > 0.8)
-        local isCruising  = (speed > 5.0 and self.accelInput > 0.1 and self.accelInput < 0.8)
+        local isDesperate = (speed > 5.0 and speed < 35.0 and self.accelInput > 0.8)
+        --local isCruising  = (speed > 5.0 and self.accelInput > 0.1 and self.accelInput < 0.8)
 
-        if (isDesperate or isCruising) and steerInput < 0.2 then
+        if (isDesperate ) and steerInput < 0.1 then
             isLearning = true
         end
 

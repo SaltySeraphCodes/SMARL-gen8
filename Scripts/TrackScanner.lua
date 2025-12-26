@@ -385,9 +385,17 @@ function TrackScanner.recalculateNodeProperties(self, nodes)
     for i = 1, count do
         local node = nodes[i]
         local nextNode = nodes[(i % count) + 1]
+        
+        -- 1. Keep outVector aligned with the RACING LINE (for AI/playback)
         node.outVector = (nextNode.location - node.location):normalize()
+        
+        -- 2. Calculate a temporary vector based on the CENTER LINE (mid)
+        --    Use this specifically to find the true track perpendicular
+        local midDir = (nextNode.mid - node.mid):normalize()
         local nodeUp = node.upVector or sm.vec3.new(0,0,1)
-        node.perp = node.outVector:cross(nodeUp):normalize() 
+        
+        -- 3. Generate perp from the MID path, not the optimized path
+        node.perp = midDir:cross(nodeUp):normalize() 
     end
 end
 

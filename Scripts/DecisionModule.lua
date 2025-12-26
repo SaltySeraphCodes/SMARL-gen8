@@ -698,10 +698,20 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
             -- [[ KEY FIX ]]
             -- We walk the chain using 'mid' to find the GEOMETRIC CENTER ahead.
             local futureCenter, futureNode = self:getFutureCenterPoint(startNode, startT, minStabilityDist, pModule.chain)
-            -- [[ FIX: USE TRACK PERPENDICULAR ]]
-            -- Instead of calculating a perp from the chord, we use the NODE's stored perp.
-            -- This guarantees "Left" is always "Track Left", preventing the apex jump.
-            local usePerp = futureNode.perp
+            
+            local trackDir = futureNode.outVector -- Best case: Node knows its direction
+            
+            if not trackDir then
+                -- Fallback: Look at the NEXT node to find the true track path
+                -- Use global helper 'getNextItem'
+                local nextNode = getNextItem(pModule.chain, futureNode.id, 1)
+                if nextNode then
+                    trackDir = (nextNode.mid - futureNode.mid):normalize()
+                else
+                    -- End of track? Use current node's incoming direction
+                    trackDir = (futureNode.mid - startNode.mid):normalize() 
+                end
+            end
             
             -- Fallback: If node data is missing perp, assume Up is Z and Cross with OutVector
             if not usePerp then
