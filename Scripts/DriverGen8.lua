@@ -812,7 +812,7 @@ function DriverGen8:drawDebugLine(startPos, endPos, color, poolName)
         
         if not eff then
             eff = sm.effect.createEffect("Loot - GlowItem")
-            eff:setScale(sm.vec3.new(0.2, 0.2, 0.2))
+            eff:setScale(sm.vec3.new(0, 0, 0))
             eff:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
             table.insert(pool, eff)
         end
@@ -834,23 +834,8 @@ function DriverGen8.client_onUpdate(self, dt)
 
     if self.shape then self.location = self.shape:getWorldPosition() end
 
-    -- [[ TARGET POINT VISUALIZER ]]
-    -- Draws a Magenta Orb where the Decision Module wants to go
-    if self.clientDebugRays and self.clientDebugRays.targetPoint then
-        if not self.TargetEffect then
-            self.TargetEffect = sm.effect.createEffect("Loot - GlowItem", nil)
-            self.TargetEffect:setScale(sm.vec3.new(0,0,0))
-            self.TargetEffect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-            -- Magenta Color for Target
-            self.TargetEffect:setParameter("Color", sm.color.new(1, 0, 1, 1)) 
-            self.TargetEffect:start()
-        end
-        self.TargetEffect:setPosition(self.clientDebugRays.targetPoint)
-    elseif self.TargetEffect then
-        self.TargetEffect:stop()
-    end
 
-    -- [[ TARGET POINT VISUALIZER ]]
+    --[[ TARGET POINT VISUALIZER 
     -- Draws a Magenta Orb where the Decision Module wants to go
     if self.Decision and self.Decision.latestDebugData and self.Decision.latestDebugData.targetPoint then
         local tp = self.Decision.latestDebugData.targetPoint
@@ -865,9 +850,9 @@ function DriverGen8.client_onUpdate(self, dt)
         self.TargetEffect:setPosition(tp)
     elseif self.TargetEffect then
         self.TargetEffect:stop()
-    end
+    end]]
 
-    -- [[ CoM VISUALIZER ]]
+    --[[ CoM VISUALIZER disabled for now
     if self.body and self.shape then 
         if self.CoMDebugEffect then
             if not self.CoMDebugEffect:isPlaying() then self.CoMDebugEffect:start() end
@@ -883,16 +868,14 @@ function DriverGen8.client_onUpdate(self, dt)
             if not effect:isPlaying() then effect:start() end
             self.CoMDebugEffect = effect
         end
-    end
-
-    -- [[ CONTEXT RAYS VISUALIZER ]]
+    end]]
+    local activeDots = 0
+    --[[ CONTEXT RAYS VISUALIZER 
     local activeDots = 0
 
-    if self.clientDebugRays then
+    if false then -- self.clientDebugRays then (Disabled for now)
         -- Process Lines (Context Rays)
         for _, line in ipairs(self.clientDebugRays) do
-            -- ... (Existing Context Ray Loop - No Changes Needed) ...
-            -- Copy/Paste your existing loop here
             local color = sm.color.new(0,1,0,1) 
             if line.c == 2 then color = sm.color.new(1,1,0,1) end 
             if line.c == 3 then color = sm.color.new(1,0,0,1) end 
@@ -921,7 +904,7 @@ function DriverGen8.client_onUpdate(self, dt)
                 effect:setParameter("Color", color)
             end
         end
-    end
+    end]]
 
     if self.Decision and self.Decision.latestDebugData then
         local dbg = self.Decision.latestDebugData
@@ -932,7 +915,7 @@ function DriverGen8.client_onUpdate(self, dt)
                 self.effTarget = sm.effect.createEffect("Loot - GlowItem")
                 self.effTarget:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
                 self.effTarget:setParameter("Color", sm.color.new(1, 0, 1, 1)) -- Magenta
-                self.effTarget:setScale(sm.vec3.new(0.5, 0.5, 0.5))
+                self.effTarget:setScale(sm.vec3.new(0, 0, 0))
                 self.effTarget:start()
             end
             self.effTarget:setPosition(dbg.targetPoint)
@@ -944,7 +927,7 @@ function DriverGen8.client_onUpdate(self, dt)
                 self.effCenter = sm.effect.createEffect("Loot - GlowItem")
                 self.effCenter:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
                 self.effCenter:setParameter("Color", sm.color.new(0, 1, 1, 1)) -- Cyan
-                self.effCenter:setScale(sm.vec3.new(0.3, 0.3, 0.3))
+                self.effCenter:setScale(sm.vec3.new(0, 0, 0))
                 self.effCenter:start()
             end
             self.effCenter:setPosition(dbg.futureCenter)
