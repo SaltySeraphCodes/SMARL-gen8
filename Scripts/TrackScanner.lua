@@ -180,7 +180,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     local currentPos = startPos
     local currentDir = startDir
     
-    -- "currentUp" tracks the actual floor for DATA, but we won't use it for SCANNING anymore
+    -- We track the real floor normal for data, but use a stable Z for scanning vectors
     local currentUp = sm.vec3.new(0, 0, 1) 
     
     local iterations = 0
@@ -190,42 +190,52 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     local prevLeftDist = 10.0 
     local prevRightDist = 10.0
     local GAP_TOLERANCE = 12.0 
-    
     local currentStepSize = SCAN_STEP_SIZE 
 
-    print("TrackScanner: Starting Stabilized Race Scan...")
+    print("TrackScanner: Starting Lifted 3D Race Scan...")
 
     while not loopClosed and iterations < maxIterations do
         local floorPos, floorNormal = self:findFloorPoint(currentPos, currentUp)
         
         if floorPos then
             currentPos = floorPos
-            -- We still track the real up vector for the saved data...
+            -- Dampened Up Vector (for data only)
             currentUp = sm.vec3.lerp(currentUp, floorNormal, 0.1):normalize()
             
-            -- [[ FIX: FORCE HORIZONTAL SCANNING ]]
-            -- Instead of crossing with 'currentUp' (which might be tilted),
-            -- we cross with Global Z (0,0,1).
-            -- This ensures 'rightVec' is ALWAYS parallel to the horizon.
+            -- [[ FIX 1: LIFT THE EYES ]]
+            -- We raise the scan origin 1.0 unit off the floor. 
+            -- This clears small bumps, curbs, and camber.
+            local scanOrigin = currentPos + (floorNormal * 1.0)
+
+            -- [[ FIX 2: STABLE HORIZON ]]
             local stableUp = sm.vec3.new(0, 0, 1)
             local rightVec = currentDir:cross(stableUp):normalize() * -1 
-            
-            -- If we are going straight up a vertical wall, this math breaks.
-            -- But for a race track, this is perfect. It ignores roll/pitch.
             local leftVec = -rightVec
             
-            -- [[ Strict Scan ]]
-            -- Now we pass 'stableUp' to the scanner so the vertical rays drop straight down
-            -- instead of at a weird angle.
-            local rawLeft = self:findWallStrict(currentPos, leftVec, stableUp) 
-            local rawRight = self:findWallStrict(currentPos, rightVec, stableUp) 
+            -- Helper to filter out floor hits
+            local function getCleanWallHit(origin, dir)
+                local hit, result = sm.physics.raycast(origin, origin + (dir * 50)) -- 50 unit range
+                if hit then
+                    -- If the surface we hit is pointing UP (> 0.7), it's floor. Ignore it.
+                    if result.normal.z > 0.7 then 
+                        return nil 
+                    end
+                    return result.pointWorld
+                end
+                return nil
+            end
+
+            -- Use the cleaner raycast logic
+            local rawLeft = getCleanWallHit(scanOrigin, leftVec)
+            local rawRight = getCleanWallHit(scanOrigin, rightVec)
             
             -- [[ LOGIC: Left Wall ]]
             local leftWall = rawLeft
             local validLeft = false
             if rawLeft then
                 local dist = (rawLeft - currentPos):length()
-                if dist > 1.5 then 
+                -- Filter out hits that are suspiciously close (stray geometry)
+                if dist > 2.0 then 
                     if iterations == 0 or (dist < prevLeftDist + GAP_TOLERANCE) then
                         prevLeftDist = dist
                         validLeft = true
@@ -239,7 +249,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             local validRight = false
             if rawRight then
                 local dist = (rawRight - currentPos):length()
-                if dist > 1.5 then 
+                if dist > 2.0 then 
                     if iterations == 0 or (dist < prevRightDist + GAP_TOLERANCE) then
                         prevRightDist = dist
                         validRight = true
@@ -248,14 +258,13 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             end
             if not validRight then rightWall = currentPos + (rightVec * prevRightDist) end
 
+            -- Calculate Midpoint
             local midPoint = (leftWall + rightWall) * 0.5
-            midPoint.z = currentPos.z + 0.5 
+            midPoint.z = currentPos.z + 0.5 -- Snap node back to near-floor level
             
             local trackWidth = (leftWall - rightWall):length()
 
-            -- Bank Calculation (Visual only)
-            local wallSlopeVec = (rightWall - leftWall):normalize()
-            local bankUp = wallSlopeVec:cross(currentDir):normalize()
+            -- Bank Calculation
             local bankAngle = 0.0
             if (leftWall.z - rightWall.z) > 2.0 then bankAngle = 1.0 end 
             if (rightWall.z - leftWall.z) > 2.0 then bankAngle = -1.0 end 
@@ -269,7 +278,6 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 width = trackWidth,
                 inVector = currentDir, 
                 outVector = currentDir, 
-                -- We save the REAL (tilted) Up Vector for the cars to use later
                 upVector = currentUp, 
                 bank = bankAngle,
                 incline = currentDir.z,
@@ -277,7 +285,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 sectorID = 1 
             })
 
-            -- [[ Steering Logic ]]
+            -- [[ Steering Logic (Standard) ]]
             local turnAngle = 0
             if iterations > 0 then
                 local prevNode = self.rawNodes[#self.rawNodes-1]
@@ -293,13 +301,10 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
 
                 if rawNewDir:dot(prevNode.inVector) < 0.0 then rawNewDir = prevNode.inVector end
                 prevNode.outVector = rawNewDir
-                
-                -- Keep the heavy steering dampening (0.5)
                 currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.5):normalize()
             end
             
             if turnAngle > 5.0 then currentStepSize = 2.0 else currentStepSize = 4.0 end
-
             currentPos = midPoint + (currentDir * currentStepSize)
             iterations = iterations + 1
 
@@ -314,7 +319,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 lastNode.outVector = (firstNode.location - lastNode.location):normalize()
             end
         else
-            -- Jump / Void Logic
+            -- Void Logic
             local jumpCounter = iterations - #self.rawNodes
             local jumpGravity = sm.vec3.new(0,0,-0.5) * (jumpCounter * 0.5)
             currentPos = currentPos + (currentDir * currentStepSize) + jumpGravity
@@ -692,26 +697,20 @@ function TrackScanner.addPitNode(self, nodeList, id, pos, dir, sourceObj)
     table.insert(nodeList, node)
 end
 
--- --- OPTIMIZER (FIXED) ---
+-- --- OPTIMIZER ---
 
 function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     local nodes = isPit and self.pitChain or self.rawNodes
     local count = #nodes
     if count < 3 then return end
 
-    -- [[ TUNING ]]
-    local MARGIN = MARGIN_SAFETY or  7.0  -- Hard limit: Stay 7 units away from walls
+    local MARGIN = MARGIN_SAFETY or 6.0 -- Safety padding from walls
     
-    -- "Center Tether": 0.005 is very weak. 
-    -- It allows the line to swing wide but prevents it from hugging a wall 
-    -- for no reason on a straight.
-    local CENTER_BIAS = 0.005 
-
-    -- [[ 1. FILL GAPS FIRST ]]
+    -- [[ 1. FILL GAPS ]]
     nodes = self:fillGaps(nodes, 6.0)
     count = #nodes 
 
-    print("TrackScanner: Optimizing ("..iterations.." passes) | Margin: "..MARGIN.." | Bias: "..CENTER_BIAS)
+    print("TrackScanner: Optimizing ("..iterations.." passes) - Pure Radius...")
 
     -- [[ 2. OPTIMIZATION LOOP ]]
     for iter = 1, iterations do
@@ -726,14 +725,13 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
                 local trackWidth = wallVec:length()
                 local wallDir = wallVec:normalize()
 
-                -- Current Position metrics
+                -- Current Position
                 local currentDist = (node.location - node.leftWall):dot(wallDir)
-                local midDist = (node.mid - node.leftWall):dot(wallDir)
-
-                -- Gradient Descent Step (Radius maximization)
+                
+                -- Gradient Descent Step
                 local step = 0.2
                 
-                -- Test Candidates
+                -- Test Candidates (Pure Radius Logic)
                 local pCurrent = node.location
                 local pLeft    = node.location - (wallDir * step)
                 local pRight   = node.location + (wallDir * step)
@@ -742,38 +740,24 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
                 local rLeft    = self:getLocalRadius(prev.location, pLeft, next.location)
                 local rRight   = self:getLocalRadius(prev.location, pRight, next.location)
 
-                -- [[ WEAK TETHER LOGIC ]]
-                -- Calculate how far we are deviating from the center
-                local distLeft = math.abs((currentDist - step) - midDist)
-                local distRight = math.abs((currentDist + step) - midDist)
-                
-                -- Apply a tiny penalty for being far from center.
-                -- Since we multiplied by 100 before, we reduce that impact significantly here.
-                rLeft = rLeft - (distLeft * CENTER_BIAS * 10) 
-                rRight = rRight - (distRight * CENTER_BIAS * 10)
-                
+                -- Move towards larger radius
                 local move = 0.0
                 if rLeft > rCurrent and rLeft > rRight then 
                     move = -step
                 elseif rRight > rCurrent and rRight > rLeft then 
                     move = step
-                else
-                    -- If radius is identical (straight line), very slowly drift to center
-                    move = (midDist - currentDist) * 0.01 
                 end
                 
-                -- [[ SAFETY CLAMP ]]
-                -- Ensure we never cross the 7.0 unit margin
+                -- Clamp to Margin
                 local newDist = currentDist + move
                 newDist = math.max(MARGIN, math.min(trackWidth - MARGIN, newDist))
                 
-                -- Apply
                 node.location = node.leftWall + (wallDir * newDist)
             end
         end
     end
     
-    -- [[ 3. SMOOTHING & FINALIZE ]]
+    -- [[ 3. FINALIZE ]]
     self:smoothPositions(nodes)
     nodes = self:resampleChain(nodes, 3.0)
     self:calculateTrackDistances(nodes)
@@ -1255,31 +1239,26 @@ function TrackScanner.cl_visEvent(self, data)
 end
 
 function TrackScanner.redrawVisualization(self)
-    -- 1. Clear old effects
-    for _, effect in ipairs(self.debugEffects) do 
-        if effect and sm.exists(effect) then effect:destroy() end 
-    end
-    self.debugEffects = {}
+    self:clearDebugEffects()
 
     if not self.clientTrackData then return end
 
-    -- 2. Pick Color & Position based on Mode
-    for _, node in ipairs(self.clientTrackData) do
+    -- STEP: Change this number to skip more/less nodes
+    -- 1 = All nodes, 4 = Every 4th node (saves FPS and visual limit)
+    local step = 3
+
+    for i = 1, #self.clientTrackData, step do
+        local node = self.clientTrackData[i]
         
         if self.visMode == 1 then
-            -- MODE 1: RACING LINE (Green)
-            self:spawnDot(node.pos, sm.color.new("00ff00ff"))
-
+            self:spawnDot(node.pos, sm.color.new("00ff00")) -- Green Line
         elseif self.visMode == 2 then
-            -- MODE 2: CENTER LINE (Blue)
-            self:spawnDot(node.mid, sm.color.new("0000ffff"))
-
+            self:spawnDot(node.mid, sm.color.new("00ffff")) -- Blue Center
         elseif self.visMode == 3 then
-            -- MODE 3: DEBUG SKELETON (Walls = Red, Mid = Blue)
-            -- This reveals EXACTLY what the scanner hit
-            self:spawnDot(node.mid, sm.color.new("0000ffff")) -- Center
-            self:spawnDot(node.left, sm.color.new("ff0000ff")) -- Left Wall Hit
-            self:spawnDot(node.right, sm.color.new("ff0000ff")) -- Right Wall Hit
+            -- Skeleton
+            self:spawnDot(node.mid, sm.color.new("00ffff"))
+            self:spawnDot(node.left, sm.color.new("ff0000"))
+            self:spawnDot(node.right, sm.color.new("ff0000"))
         end
     end
 end
