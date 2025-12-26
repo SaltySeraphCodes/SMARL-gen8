@@ -12,7 +12,7 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
-local DEFAULT_STEERING_Kp = 0.45  
+local DEFAULT_STEERING_Kp = 0.25  
 local DEFAULT_STEERING_Kd = 0.50  
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
@@ -698,30 +698,24 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
             -- [[ KEY FIX ]]
             -- We walk the chain using 'mid' to find the GEOMETRIC CENTER ahead.
             local futureCenter, futureNode = self:getFutureCenterPoint(startNode, startT, minStabilityDist, pModule.chain)
+            -- [[ FIX: USE TRACK PERPENDICULAR ]]
+            -- Instead of calculating a perp from the chord, we use the NODE's stored perp.
+            -- This guarantees "Left" is always "Track Left", preventing the apex jump.
+            local usePerp = futureNode.perp
             
-            -- Now we apply the bias to THAT center point.
-            -- This works because safeBias is calculated relative to center.
+            -- Fallback: If node data is missing perp, assume Up is Z and Cross with OutVector
+            if not usePerp then
+                local nodeUp = futureNode.upVector or sm.vec3.new(0,0,1)
+                local nodeOut = futureNode.outVector or (futureCenter - carPos):normalize()
+                usePerp = nodeOut:cross(nodeUp):normalize() 
+            end
             
-            -- 1. Calculate the chord direction (Car -> Future Center)
-            local chordDir = (futureCenter - carPos):normalize()
-            
-            -- 2. Calculate a safe perpendicular vector
-            -- We use the node's stored Up vector if available, or Z-up
-            local nodeUp = futureNode.upVector or sm.vec3.new(0,0,1)
-            local approxPerp = chordDir:cross(nodeUp):normalize() * -1 -- Flip if needed to match Left/Right logic
-            
-            -- If the track is banked/looping, rely on the node's stored perp
-            if futureNode.perp then approxPerp = futureNode.perp end
-
-            -- 3. Apply Bias using the width at the FUTURE node
+            -- Apply Bias at the future point
             local futureHalfWidth = (futureNode.width or 20.0) / 2.0
-            
-            -- -1 multiplier matches your coordinate system (Left vs Right)
-            local futureOffset = approxPerp * (safeBias * futureHalfWidth * -1)
+            local futureOffset = usePerp * (safeBias * futureHalfWidth * -1)
             
             targetPoint = futureCenter + futureOffset
             
-            -- Recalculate Distance for PID math
             vecToTarget = targetPoint - carPos
             lookaheadDist = minStabilityDist
         end
@@ -743,7 +737,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     -- Output & Damping
     local steerOutput = targetSteerAngle / MAX_WHEEL_ANGLE_RAD
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-    local damping = yawRate * (self.STEERING_Kd_BASE or 0.25)
+    local damping = yawRate * (self.STEERING_Kd_BASE or 0.5)
     
     return math.max(math.min(steerOutput - damping, 1.0), -1.0)
 end
@@ -790,6 +784,95 @@ function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
 end
 
 function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
+    local controls = {}
+    controls.resetCar = self:checkUtility(perceptionData,dt)
+
+    self:updateTrackState(perceptionData)
+
+    local targetSpeedForLog = 0.0
+
+    if controls.resetCar then
+        print(self.Driver.id,"resetting car")
+        controls.steer = 0.0; controls.throttle = 0.0; controls.brake = 0.0
+    else
+        self:determineStrategy(perceptionData, dt) 
+        controls.steer = self:calculateSteering(perceptionData, dt)
+        -- Capture target speed from the updated function
+        controls.throttle, controls.brake, targetSpeedForLog = self:calculateSpeedControl(perceptionData, controls.steer)
+    end
+
+    local spd = perceptionData.Telemetry.speed or 0 
+    
+    -- Crash Detection
+    if self.lastSpeed then
+        local delta = spd - self.lastSpeed
+        if delta < -8.0 then 
+            print(self.Driver.id, "WALL IMPACT DETECTED! Delta:", delta)
+            if self.Driver.Optimizer then self.Driver.Optimizer:reportCrash() end
+        end
+    end
+    self.lastSpeed = spd
+
+    -- [[ TELEMETRY LOGGING ]]
+    local tick = sm.game.getServerTick()
+    -- Log every 4 ticks (0.1s) for readability, or every 1 tick if debugging a crash
+    if spd > 1.0 and tick % 4 == 0 then 
+        local nav = perceptionData.Navigation
+        local tm = perceptionData.Telemetry
+        
+        -- 1. HEADING ERROR (Are we crab-walking?)
+        -- Calculate the angle between Car Forward and Track Forward
+        local hdgErr = 0.0
+        if nav.closestPointData and nav.closestPointData.baseNode then
+            local trackFwd = nav.closestPointData.baseNode.outVector
+            local carFwd = tm.rotations.at
+            -- Ignore Z for heading error
+            local flatTrack = sm.vec3.new(trackFwd.x, trackFwd.y, 0):normalize()
+            local flatCar = sm.vec3.new(carFwd.x, carFwd.y, 0):normalize()
+            local cross = flatCar:cross(flatTrack) -- Z component tells us Left/Right error
+            hdgErr = math.deg(math.asin(math.max(math.min(cross.z, 1), -1)))
+        end
+
+        -- 2. STEERING LAG (Are the wheels obeying?)
+        local actualWheelAngle = 0.0
+        local bearings = sm.interactable.getBearings(self.Driver.interactable)
+        if #bearings > 0 then
+            -- Convert Bearing Angle (Rad) to Steer Factor (-1 to 1)
+            -- Assumes MAX_WHEEL_ANGLE_RAD is 0.8
+            actualWheelAngle = bearings[1]:getAngle() / 0.8 
+        end
+        local steerLag = controls.steer - actualWheelAngle
+
+        -- 3. LOOKAHEAD DISTANCE (Did stability logic push it out?)
+        local lookaheadDist = 0.0
+        if self.latestDebugData and self.latestDebugData.targetPoint then
+             lookaheadDist = (self.latestDebugData.targetPoint - tm.location):length()
+        end
+
+        -- 4. FORMAT STRING
+        -- [Mode] | Spd: Curr/Tgt | Steer: Cmd(Lag) | Err: Lat/Hdg | Aim: Dist
+        local modeStr = self.currentMode or "Race"
+        if self.isCornering then modeStr = "Corn" .. tostring(self.cornerPhase) end
+
+        local logString = string.format(
+            "[%-6s] Spd:%02.0f/%02.0f | Str:%+.2f(Lag%+.2f) | Err:Lat%+.1f/Hdg%+.0f | Aim:%02.1fm",
+            modeStr,
+            spd,
+            targetSpeedForLog,
+            controls.steer,
+            steerLag,
+            nav.trackPositionBias or 0.0, -- "Lat" is bias (-1 to 1) here
+            hdgErr,
+            lookaheadDist
+        )
+        print(logString)
+    end
+
+    self.controls = controls
+    return controls
+end
+
+function DecisionModule.server_onFixedUpdate_old2(self,perceptionData,dt)
     local controls = {}
     controls.resetCar = self:checkUtility(perceptionData,dt)
 
