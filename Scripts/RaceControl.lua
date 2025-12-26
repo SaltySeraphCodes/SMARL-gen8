@@ -335,7 +335,7 @@ function RaceControl.sv_output_data(self)
         local hexColor = tostring(shapeColor) -- Usually returns hex string in recent SM versions
         local data = {
             id = driver.id,
-            name = driver.tagText or "Racer " .. driver.id, -- Helpful if meta/twitch fails
+            name = driver.tagText or ("Racer " .. tostring(driver.id or "?")),
             owner = twitch.uid or meta.ID or driver.id, 
             place = driver.racePosition or 0,
             
