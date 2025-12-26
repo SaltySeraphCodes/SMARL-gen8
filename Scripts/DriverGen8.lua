@@ -819,6 +819,21 @@ function DriverGen8.client_onUpdate(self, dt)
         self.TargetEffect:stop()
     end
 
+    -- [[ TARGET VISUALIZER ]]
+    if self.Decision and self.Decision.latestDebugData and self.Decision.latestDebugData.targetPoint then
+        local tp = self.Decision.latestDebugData.targetPoint
+        
+        -- Use SM's built-in visualization or a reusable effect
+        -- Here is a simple persistent line visualizer using effects
+        if not self.targetEffect then
+             self.targetEffect = sm.effect.createEffect("ShapeRenderArea")
+             self.targetEffect:setParameter("uuid", sm.uuid.new("62758dca-2d3e-4363-9827-02d24296decb")) -- Small Wheel (visual anchor)
+             self.targetEffect:setScale(sm.vec3.new(0.5, 0.5, 0.5))
+             self.targetEffect:start()
+        end
+        self.targetEffect:setPosition(tp)
+    end
+
     -- [[ CoM VISUALIZER ]]
     if self.body and self.shape then 
         if self.CoMDebugEffect then

@@ -75,34 +75,27 @@ end
 function ActionModule.setSteering(self, steerFactor, currentSpeed)
     local targetAngle = steerFactor * MAX_WHEEL_ANGLE_RAD
     
-    -- [NEW] REALITY CHECK
-    -- If the bearings are physically stuck or lagging, don't force them harder.
-    -- This prevents the "Jitter" glitch where the physics solver explodes.
     local bearings = sm.interactable.getBearings(self.Driver.interactable)
     if #bearings > 0 then
-        -- Check the first bearing to see what the physical wheels are doing
         local currentAngle = bearings[1]:getAngle()
         -- If we are asking for Left, but wheel is stuck Right, 
-        -- limit the impulse so we don't snap the axle.
         local error = math.abs(targetAngle - currentAngle)
         if error > 0.5 then -- >28 degrees disagreement
-             -- Reduce adjustment rate (strength) to let physics catch up
-             -- This feels "mushy" but prevents explosions
-             self:applyBearingForce(targetAngle, 1.0) -- Low speed
+             -- For debug potential
              return
         end
     end
 
 
     -- Normal Operation
-    self:applyBearingForce(targetAngle, 3.0)
+    self:applyBearingForce(targetAngle, 5)
     self.steeringOut = targetAngle
 end
 
 -- Helper to apply the force
 function ActionModule:applyBearingForce(angle, speed)
     for k, v in pairs(sm.interactable.getBearings(self.Driver.interactable)) do
-        sm.joint.setTargetAngle(v, angle, 5, 2000)
+        sm.joint.setTargetAngle(v, angle, speed, 2000)
     end
 end
 

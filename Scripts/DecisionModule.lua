@@ -194,8 +194,9 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     local safetyRadius = math.max(effectiveRadius * 0.9, 10.0)
 
     -- 2. CALCULATE MAX CORNERING SPEED (v^2/r = u*g)
-    -- Multiplier 15.0 is essentially Gravity (10) * Safety/Tuning (1.5)
-    local maxCornerSpeed = math.sqrt(safetyRadius * friction * 15.0) 
+    local lateralGrip = 20.0 -- Was 15.0. 20.0 allows for 2.0g turns.
+    local friction = self.dynamicGripFactor or 0.8
+    local maxCornerSpeed = math.sqrt(safetyRadius * friction * lateralGrip)
     
     -- Clamp limits
     maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
@@ -227,40 +228,6 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     return targetSpeed
 end
 
-function DecisionModule.getTargetSpeed_old(self, perceptionData, steerInput)
-    -- [DEBUG] FORCE CONSTANT SPEED
-    -- Returns 50 (approx 40 km/h) to isolate steering logic.
-    -- Remove this line once steering is stable!
-    --return 50.0
-    local effectiveRadius = self.smoothedRadius
-    local distToCorner = self.cachedDist or 0.0
-
-    local friction = self.dynamicGripFactor or 0.9
-
-    local limitMultiplier = 2.0
-    if self.Driver.Optimizer then 
-        limitMultiplier = self.Driver.Optimizer.cornerLimit -- Uses learned speed limit
-    end
-
-    local maxCornerSpeed = math.sqrt(effectiveRadius * friction * 15.0) * limitMultiplier
-
-    maxCornerSpeed = math.max(maxCornerSpeed, MIN_CORNER_SPEED)
-    maxCornerSpeed = math.min(maxCornerSpeed, self.dynamicMaxSpeed)
-    
-    local brakingForce = (self.Driver.Optimizer and self.Driver.Optimizer.brakingFactor) or self.brakingForceConstant
-    local allowableSpeed = math.sqrt((maxCornerSpeed^2) + (2 * brakingForce * distToCorner))
-
-    self.dbg_MaxCorner = maxCornerSpeed
-    self.dbg_Allowable = allowableSpeed
-
-    local targetSpeed = math.min(self.dynamicMaxSpeed, allowableSpeed)
-
-    if self.currentMode == "Caution" then targetSpeed = 15.0 end 
-    if self.pitState > 0 then targetSpeed = 15.0 end
-    if self.pitState == 3 then targetSpeed = 5.0 end
-
-    return math.min(self.dynamicMaxSpeed, targetSpeed)
-end
 
 function DecisionModule:calculateContextBias(perceptionData, preferredBias)
     local nav = perceptionData.Navigation
@@ -848,11 +815,35 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local offsetVector = perp:normalize() * (safeBias * halfWidth * -1)
     local targetPoint = centerTarget + offsetVector
 
+    -- [[ DEBUG VISUALIZATION EXPORT ]]
+    -- We save this to the module so the Driver can render it
+    self.latestDebugData = self.latestDebugData or {}
+    self.latestDebugData.targetPoint = targetPoint 
+    self.latestDebugData.aimVector = (targetPoint - telemetry.location)
+
     -- 3. LOOKAHEAD CALCULATIONS
     local carPos = telemetry.location
     local vecToTarget = targetPoint - carPos
     local lookaheadDist = vecToTarget:length()
+    -- [[ FIX: DYNAMIC LOOKAHEAD ]]
+    -- Base distance + Speed Buffer + Steering Error Buffer
+    -- If we are pointing the wrong way, look further ahead to smooth the recovery.
+    local speed = telemetry.speed
+    local headingError = math.abs(vecToTarget:normalize():dot(telemetry.rotations.right))
     
+    -- Minimum 15m (approx 3 car lengths). Increase by speed (0.5s reaction time)
+    local minLookahead = 15.0 + (speed * 0.5) + (headingError * 10.0)
+    
+    if lookaheadDist < minLookahead then
+        -- Extend the vector mathematically without changing the angle
+        -- This prevents the car from aiming at the ground right in front of it
+        local extendDir = (nav.nodeGoalDirection or telemetry.rotations.at)
+        targetPoint = carPos + (extendDir * minLookahead)
+        lookaheadDist = minLookahead
+        
+        -- Recalculate localY based on new distant point
+        vecToTarget = targetPoint - carPos
+    end
     -- [TUNING] Lower stability floor to be more responsive
     -- Was: 12.0 + speed * 0.5 (Too stiff)
     local minStabilityDist = 6.0 + (telemetry.speed * 0.4) 
