@@ -366,7 +366,7 @@ function Engine._applyGearLimits(self, nextRPM)
     
     -- Rev Limiter Bounce
     if nextVRPM > limit then
-        print("rev limit bounce")
+        --print("rev limit bounce")
         nextRPM = self.curRPM - 5 
     end
     
@@ -374,7 +374,7 @@ function Engine._applyGearLimits(self, nextRPM)
 end
 
 function Engine._applyHardLimiter(self, nextRPM)
-    print("HL",nextRPM,self.curRPM)
+    --print("HL",nextRPM,self.curRPM)
     local increment = nextRPM - self.curRPM
     
     local tractionConst = 2.6
@@ -403,10 +403,10 @@ function Engine._applyHardLimiter(self, nextRPM)
     -- Apply Limit
     if nextRPM >= calculatedLimit and increment > 0 then
         -- Soft limiter: Reduce the acceleration increment
-        print("soft limit",nextRPM,calculatedLimit,increment)
+        --print("soft limit",nextRPM,calculatedLimit,increment)
         nextRPM = nextRPM - (increment * 1.05)
     elseif nextRPM <= -40 and increment < 0 then
-        print("reverse?",nextRPM,increment)
+        ---print("reverse?",nextRPM,increment)
         nextRPM = -40
     end
 
@@ -443,7 +443,6 @@ function Engine.setRPM(self, value)
          -- Simple scale: 500 torque for 1000kg, up to 7000 torque
          strength = math.max(500, math.min(7000, mass * 0.5))
     end
-    print("setting motor vel",value,strength)
     local count = 0
     local totalAngularVel = 0
     
