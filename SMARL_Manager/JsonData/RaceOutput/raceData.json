@@ -3,10 +3,9 @@
 	"fd" : null,
 	"md" : 
 	{
+		"flag" : "GREEN",
 		"lapsLeft" : 10.0,
-		"qualifying" : false,
 		"status" : 0.0
 	},
-	"qd" : null,
 	"rt" : null
 }
