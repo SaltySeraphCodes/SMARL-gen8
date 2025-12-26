@@ -660,9 +660,32 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local nav = perceptionData.Navigation
     local telemetry = perceptionData.Telemetry
 
-    -- 1. GET SAFE BIAS & CLAMP IT
-    -- This bias is relative to the TRACK CENTER (node.mid)
-    local safeBias = self:getFinalTargetBias(perceptionData)
+    -- 1. GET RAW BIAS
+    local targetBias = self:getFinalTargetBias(perceptionData)
+    targetBias = math.min(math.max(targetBias, -0.9), 0.9)
+
+    -- [[ FIX 2: BIAS SMOOTHING ]]
+    -- Instead of snapping instantly, move towards the target bias.
+    -- This prevents the "Flash" when the logic switches from Straight -> Entry.
+    if not self.smoothedBias then self.smoothedBias = targetBias end
+    
+    -- Speed of transition: 
+    -- 5.0 * dt means we can move from Center (0) to Edge (1) in ~0.2 seconds.
+    -- Fast enough to corner, slow enough to stop the flicker.
+    local biasSpeed = 5.0 * dt
+    local diff = targetBias - self.smoothedBias
+    
+    -- Move smoothedBias towards targetBias by biasSpeed
+    if math.abs(diff) < biasSpeed then
+        self.smoothedBias = targetBias
+    elseif diff > 0 then
+        self.smoothedBias = self.smoothedBias + biasSpeed
+    else
+        self.smoothedBias = self.smoothedBias - biasSpeed
+    end
+
+    -- USE THE SMOOTHED BIAS FOR CALCULATIONS
+    local safeBias = self.smoothedBias
     safeBias = math.min(math.max(safeBias, -0.9), 0.9)
     self.smoothedBias = safeBias 
 
