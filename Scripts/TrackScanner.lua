@@ -9,7 +9,7 @@ local SCAN_WIDTH_MAX = 80.0
 local WALL_SCAN_HEIGHT = 30.0 
 local FLOOR_DROP_THRESHOLD = 1.5 
 local SCAN_GRAIN = 0.5 
-local MARGIN_SAFETY = 6.0
+local MARGIN_SAFETY = 7.0
 local JUMP_SEARCH_LIMIT = 20
 local LOOP_Z_TOLERANCE = 6.0
 
@@ -20,13 +20,14 @@ local SCAN_MODE_PIT = 2
 function TrackScanner.server_onCreate(self) self:server_init() end
 function TrackScanner.client_onCreate(self) self:client_init() end
 function TrackScanner.server_onRefresh(self) self:server_init() end
-function TrackScanner.client_onRefresh(self) self:client_init() end
+
+function TrackScanner.client_onRefresh(self) 
+    self:clearDebugEffects()
+    self:client_init() 
+end
 
 function TrackScanner.client_onDestroy(self)
-    for _, effect in ipairs(self.debugEffects) do 
-        if effect and sm.exists(effect) then effect:destroy() end 
-    end
-    self.debugEffects = {}
+    self:clearDebugEffects()
 end
 
 function TrackScanner.server_init(self)
@@ -698,21 +699,25 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     local count = #nodes
     if count < 3 then return end
 
-    local MARGIN = MARGIN_SAFETY or 6.0
-    -- Tuning: How strongly the line wants to stay in the center (0.0 = Pure Racing Line, 1.0 = Center Line)
-    local CENTER_BIAS = 0.05 
+    -- [[ TUNING ]]
+    local MARGIN = MARGIN_SAFETY or  7.0  -- Hard limit: Stay 7 units away from walls
+    
+    -- "Center Tether": 0.005 is very weak. 
+    -- It allows the line to swing wide but prevents it from hugging a wall 
+    -- for no reason on a straight.
+    local CENTER_BIAS = 0.005 
 
     -- [[ 1. FILL GAPS FIRST ]]
     nodes = self:fillGaps(nodes, 6.0)
     count = #nodes 
 
-    print("TrackScanner: Optimizing ("..iterations.." passes) with Center Tether...")
+    print("TrackScanner: Optimizing ("..iterations.." passes) | Margin: "..MARGIN.." | Bias: "..CENTER_BIAS)
 
     -- [[ 2. OPTIMIZATION LOOP ]]
     for iter = 1, iterations do
         for i = 1, count do
             local node = nodes[i]
-            -- Safety: Only optimize valid track nodes
+            
             if not node.isJump and node.leftWall and node.rightWall then 
                 local prev = nodes[(i - 2) % count + 1]
                 local next = nodes[(i % count) + 1]
@@ -721,14 +726,14 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
                 local trackWidth = wallVec:length()
                 local wallDir = wallVec:normalize()
 
-                -- Current Position vs Center
+                -- Current Position metrics
                 local currentDist = (node.location - node.leftWall):dot(wallDir)
                 local midDist = (node.mid - node.leftWall):dot(wallDir)
 
-                -- Gradient Descent for Radius
-                local step = 0.2 -- Slower, more stable steps
+                -- Gradient Descent Step (Radius maximization)
+                local step = 0.2
                 
-                -- We test moving Left and Right
+                -- Test Candidates
                 local pCurrent = node.location
                 local pLeft    = node.location - (wallDir * step)
                 local pRight   = node.location + (wallDir * step)
@@ -737,17 +742,15 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
                 local rLeft    = self:getLocalRadius(prev.location, pLeft, next.location)
                 local rRight   = self:getLocalRadius(prev.location, pRight, next.location)
 
-                -- [[ TETHER LOGIC ]]
-                -- Penalize radius gain if it moves too far from center
-                -- We artificially reduce the 'score' of a move if it goes away from midDist
+                -- [[ WEAK TETHER LOGIC ]]
+                -- Calculate how far we are deviating from the center
                 local distLeft = math.abs((currentDist - step) - midDist)
                 local distRight = math.abs((currentDist + step) - midDist)
-                local distCurr = math.abs(currentDist - midDist)
                 
-                -- Apply Bias: Reduce effective radius by distance cost
-                -- (Larger radius is better, so we subtract cost)
-                rLeft = rLeft - (distLeft * CENTER_BIAS * 100) 
-                rRight = rRight - (distRight * CENTER_BIAS * 100)
+                -- Apply a tiny penalty for being far from center.
+                -- Since we multiplied by 100 before, we reduce that impact significantly here.
+                rLeft = rLeft - (distLeft * CENTER_BIAS * 10) 
+                rRight = rRight - (distRight * CENTER_BIAS * 10)
                 
                 local move = 0.0
                 if rLeft > rCurrent and rLeft > rRight then 
@@ -755,22 +758,23 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
                 elseif rRight > rCurrent and rRight > rLeft then 
                     move = step
                 else
-                    -- If no radius gain, gently drift back to center (Smoothing)
-                    move = (midDist - currentDist) * 0.05 
+                    -- If radius is identical (straight line), very slowly drift to center
+                    move = (midDist - currentDist) * 0.01 
                 end
                 
+                -- [[ SAFETY CLAMP ]]
+                -- Ensure we never cross the 7.0 unit margin
                 local newDist = currentDist + move
                 newDist = math.max(MARGIN, math.min(trackWidth - MARGIN, newDist))
+                
+                -- Apply
                 node.location = node.leftWall + (wallDir * newDist)
             end
         end
     end
     
-    -- [[ 3. SMOOTHING PASS ]]
-    -- This deletes the "One Node Jump" artifact by averaging neighbors
+    -- [[ 3. SMOOTHING & FINALIZE ]]
     self:smoothPositions(nodes)
-
-    -- [[ 4. RESAMPLE & FINALIZE ]]
     nodes = self:resampleChain(nodes, 3.0)
     self:calculateTrackDistances(nodes)
     self:snapChainToFloor(nodes)
@@ -1221,6 +1225,16 @@ function TrackScanner.sv_sendVis(self)
 end
 
 -- --- VISUALIZATION ---
+
+-- HELPER: centralized cleanup
+function TrackScanner.clearDebugEffects(self)
+    if self.debugEffects then
+        for _, effect in ipairs(self.debugEffects) do 
+            if effect and sm.exists(effect) then effect:destroy() end 
+        end
+    end
+    self.debugEffects = {}
+end
 
 function TrackScanner.cl_visEvent(self, data)
     -- CASE 1: START
