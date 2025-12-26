@@ -46,6 +46,14 @@ function TrackScanner.client_init(self)
     self.debugEffects = {}
     self.scanning = false
     self.debug = false
+    -- VISUALIZATION MODES:
+    -- 1 = Racing Line (Green)
+    -- 2 = Center Line (Blue)
+    -- 3 = Debug Skeleton (Red Walls + Blue Center)
+    self.visMode = 1 
+    
+    -- Saved data for redrawing without re-fetching
+    self.clientTrackData = nil 
 end
 
 -- --- CORE SCANNING UTILS ---
@@ -191,7 +199,8 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         
         if floorPos then
             currentPos = floorPos
-            currentUp = sm.vec3.lerp(currentUp, floorNormal, 0.5):normalize()
+            -- Heavy dampening (0.05) ignores small bumps/seams in the road
+            currentUp = sm.vec3.lerp(currentUp, floorNormal, 0.05):normalize()
             
             -- [[ FIX 1: STRICT PERPENDICULARS ]]
             -- We cross 'currentDir' to get a perfect 90 degree angle.
@@ -864,6 +873,38 @@ function TrackScanner.serializeTrackData(self)
     
     local function serializeChain(chain, targetTable)
         for i, node in ipairs(chain) do
+            table.insert(targetTable, {
+                id = node.id,
+                -- Send all three key positions
+                pos = self:vecToTable(node.location), -- Racing Line
+                mid = self:vecToTable(node.mid),      -- Center Line
+                left = self:vecToTable(node.leftWall), -- Raw Wall Hit
+                right = self:vecToTable(node.rightWall), -- Raw Wall Hit
+                
+                width = node.width,
+                dist = node.distFromStart,
+                bank = node.bank,
+                isJump = node.isJump
+            })
+        end
+    end
+
+    serializeChain(self.nodeChain, raceNodes)
+    serializeChain(self.pitChain, pitNodes)
+
+    return { 
+        timestamp = os.time(), 
+        raceChain = raceNodes, 
+        pitChain = pitNodes 
+    }
+end
+
+function TrackScanner.serializeTrackData_old(self)
+    local raceNodes = {}
+    local pitNodes = {}
+    
+    local function serializeChain(chain, targetTable)
+        for i, node in ipairs(chain) do
             local dataNode = {
                 id = node.id,
                 pos = self:vecToTable(node.location), -- THE OPTIMIZED LINE
@@ -941,9 +982,25 @@ end
 
 function TrackScanner.client_onTinker(self, character, state)
     if state then
-        -- Tinker toggles the mode
-        self.network:sendToServer("sv_switchMode")
-        sm.audio.play("PaintTool - ColorPick", self.shape:getWorldPosition())
+        if character:isCrouching() then
+            -- Cycle Modes: 1 -> 2 -> 3 -> 1
+            self.visMode = self.visMode + 1
+            if self.visMode > 3 then self.visMode = 1 end
+
+            local modeNames = { "RACING LINE", "CENTER LINE", "DEBUG SKELETON" }
+            sm.gui.displayAlertText("View: " .. modeNames[self.visMode], 2)
+            
+            -- Trigger a redraw using the last known data
+            if self.clientTrackData then
+                self:redrawVisualization()
+            end
+            
+            sm.audio.play("PaintTool - ColorPick", self.shape:getWorldPosition())
+        else
+            
+            self.network:sendToServer("sv_switchMode")
+            sm.audio.play("PaintTool - ColorPick", self.shape:getWorldPosition())
+        end
     end
 end
 
@@ -1017,6 +1074,65 @@ end
 -- --- VISUALIZATION ---
 
 function TrackScanner.cl_visEvent(self, data)
+    -- CASE 1: START
+    if data.type == "start" then
+        if data.chain == "race" then
+            self.clientTrackData = {} -- Clear local cache
+        end
+
+    -- CASE 2: BATCH (Store data, don't draw yet)
+    elseif data.type == "batch" then
+        if not self.clientTrackData then self.clientTrackData = {} end
+        for _, node in ipairs(data.nodes) do
+            table.insert(self.clientTrackData, node)
+        end
+        -- Update viz incrementally
+        self:redrawVisualization() 
+    end
+end
+
+function TrackScanner.redrawVisualization(self)
+    -- 1. Clear old effects
+    for _, effect in ipairs(self.debugEffects) do 
+        if effect and sm.exists(effect) then effect:destroy() end 
+    end
+    self.debugEffects = {}
+
+    if not self.clientTrackData then return end
+
+    -- 2. Pick Color & Position based on Mode
+    for _, node in ipairs(self.clientTrackData) do
+        
+        if self.visMode == 1 then
+            -- MODE 1: RACING LINE (Green)
+            self:spawnDot(node.pos, sm.color.new("00ff00"))
+
+        elseif self.visMode == 2 then
+            -- MODE 2: CENTER LINE (Blue)
+            self:spawnDot(node.mid, sm.color.new("00ffff"))
+
+        elseif self.visMode == 3 then
+            -- MODE 3: DEBUG SKELETON (Walls = Red, Mid = Blue)
+            -- This reveals EXACTLY what the scanner hit
+            self:spawnDot(node.mid, sm.color.new("00ffff")) -- Center
+            self:spawnDot(node.left, sm.color.new("ff0000")) -- Left Wall Hit
+            self:spawnDot(node.right, sm.color.new("ff0000")) -- Right Wall Hit
+        end
+    end
+end
+
+function TrackScanner.spawnDot(self, posTable, color)
+    if not posTable then return end
+    local effect = sm.effect.createEffect("Loot - GlowItem")
+    effect:setScale(sm.vec3.new(0,0,0))
+    effect:setPosition(sm.vec3.new(posTable.x, posTable.y, posTable.z))
+    effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+    effect:setParameter("Color", color)
+    effect:start()
+    table.insert(self.debugEffects, effect)
+end
+
+function TrackScanner.cl_visEvent_old(self, data)
     -- Initialize container if missing
     if not self.debugEffects then self.debugEffects = {} end
     
