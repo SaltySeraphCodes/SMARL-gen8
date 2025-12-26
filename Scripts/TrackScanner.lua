@@ -174,9 +174,158 @@ end
 
 
 -- --- TRACK SCAN (LOOP) ---
-
-
 function TrackScanner.scanTrackLoop(self, startPos, startDir)
+    self.rawNodes = {}
+    local currentPos = startPos
+    local currentDir = startDir
+    
+    -- "currentUp" tracks the actual floor for DATA, but we won't use it for SCANNING anymore
+    local currentUp = sm.vec3.new(0, 0, 1) 
+    
+    local iterations = 0
+    local maxIterations = 2000 
+    local loopClosed = false
+    
+    local prevLeftDist = 10.0 
+    local prevRightDist = 10.0
+    local GAP_TOLERANCE = 12.0 
+    
+    local currentStepSize = SCAN_STEP_SIZE 
+
+    print("TrackScanner: Starting Stabilized Race Scan...")
+
+    while not loopClosed and iterations < maxIterations do
+        local floorPos, floorNormal = self:findFloorPoint(currentPos, currentUp)
+        
+        if floorPos then
+            currentPos = floorPos
+            -- We still track the real up vector for the saved data...
+            currentUp = sm.vec3.lerp(currentUp, floorNormal, 0.1):normalize()
+            
+            -- [[ FIX: FORCE HORIZONTAL SCANNING ]]
+            -- Instead of crossing with 'currentUp' (which might be tilted),
+            -- we cross with Global Z (0,0,1).
+            -- This ensures 'rightVec' is ALWAYS parallel to the horizon.
+            local stableUp = sm.vec3.new(0, 0, 1)
+            local rightVec = currentDir:cross(stableUp):normalize() * -1 
+            
+            -- If we are going straight up a vertical wall, this math breaks.
+            -- But for a race track, this is perfect. It ignores roll/pitch.
+            local leftVec = -rightVec
+            
+            -- [[ Strict Scan ]]
+            -- Now we pass 'stableUp' to the scanner so the vertical rays drop straight down
+            -- instead of at a weird angle.
+            local rawLeft = self:findWallStrict(currentPos, leftVec, stableUp) 
+            local rawRight = self:findWallStrict(currentPos, rightVec, stableUp) 
+            
+            -- [[ LOGIC: Left Wall ]]
+            local leftWall = rawLeft
+            local validLeft = false
+            if rawLeft then
+                local dist = (rawLeft - currentPos):length()
+                if dist > 1.5 then 
+                    if iterations == 0 or (dist < prevLeftDist + GAP_TOLERANCE) then
+                        prevLeftDist = dist
+                        validLeft = true
+                    end
+                end
+            end
+            if not validLeft then leftWall = currentPos + (leftVec * prevLeftDist) end
+
+            -- [[ LOGIC: Right Wall ]]
+            local rightWall = rawRight
+            local validRight = false
+            if rawRight then
+                local dist = (rawRight - currentPos):length()
+                if dist > 1.5 then 
+                    if iterations == 0 or (dist < prevRightDist + GAP_TOLERANCE) then
+                        prevRightDist = dist
+                        validRight = true
+                    end
+                end
+            end
+            if not validRight then rightWall = currentPos + (rightVec * prevRightDist) end
+
+            local midPoint = (leftWall + rightWall) * 0.5
+            midPoint.z = currentPos.z + 0.5 
+            
+            local trackWidth = (leftWall - rightWall):length()
+
+            -- Bank Calculation (Visual only)
+            local wallSlopeVec = (rightWall - leftWall):normalize()
+            local bankUp = wallSlopeVec:cross(currentDir):normalize()
+            local bankAngle = 0.0
+            if (leftWall.z - rightWall.z) > 2.0 then bankAngle = 1.0 end 
+            if (rightWall.z - leftWall.z) > 2.0 then bankAngle = -1.0 end 
+
+            table.insert(self.rawNodes, {
+                id = iterations + 1,
+                location = midPoint, 
+                mid = midPoint,     
+                leftWall = leftWall,
+                rightWall = rightWall,
+                width = trackWidth,
+                inVector = currentDir, 
+                outVector = currentDir, 
+                -- We save the REAL (tilted) Up Vector for the cars to use later
+                upVector = currentUp, 
+                bank = bankAngle,
+                incline = currentDir.z,
+                isJump = false,
+                sectorID = 1 
+            })
+
+            -- [[ Steering Logic ]]
+            local turnAngle = 0
+            if iterations > 0 then
+                local prevNode = self.rawNodes[#self.rawNodes-1]
+                local rawNewDir = (midPoint - prevNode.location):normalize()
+                
+                local dot = prevNode.inVector:dot(rawNewDir)
+                turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
+
+                if turnAngle > 20.0 then
+                    local slerpFactor = 20.0 / turnAngle
+                    rawNewDir = sm.vec3.lerp(prevNode.inVector, rawNewDir, slerpFactor):normalize()
+                end
+
+                if rawNewDir:dot(prevNode.inVector) < 0.0 then rawNewDir = prevNode.inVector end
+                prevNode.outVector = rawNewDir
+                
+                -- Keep the heavy steering dampening (0.5)
+                currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.5):normalize()
+            end
+            
+            if turnAngle > 5.0 then currentStepSize = 2.0 else currentStepSize = 4.0 end
+
+            currentPos = midPoint + (currentDir * currentStepSize)
+            iterations = iterations + 1
+
+            -- Loop Closure
+            local distToStart = (currentPos - startPos):length()
+            local isAligned = currentDir:dot(startDir) > 0.8
+            if iterations > 40 and distToStart < 25.0 and isAligned then
+                print("TrackScanner: Loop Closed successfully.")
+                loopClosed = true
+                local lastNode = self.rawNodes[#self.rawNodes]
+                local firstNode = self.rawNodes[1]
+                lastNode.outVector = (firstNode.location - lastNode.location):normalize()
+            end
+        else
+            -- Jump / Void Logic
+            local jumpCounter = iterations - #self.rawNodes
+            local jumpGravity = sm.vec3.new(0,0,-0.5) * (jumpCounter * 0.5)
+            currentPos = currentPos + (currentDir * currentStepSize) + jumpGravity
+            if jumpCounter > JUMP_SEARCH_LIMIT then break end
+            iterations = iterations + 1
+        end
+    end
+    
+    return self.rawNodes
+end
+
+function TrackScanner.scanTrackLoop_old_2(self, startPos, startDir)
     self.rawNodes = {}
     local currentPos = startPos
     local currentDir = startDir
