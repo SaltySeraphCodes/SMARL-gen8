@@ -106,16 +106,15 @@ function TrackScanner.findWallFlat(self, origin, direction, upVector)
 end
 
 function TrackScanner.findWallPoint(self, origin, direction, upVector)
-    -- [[ FIX: CONE SEARCH ]]
-    -- Scan a sector to find the wall even if the perp vector is angled wrong
+    -- [[ FIX: WIDER CONE SEARCH ]]
+    -- Increased angle to 35 degrees to catch walls in sharp hairpins
     local bestPoint = nil
     local minDst = 999.0
     
-    -- Check 3 angles: Perfect Left/Right, and +/- 15 degrees lead/lag
-    local angles = { 0, 15, -15 } 
+    -- Check 5 angles: Center, +/- 15, +/- 35
+    local angles = { 0, 15, -15, 35, -35 } 
     
     for _, ang in ipairs(angles) do
-        -- Rotate the scan direction
         local rot = sm.quat.angleAxis(math.rad(ang), upVector)
         local scanDir = rot * direction
         
@@ -160,17 +159,15 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     local iterations = 0
     local maxIterations = 2000 
     local loopClosed = false
-    local jumpCounter = 0
     
-    -- [[ FIX 1: Relaxed Gap Tolerance ]]
-    -- Was 5.0, now 12.0 to prevent rejecting real walls in sharp turns
+    -- Gap Rejection Memory
     local prevLeftDist = 10.0 
     local prevRightDist = 10.0
     local GAP_TOLERANCE = 12.0 
     
     local currentStepSize = SCAN_STEP_SIZE 
 
-    print("TrackScanner: Starting 3D Race Scan (Robust Gap Logic)...")
+    print("TrackScanner: Starting Smooth 3D Race Scan...")
 
     while not loopClosed and iterations < maxIterations do
         local floorPos, floorNormal = self:findFloorPoint(currentPos, currentUp)
@@ -178,7 +175,6 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         if floorPos then
             currentPos = floorPos
             currentUp = sm.vec3.lerp(currentUp, floorNormal, 0.5):normalize()
-            jumpCounter = 0
             
             local rightVec = currentDir:cross(currentUp):normalize() * -1 
             
@@ -191,8 +187,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             local validLeft = false
             if rawLeft then
                 local dist = (rawLeft - currentPos):length()
-                -- Filter hits that are suspiciously close (floor noise/curbs)
-                if dist > 1.5 then 
+                if dist > 1.5 then -- Filter floor noise
                     if iterations == 0 or (dist < prevLeftDist + GAP_TOLERANCE) then
                         prevLeftDist = dist
                         validLeft = true
@@ -206,7 +201,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             local validRight = false
             if rawRight then
                 local dist = (rawRight - currentPos):length()
-                if dist > 1.5 then
+                if dist > 1.5 then 
                     if iterations == 0 or (dist < prevRightDist + GAP_TOLERANCE) then
                         prevRightDist = dist
                         validRight = true
@@ -242,34 +237,45 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 sectorID = 1 
             })
 
-            -- [[ ADAPTIVE GRANULARITY & ANTI-REVERSE ]]
+            -- [[ FIX: SMOOTH STEERING LOGIC ]]
             local turnAngle = 0
             if iterations > 0 then
                 local prevNode = self.rawNodes[#self.rawNodes-1]
-                local newDir = (midPoint - prevNode.location):normalize()
+                local rawNewDir = (midPoint - prevNode.location):normalize()
                 
-                -- Anti-Reverse: If we turned > 90 degrees, ignore the turn and keep going straight
-                if newDir:dot(prevNode.outVector) < 0.0 then
-                    -- print("TrackScanner: Glitch Turn Ignored.")
-                    newDir = prevNode.outVector
+                -- Calculate turn sharpness
+                local dot = prevNode.inVector:dot(rawNewDir)
+                turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
+
+                -- 1. Clamp Turn Rate (Max 20 degrees per step)
+                -- If the scanner tries to snap 45 degrees, we limit it.
+                if turnAngle > 20.0 then
+                    -- Slerp restricts the vector to be within 20 degrees of the old one
+                    local slerpFactor = 20.0 / turnAngle
+                    rawNewDir = sm.vec3.lerp(prevNode.inVector, rawNewDir, slerpFactor):normalize()
+                end
+
+                -- 2. Anti-Reverse Safety
+                if rawNewDir:dot(prevNode.inVector) < 0.0 then
+                     rawNewDir = prevNode.inVector
                 end
                 
-                prevNode.outVector = newDir
-                currentDir = newDir
+                -- Apply vectors
+                prevNode.outVector = rawNewDir
                 
-                local dot = prevNode.inVector:dot(newDir)
-                turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
+                -- 3. Inertia Blend for NEXT step
+                -- Blend 20% old direction, 80% new direction. This removes "jitter".
+                currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.8):normalize()
             end
             
-            if turnAngle > 10.0 then currentStepSize = 2.0 else currentStepSize = 4.0 end
+            -- Adaptive Speed: Slow down in sharp turns
+            if turnAngle > 5.0 then currentStepSize = 2.0 else currentStepSize = 4.0 end
 
             -- Move Forward
             currentPos = midPoint + (currentDir * currentStepSize)
             iterations = iterations + 1
 
-            -- [[ FIX 2: Relaxed Loop Closure ]]
-            -- Increased check distance to 25.0m (roughly track width)
-            -- This catches the loop even if the scanner drifted to the side
+            -- Loop Closure
             local distToStart = (currentPos - startPos):length()
             local isAligned = currentDir:dot(startDir) > 0.8
             
@@ -282,7 +288,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             end
         else
             -- Jump / Void Logic
-            jumpCounter = jumpCounter + 1
+            local jumpCounter = iterations - #self.rawNodes
             local jumpGravity = sm.vec3.new(0,0,-0.5) * (jumpCounter * 0.5)
             currentPos = currentPos + (currentDir * currentStepSize) + jumpGravity
             if jumpCounter > JUMP_SEARCH_LIMIT then break end
