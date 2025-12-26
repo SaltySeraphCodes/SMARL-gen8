@@ -7,6 +7,7 @@ local STABILITY_THRESHOLD = 0.5 -- Max allowed Path Error variance (meters)
 local LEARNING_RATE = 0.05
 local MIN_DATA_SAMPLES = 40    
 local TUNING_FILE = TUNING_PROFILES 
+local INIT_GRACE_PERIOD = 80 -- 2 Seconds (40 ticks/sec) to wait for Engine/Wheels
 
 function TuningOptimizer:init(driver)
     self.driver = driver
@@ -14,6 +15,7 @@ function TuningOptimizer:init(driver)
     self.fingerprint = "CALCULATING" 
 
     self.learningLocked = false
+    self.initWaitTicks = 0 -- [FIX] Timer to allow Engine connection
     
     -- [[ TUNABLE PHYSICS PARAMETERS ]]
     self.cornerLimit = 2.0      
@@ -141,7 +143,12 @@ function TuningOptimizer:reportCrash()
 end
 
 function TuningOptimizer:recordFrame(perceptionData)
-    if self.fingerprint == "CALCULATING" then self:checkFingerprint(); return end
+    if self.fingerprint == "CALCULATING" then 
+        self.initWaitTicks = self.initWaitTicks + 1 -- [FIX] Increment wait timer
+        self:checkFingerprint()
+        return 
+    end
+    
     if not self.driver.isRacing then return end
     
     local tel = perceptionData.Telemetry
@@ -304,6 +311,12 @@ function TuningOptimizer:generatePhysicsFingerprint(driver)
         return "INIT_WAIT" 
     end
     
+    -- [FIX] Wait for Engine Connection
+    -- If engine is missing, wait up to 2 seconds (INIT_GRACE_PERIOD) for it to connect
+    if not driver.engine and self.initWaitTicks < INIT_GRACE_PERIOD then
+        return "INIT_WAIT"
+    end
+
     local tel = driver.perceptionData.Telemetry
     
     -- 1. Mass Bucket
@@ -321,9 +334,15 @@ function TuningOptimizer:generatePhysicsFingerprint(driver)
     local wheelTag = "NIL"
     if driver.engine then
         -- Ensure the engine has scanned (handle race conditions)
-        if not driver.engine.wheelTypeTag then 
+        if not driver.engine.wheelTypeTag or driver.engine.wheelTypeTag == "NONE" then 
             driver.engine:scanWheelType() 
         end
+        
+        -- [FIX] If tag is still NONE, wait longer (unless grace period expired)
+        if (not driver.engine.wheelTypeTag or driver.engine.wheelTypeTag == "NONE") and self.initWaitTicks < INIT_GRACE_PERIOD then
+             return "INIT_WAIT"
+        end
+
         wheelTag = driver.engine.wheelTypeTag or "UNK"
     end
     
