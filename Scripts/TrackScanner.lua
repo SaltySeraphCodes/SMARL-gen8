@@ -140,6 +140,21 @@ function TrackScanner.findWallPoint(self, origin, direction, upVector)
     return bestPoint
 end
 
+-- Add this helper function to handle the "Strict" side scanning
+-- It removes the "Cone" logic that was finding the closest point (and causing the bounce)
+function TrackScanner.findWallStrict(self, origin, direction, upVector)
+    local floorZ = origin.z
+    -- 1. Try Top-Down (Best for barriers)
+    local p = self:findWallTopDown(origin, direction, upVector, floorZ)
+    
+    -- 2. Fallback to Flat Raycast
+    if not p then 
+        p = self:findWallFlat(origin, direction, upVector) 
+    end
+    
+    return p
+end
+
 function TrackScanner.findWallPoint_old(self, origin, direction, upVector)
     local floorZ = origin.z
     local wallPoint = self:findWallTopDown(origin, direction, upVector, floorZ)
@@ -151,6 +166,8 @@ end
 
 
 -- --- TRACK SCAN (LOOP) ---
+
+
 function TrackScanner.scanTrackLoop(self, startPos, startDir)
     self.rawNodes = {}
     local currentPos = startPos
@@ -167,7 +184,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     
     local currentStepSize = SCAN_STEP_SIZE 
 
-    print("TrackScanner: Starting Smooth 3D Race Scan...")
+    print("TrackScanner: Starting Centered 3D Race Scan...")
 
     while not loopClosed and iterations < maxIterations do
         local floorPos, floorNormal = self:findFloorPoint(currentPos, currentUp)
@@ -176,25 +193,30 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             currentPos = floorPos
             currentUp = sm.vec3.lerp(currentUp, floorNormal, 0.5):normalize()
             
+            -- [[ FIX 1: STRICT PERPENDICULARS ]]
+            -- We cross 'currentDir' to get a perfect 90 degree angle.
+            -- This pins the scan line to be perpendicular to travel.
             local rightVec = currentDir:cross(currentUp):normalize() * -1 
+            local leftVec = -rightVec
             
-            -- [[ CONE SEARCH ]]
-            local rawLeft = self:findWallPoint(currentPos, -rightVec, currentUp) 
-            local rawRight = self:findWallPoint(currentPos, rightVec, currentUp) 
+            -- Use the new Strict scanner instead of findWallPoint (which uses cones)
+            local rawLeft = self:findWallStrict(currentPos, leftVec, currentUp) 
+            local rawRight = self:findWallStrict(currentPos, rightVec, currentUp) 
             
             -- [[ LOGIC: Left Wall ]]
             local leftWall = rawLeft
             local validLeft = false
             if rawLeft then
                 local dist = (rawLeft - currentPos):length()
-                if dist > 1.5 then -- Filter floor noise
+                if dist > 1.5 then 
+                    -- If we lose the wall (gap), we assume it continues parallel
                     if iterations == 0 or (dist < prevLeftDist + GAP_TOLERANCE) then
                         prevLeftDist = dist
                         validLeft = true
                     end
                 end
             end
-            if not validLeft then leftWall = currentPos + (-rightVec * prevLeftDist) end
+            if not validLeft then leftWall = currentPos + (leftVec * prevLeftDist) end
 
             -- [[ LOGIC: Right Wall ]]
             local rightWall = rawRight
@@ -210,11 +232,15 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             end
             if not validRight then rightWall = currentPos + (rightVec * prevRightDist) end
 
-            -- Calculate Metrics
-            local trackWidth = (leftWall - rightWall):length()
+            -- [[ FIX 2: FORCE MIDLINE ]]
+            -- The new position is mathematically forced to be the average of the walls.
             local midPoint = (leftWall + rightWall) * 0.5
             midPoint.z = currentPos.z + 0.5 
             
+            -- Recalculate Width based on these locked points
+            local trackWidth = (leftWall - rightWall):length()
+
+            -- Bank Calculation
             local wallSlopeVec = (rightWall - leftWall):normalize()
             local bankUp = wallSlopeVec:cross(currentDir):normalize()
             local bankAngle = 0.0
@@ -237,38 +263,38 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 sectorID = 1 
             })
 
-            -- [[ FIX: SMOOTH STEERING LOGIC ]]
+            -- [[ FIX 3: STABILIZED STEERING ]]
             local turnAngle = 0
             if iterations > 0 then
                 local prevNode = self.rawNodes[#self.rawNodes-1]
+                
+                -- We steer towards the NEW midpoint
                 local rawNewDir = (midPoint - prevNode.location):normalize()
                 
                 -- Calculate turn sharpness
                 local dot = prevNode.inVector:dot(rawNewDir)
                 turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
 
-                -- 1. Clamp Turn Rate (Max 20 degrees per step)
-                -- If the scanner tries to snap 45 degrees, we limit it.
+                -- Clamp Turn Rate (Max 20 degrees per step)
                 if turnAngle > 20.0 then
-                    -- Slerp restricts the vector to be within 20 degrees of the old one
                     local slerpFactor = 20.0 / turnAngle
                     rawNewDir = sm.vec3.lerp(prevNode.inVector, rawNewDir, slerpFactor):normalize()
                 end
 
-                -- 2. Anti-Reverse Safety
+                -- Anti-Reverse Safety
                 if rawNewDir:dot(prevNode.inVector) < 0.0 then
                      rawNewDir = prevNode.inVector
                 end
                 
-                -- Apply vectors
                 prevNode.outVector = rawNewDir
                 
-                -- 3. Inertia Blend for NEXT step
-                -- Blend 20% old direction, 80% new direction. This removes "jitter".
-                currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.8):normalize()
+                -- DAMPENING: Changed from 0.8 to 0.5
+                -- This creates "Stiffer" steering. It trusts the old direction more,
+                -- preventing the scanner from snapping 45 degrees instantly.
+                currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.5):normalize()
             end
             
-            -- Adaptive Speed: Slow down in sharp turns
+            -- Adaptive Speed
             if turnAngle > 5.0 then currentStepSize = 2.0 else currentStepSize = 4.0 end
 
             -- Move Forward
