@@ -75,7 +75,7 @@ function Engine.server_init(self)
         MAX_SPEED = 25,
         MAX_ACCEL = 0.30,
         MAX_BRAKE = 0.80,
-        GEARING = {0.25, 0.35, 0.40, 0.25, 0.15},
+        GEARING = {0.25, 0.30, 0.27, 0.20, 0.15},
         REV_LIMIT = 50 -- Calculated below
     }
     self.engineStats.REV_LIMIT = self.engineStats.MAX_SPEED / #self.engineStats.GEARING
@@ -231,13 +231,19 @@ function Engine.calculateRPM(self)
 
         -- [LEARNING CONDITION]
         -- We only learn when:
-        -- 1. Going fast enough (>15 blocks/s)
-        -- 2. Accelerating gently (0.1 - 0.5 throttle) - Ensures positive torque without wheelspin
-        -- 3. Not steering hard (avoids differential speed)
+        -- 1. Going fast enough (> 5.0)
+        -- 2. Accelerating gently OR We are desperate (Throttle is high but speed is low)
+        -- 3. Not steering hard
         local isLearning = false
         local steerInput = math.abs(self.driver.perceptionData.steer or 0)
+        local speed = self.driver.perceptionData.Telemetry.speed
         
-        if carSpeed > 5 and self.accelInput > 0.1 and self.accelInput < 0.6 and steerInput < 0.2 then
+        -- [[ FIX: ALLOW HIGH THROTTLE LEARNING ]]
+        -- If we are stuck at low speed (speed < 30) with high throttle, we FORCE learning.
+        local isDesperate = (speed > 5.0 and speed < 25.0 and self.accelInput > 0.8)
+        local isCruising  = (speed > 5.0 and self.accelInput > 0.1 and self.accelInput < 0.8)
+
+        if (isDesperate or isCruising) and steerInput < 0.2 then
             isLearning = true
         end
 
@@ -280,6 +286,7 @@ function Engine.calculateRPM(self)
                         
                         -- Send to Optimizer to Save
                         if self.driver.Optimizer then
+                            print("Updating traction Const",finalConst)
                             self.driver.Optimizer:updateTractionConstant(finalConst)
                         end
                         
@@ -413,7 +420,7 @@ function Engine._applyHardLimiter(self, nextRPM)
     local calculatedLimit = (baseSpeed * 60.0) / tractionConst
     
     -- Sanity Check: Don't let the limit crush the engine below idle
-    if calculatedLimit < 250 then calculatedLimit = 250 end
+    if calculatedLimit < 500 then calculatedLimit = 500 end
 
     -- Apply Limit
     if nextRPM >= calculatedLimit and increment > 0 then
