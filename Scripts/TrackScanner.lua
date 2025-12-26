@@ -205,7 +205,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             -- [[ FIX 1: LIFT THE EYES ]]
             -- We raise the scan origin 1.0 unit off the floor. 
             -- This clears small bumps, curbs, and camber.
-            local scanOrigin = currentPos + (floorNormal * 0.5)
+            local scanOrigin = currentPos + (floorNormal * 1.0)
 
             -- [[ FIX 2: STABLE HORIZON ]]
             local stableUp = sm.vec3.new(0, 0, 1)
@@ -704,16 +704,20 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     local count = #nodes
     if count < 3 then return end
 
-    local MARGIN = MARGIN_SAFETY or 6.0 -- Safety padding from walls
+    local MARGIN = MARGIN_SAFETY or 6.0
+    local STEP_SIZE = 0.7  -- Increased from 0.2 (Faster movement)
     
     -- [[ 1. FILL GAPS ]]
     nodes = self:fillGaps(nodes, 6.0)
     count = #nodes 
 
-    print("TrackScanner: Optimizing ("..iterations.." passes) - Pure Radius...")
+    print("TrackScanner: Optimizing ("..iterations.." passes) - AGGRESSIVE Mode...")
+
+    local totalMovement = 0
 
     -- [[ 2. OPTIMIZATION LOOP ]]
     for iter = 1, iterations do
+        local iterMovement = 0
         for i = 1, count do
             local node = nodes[i]
             
@@ -728,13 +732,10 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
                 -- Current Position
                 local currentDist = (node.location - node.leftWall):dot(wallDir)
                 
-                -- Gradient Descent Step
-                local step = 0.2
-                
-                -- Test Candidates (Pure Radius Logic)
+                -- Test Candidates (Wider steps)
                 local pCurrent = node.location
-                local pLeft    = node.location - (wallDir * step)
-                local pRight   = node.location + (wallDir * step)
+                local pLeft    = node.location - (wallDir * STEP_SIZE)
+                local pRight   = node.location + (wallDir * STEP_SIZE)
 
                 local rCurrent = self:getLocalRadius(prev.location, pCurrent, next.location)
                 local rLeft    = self:getLocalRadius(prev.location, pLeft, next.location)
@@ -743,22 +744,36 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
                 -- Move towards larger radius
                 local move = 0.0
                 if rLeft > rCurrent and rLeft > rRight then 
-                    move = -step
+                    move = -STEP_SIZE
                 elseif rRight > rCurrent and rRight > rLeft then 
-                    move = step
+                    move = STEP_SIZE
                 end
                 
-                -- Clamp to Margin
-                local newDist = currentDist + move
-                newDist = math.max(MARGIN, math.min(trackWidth - MARGIN, newDist))
-                
-                node.location = node.leftWall + (wallDir * newDist)
+                -- Apply Move
+                if move ~= 0 then
+                    local newDist = currentDist + move
+                    -- Hard Clamp to Margin
+                    if newDist < MARGIN then newDist = MARGIN end
+                    if newDist > (trackWidth - MARGIN) then newDist = trackWidth - MARGIN end
+                    
+                    local newPos = node.leftWall + (wallDir * newDist)
+                    
+                    -- Track how much we actually moved for debugging
+                    iterMovement = iterMovement + (newPos - node.location):length()
+                    node.location = newPos
+                end
             end
         end
+        totalMovement = totalMovement + iterMovement
     end
     
-    -- [[ 3. FINALIZE ]]
-    self:smoothPositions(nodes)
+    print("TrackScanner: Optimization Complete. Total Node Movement: " .. math.floor(totalMovement))
+
+    -- [[ 3. LIGHT SMOOTHING ]]
+    -- We only do 1 pass now. 5 passes was washing out the apex.
+    self:smoothPositions(nodes, 1)
+
+    -- [[ 4. FINALIZE ]]
     nodes = self:resampleChain(nodes, 3.0)
     self:calculateTrackDistances(nodes)
     self:snapChainToFloor(nodes)
@@ -769,22 +784,21 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     self:sv_saveToStorage()
 end
 
--- NEW HELPER: Averages node positions to remove spikes
-function TrackScanner.smoothPositions(self, nodes)
-    print("TrackScanner: Smoothing Path...")
+-- Update helper to accept 'passes' argument
+function TrackScanner.smoothPositions(self, nodes, passes)
+    passes = passes or 1
     local count = #nodes
-    -- We do 5 passes of smoothing to iron out the "River" effect
-    for pass = 1, 5 do
+    for pass = 1, passes do
         for i = 1, count do
             local prev = nodes[(i - 2) % count + 1]
             local curr = nodes[i]
             local next = nodes[(i % count) + 1]
             
-            -- Simple average of P_prev, P_curr, P_next
+            -- Simple average
             local avgPos = (prev.location + curr.location + next.location) / 3.0
             
-            -- Blend it: 50% keep original, 50% take average
-            curr.location = sm.vec3.lerp(curr.location, avgPos, 0.5)
+            -- Blend: 70% Original, 30% Average (Preserve the sharp corners!)
+            curr.location = sm.vec3.lerp(curr.location, avgPos, 0.3)
         end
     end
 end
@@ -1245,7 +1259,7 @@ function TrackScanner.redrawVisualization(self)
 
     -- STEP: Change this number to skip more/less nodes
     -- 1 = All nodes, 4 = Every 4th node (saves FPS and visual limit)
-    local step = 3
+    local step = 2
 
     for i = 1, #self.clientTrackData, step do
         local node = self.clientTrackData[i]
