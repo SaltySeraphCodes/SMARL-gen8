@@ -522,13 +522,13 @@ end
 function TrackScanner.client_onTinker(self, character, state)
     if state then
         -- Tinker toggles the mode
-        self.network:sendToServer("sv_toggleScanMode")
+        self.network:sendToServer("sv_switchMode")
         sm.audio.play("PaintTool - ColorPick", self.shape:getWorldPosition())
     end
 end
 
-function TrackScanner.sv_toggleScanMode(self)
-    if self.isScanning then
+function TrackScanner.sv_startScan(self)
+    if self.isScanning then -- Screen will be frozen anyway... any way to do this "in the background?"
         -- STOP SCAN
         self.isScanning = false
         print("Stopping Scan...")
@@ -543,7 +543,7 @@ function TrackScanner.sv_toggleScanMode(self)
             print("Starting Race Scan...")
             self:scanTrackLoop(pos, dir)
             self:optimizeRacingLine(500, false) -- Auto-Optimize after scan
-            self:sv_sendVis(false)
+            self:sv_sendVis()
         elseif self.scanMode == SCAN_MODE_PIT then
             print("Starting Pit Scan...")
             -- (Add your pit scan call here if needed)
@@ -552,14 +552,6 @@ function TrackScanner.sv_toggleScanMode(self)
     end
 end
 
-function TrackScanner.client_canTinker(self, character) return true end
-
-function TrackScanner.client_onTinker(self, character, state) 
-    if state then
-        -- Toggle Mode (Race <-> Pit)
-        self.network:sendToServer("sv_switchMode")
-    end
-end
 
 function TrackScanner.sv_switchMode(self)
     if self.scanMode == SCAN_MODE_RACE then self.scanMode = SCAN_MODE_PIT
