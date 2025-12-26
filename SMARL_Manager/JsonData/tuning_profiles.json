@@ -1,0 +1,23 @@
+
+{
+	"M6750_L6.0_W3.0_NIL" : 
+	{
+		"brakingFactor" : 15.150,
+		"cornerLimit" : 1.6750,
+		"dampingFactor" : 0.3750,
+		"learnedGrip" : 1.150,
+		"lookaheadMult" : 1.0,
+		"tractionConstant" : 2.340855632531353,
+		"updated" : 1766778286.0
+	},
+	"M6750_L6.5_W4.5_NIL" : 
+	{
+		"brakingFactor" : 15.0,
+		"cornerLimit" : 1.60,
+		"dampingFactor" : 0.3750,
+		"learnedGrip" : 1.0,
+		"lookaheadMult" : 1.0,
+		"tractionConstant" : 2.567120128119515,
+		"updated" : 1766776728.0
+	}
+}
