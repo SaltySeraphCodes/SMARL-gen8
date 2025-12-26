@@ -819,19 +819,21 @@ function DriverGen8.client_onUpdate(self, dt)
         self.TargetEffect:stop()
     end
 
-    -- [[ TARGET VISUALIZER ]]
+    -- [[ TARGET POINT VISUALIZER ]]
+    -- Draws a Magenta Orb where the Decision Module wants to go
     if self.Decision and self.Decision.latestDebugData and self.Decision.latestDebugData.targetPoint then
         local tp = self.Decision.latestDebugData.targetPoint
-        
-        -- Use SM's built-in visualization or a reusable effect
-        -- Here is a simple persistent line visualizer using effects
-        if not self.targetEffect then
-             self.targetEffect = sm.effect.createEffect("ShapeRenderArea")
-             self.targetEffect:setParameter("uuid", sm.uuid.new("62758dca-2d3e-4363-9827-02d24296decb")) -- Small Wheel (visual anchor)
-             self.targetEffect:setScale(sm.vec3.new(0.5, 0.5, 0.5))
-             self.targetEffect:start()
+        if not self.TargetEffect then
+            self.TargetEffect = sm.effect.createEffect("Loot - GlowItem")
+            self.TargetEffect:setScale(sm.vec3.new(0,0,0))
+            self.TargetEffect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+            -- Magenta Color for Target
+            self.TargetEffect:setParameter("Color", sm.color.new(1, 0, 1, 1)) 
+            self.TargetEffect:start()
         end
-        self.targetEffect:setPosition(tp)
+        self.TargetEffect:setPosition(tp)
+    elseif self.TargetEffect then
+        self.TargetEffect:stop()
     end
 
     -- [[ CoM VISUALIZER ]]
