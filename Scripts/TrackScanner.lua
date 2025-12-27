@@ -255,13 +255,15 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
             -- 2. AND is it actually sticking up out of the ground?
             local isVertical = normZ < 0.5
             local isTallEnough = hitZ > (floorZ + THRESHOLD)
-
+            print(isVertical,isTallEnough,normZ)
             if isVertical and isTallEnough then
+                print("found wall")
                 return result.pointWorld, dist
             end
             
             -- Case B: High Barrier / Fence (Non-vertical but high)
-            if hitZ > (floorZ + 1.5) then
+            if hitZ > (floorZ + 1.5) then -- reduce?
+                print("found high barrier")
                 return result.pointWorld, dist
             end
             
@@ -308,9 +310,18 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         -- 1. FLOOR CHECK (Get ground truth)
         local floorZ = currentPos.z
         local groundHit, groundRes = sm.physics.raycast(currentPos + sm.vec3.new(0,0,5), currentPos - sm.vec3.new(0,0,5))
+        
         if groundHit then
-            floorZ = groundRes.pointWorld.z
-            currentPos = groundRes.pointWorld + (groundRes.normalWorld * 0.1) -- Hover slightly
+            -- TARGET Z is the actual floor
+            local targetZ = groundRes.pointWorld.z
+            
+            -- FIX: DAMPEN THE Z MOVEMENT
+            -- Instead of snapping instantly, only move 10% of the way there.
+            -- This makes the scanner "float" over bumps.
+            local newZ = sm.util.lerp(currentPos.z, targetZ, 0.1)
+            
+            currentPos = sm.vec3.new(currentPos.x, currentPos.y, newZ)
+            floorZ = newZ -- Use the smoothed Z for calculations
         end
 
         -- 2. SETUP VECTORS (Stabilized)
@@ -1251,7 +1262,7 @@ end
 function TrackScanner.spawnDot(self, posTable, color,uuid)
     if not posTable then return end
     local effect = sm.effect.createEffect("Loot - GlowItem")
-    effect:setScale(sm.vec3.new(0,0,0))
+    effect:setScale(sm.vec3.new(0.2,0.2,0.2))
     effect:setPosition(sm.vec3.new(posTable.x, posTable.y, posTable.z))
     effect:setParameter("uuid", sm.uuid.new(uuid or "4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
     effect:setParameter("Color", color)
