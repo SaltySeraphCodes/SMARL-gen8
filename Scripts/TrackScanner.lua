@@ -226,15 +226,17 @@ function TrackScanner.findWallStrict(self, origin, direction, upVector, floorZ)
 end
 
 function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist, floorZ)
-    local SCAN_START = math.max(2.0, lastDist - 5.0) -- Optimization: Start near last known wall
+    local SCAN_START = math.max(2.0, lastDist - 5.0) 
     local SCAN_LIMIT = 35.0
-    local GRAIN = 0.5     -- Scan every 0.5 blocks (High precision)
-    local THRESHOLD = 0.5 -- Height difference to count as wall
+    local GRAIN = 0.5     
+    
+    -- [[ FIX: INCREASE THRESHOLD ]]
+    -- A wall must be at least 0.75 blocks higher than the track center to count.
+    -- This ignores small bumps, curbs, and cambers.
+    local THRESHOLD = 0.75 
     
     local currentFloorZ = floorZ
 
-    -- STAGE 1: TOP-DOWN SWEEP (The "Drone" Scan)
-    -- We move the cursor out, then shoot a laser DOWN.
     for dist = SCAN_START, SCAN_LIMIT, GRAIN do
         local checkPos = origin + (direction * dist)
         
@@ -248,39 +250,39 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
             local hitZ = result.pointWorld.z
             local normZ = result.normalWorld.z
             
-            -- CASE A: Vertical Surface (Wall)
-            if normZ < 0.5 then
-                print("found wall",normZ)
+            -- [[ FIX: STRICT FILTER ]]
+            -- 1. Is it a Vertical Wall? (Normal is horizontal)
+            -- 2. AND is it actually sticking up out of the ground?
+            local isVertical = normZ < 0.5
+            local isTallEnough = hitZ > (floorZ + THRESHOLD)
+
+            if isVertical and isTallEnough then
                 return result.pointWorld, dist
             end
             
-            -- CASE B: Height Jump (Barrier/Curb)
-            -- If the ground suddenly jumps UP relative to our current floor level
-            if hitZ > (currentFloorZ + THRESHOLD) then
+            -- Case B: High Barrier / Fence (Non-vertical but high)
+            if hitZ > (floorZ + 1.5) then
                 return result.pointWorld, dist
             end
             
-            -- CASE C: Banking/Slope
-            -- It's just the floor sloping up. Update reference and keep going.
-            currentFloorZ = hitZ
-        else
-            -- CASE D: Void (Gap/Cliff edge)
-            -- Uncomment below if you want cliff edges to act as invisible walls
-            -- return checkPos, dist 
+            -- If not a wall, assume it is floor and update Z for next step
+            -- (But constrain it so it doesn't climb walls)
+            if math.abs(hitZ - floorZ) < 1.0 then
+                currentFloorZ = hitZ
+            end
         end
     end
 
-    -- STAGE 2: HORIZONTAL FALLBACK (Tunnel/Overhang check)
-    -- If top-down failed (blocked by roof?), shoot straight out.
+    -- STAGE 2: HORIZONTAL FALLBACK
     local flatStart = origin + (upVector * 1.0)
     local flatEnd = origin + (direction * SCAN_LIMIT)
     local hit, result = sm.physics.raycast(flatStart, flatEnd)
     
-    if hit and result.normalWorld.z < 0.6 then
+    -- Fix: Ensure fallback also ignores low obstacles
+    if hit and result.normalWorld.z < 0.6 and result.pointWorld.z > (floorZ + 0.5) then
         return result.pointWorld, (result.pointWorld - origin):length()
     end
 
-    -- STAGE 3: FAILURE (Return nil, user handles fallback)
     return nil, nil
 end
 
@@ -1205,13 +1207,13 @@ function TrackScanner.redrawVisualization(self)
             local colorL = sm.color.new("00ff00") -- Green = Good
             -- If the distance is exactly the "default" gap (meaning we interpolated), make it RED
             -- (You'll need to check your logic, but usually interpolated walls are perfectly smooth)
-            self:spawnLine(node.mid, node.left, colorL)
-            self:spawnDot(node.left, colorL)
+            --self:spawnLine(node.mid, node.left, colorL)
+            self:spawnDot(node.left, colorL,"17153a0e-8461-442f-b172-3a899c1ae99f") --,"62cc44fb-2a53-4bf4-9c0d-616a19f2d184") 
 
             -- Right Wall Ray
             local colorR = sm.color.new("00ff00")
-            self:spawnLine(node.mid, node.right, colorR)
-            self:spawnDot(node.right, colorR)
+            --self:spawnLine(node.mid, node.right, colorR)
+            self:spawnDot(node.right, colorR,"17153a0e-8461-442f-b172-3a899c1ae99f")
         
         else
             -- Normal Dot logic
@@ -1223,7 +1225,7 @@ function TrackScanner.redrawVisualization(self)
 end
 
 -- NEW HELPER: Draw Lines
-function TrackScanner.spawnLine(self, startPos, endPos, color)
+function TrackScanner.spawnLine(self, startPos, endPos, color, uuid)
     if not startPos or not endPos then return end
     
     -- SM doesn't have a native "Line" effect, so we simulate it with dots
@@ -1237,21 +1239,21 @@ function TrackScanner.spawnLine(self, startPos, endPos, color)
     for d = 0, dist, (dist/5) do
         local p = p1 + (dir * d)
         local effect = sm.effect.createEffect("Loot - GlowItem")
-        effect:setScale(sm.vec3.new(0.2, 0.2, 0.2)) -- Small dots for lines
+        effect:setScale(sm.vec3.new(0.1, 0.1, 0.1)) -- Small dots for lines
         effect:setPosition(p)
-        effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+        effect:setParameter("uuid", sm.uuid.new(uuid or "4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
         effect:setParameter("Color", color)
         effect:start()
         table.insert(self.debugEffects, effect)
     end
 end
 
-function TrackScanner.spawnDot(self, posTable, color)
+function TrackScanner.spawnDot(self, posTable, color,uuid)
     if not posTable then return end
     local effect = sm.effect.createEffect("Loot - GlowItem")
     effect:setScale(sm.vec3.new(0,0,0))
     effect:setPosition(sm.vec3.new(posTable.x, posTable.y, posTable.z))
-    effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+    effect:setParameter("uuid", sm.uuid.new(uuid or "4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
     effect:setParameter("Color", color)
     effect:start()
     table.insert(self.debugEffects, effect)
