@@ -201,7 +201,7 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
     if p then return p, d end
 
     -- Total Failure
-    print("Find wall failed",iteration)
+    print(string.format("[%s] Find wall failed. Range: %.1f-%.1f", debugName or "?", startSearch, endSearch))
     return nil, nil
 end
 
