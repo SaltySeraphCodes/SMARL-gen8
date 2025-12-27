@@ -12,7 +12,7 @@ local SCAN_GRAIN = 0.5
 local MARGIN_SAFETY = 7.0
 local JUMP_SEARCH_LIMIT = 20
 local LOOP_Z_TOLERANCE = 6.0
-SCAN_LIMIT = 2000 -- maximum nodes to search
+SCAN_LIMIT = 1000 -- maximum nodes to search
 -- [[ MODES ]]
 local SCAN_MODE_RACE = 1
 local SCAN_MODE_PIT = 2
@@ -160,7 +160,7 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
             -- Must be facing UP (Norm > 0.7)
             -- Must be a STEP UP (diff > Threshold). Ignore Dips (diff < 0).
             if normZ > 0.7 and diff > STEP_THRESHOLD and diff < TUNNEL_THRESHOLD then
-                -- print("Hit Ground Wall (Curb)", normZ, hitZ, runningFloorZ)
+                print("Hit Ground Wall (Curb)", normZ, hitZ, runningFloorZ,iteration)
                 return result.pointWorld, dist
             end
 
@@ -168,7 +168,7 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
             -- Must be facing SIDEWAYS (Norm <= 0.7)
             -- Must be higher than the floor (diff > Threshold)
             if normZ <= 0.7 and diff > STEP_THRESHOLD and diff < TUNNEL_THRESHOLD then
-                -- print("Hit Vertical Wall", normZ, hitZ, runningFloorZ)
+                print("Hit Vertical Wall", normZ, hitZ, runningFloorZ,iteration)
                 return result.pointWorld, dist
             end
             
@@ -242,7 +242,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             currentPos = sm.vec3.new(currentPos.x, currentPos.y, floorZ + 0.1)
         else
             -- Scan Failed (Void?) - Maintain previous Z or Drop
-            -- print("Center Floor Scan Missed!")
+            print("Center Floor Scan Missed!")
         end
 
         -- B. INITIAL VECTORS (Guess based on travel direction)
@@ -488,7 +488,8 @@ end
 function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     local nodes = isPit and self.pitChain or self.rawNodes
     local count = #nodes
-    if count < 3 or count >= SCAN_LIMIT then print("Skipping Optimizations") return end
+    if count < 3 then --or count >= SCAN_LIMIT then 
+        print("Skipping Optimizations") return end
 
     local MARGIN = MARGIN_SAFETY or 6.0
     local STEP_SIZE = 0.7  -- Increased from 0.2 (Faster movement)
