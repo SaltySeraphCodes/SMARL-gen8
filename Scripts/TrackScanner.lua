@@ -323,14 +323,23 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 local dot = prevNode.inVector:dot(rawNewDir)
                 turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
 
-                if turnAngle > 20.0 then
-                    local slerpFactor = 20.0 / turnAngle
+                -- RESTRICTION 1: The Angle Clamp
+                -- OLD: 20.0 degrees
+                -- NEW: 45.0 degrees (Allows hairpin turns)
+                if turnAngle > 45.0 then
+                    local slerpFactor = 45.0 / turnAngle
                     rawNewDir = sm.vec3.lerp(prevNode.inVector, rawNewDir, slerpFactor):normalize()
                 end
 
+                -- Prevent reversing
                 if rawNewDir:dot(prevNode.inVector) < 0.0 then rawNewDir = prevNode.inVector end
                 prevNode.outVector = rawNewDir
-                currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.5):normalize()
+                
+                -- RESTRICTION 2: The "Lag" (Damping)
+                -- OLD: 0.5 (50% lag)
+                -- NEW: 0.9 (10% lag - nearly instant reaction)
+                -- If you set this to 1.0, it might jitter on jagged walls. 0.9 is a safe sweet spot.
+                currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.9):normalize()
             end
             
             local severity = math.min(turnAngle, 20.0) / 20.0 -- 0.0 to 1.0
