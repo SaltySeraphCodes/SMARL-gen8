@@ -149,19 +149,66 @@ function TrackScanner.findWallPoint(self, origin, direction, upVector)
     return bestPoint
 end
 
--- Add this helper function to handle the "Strict" side scanning
--- It removes the "Cone" logic that was finding the closest point (and causing the bounce)
-function TrackScanner.findWallStrict(self, origin, direction, upVector)
-    local floorZ = origin.z
-    -- 1. Try Top-Down (Best for barriers)
-    local p = self:findWallTopDown(origin, direction, upVector, floorZ)
+function TrackScanner.findWallStrict(self, origin, direction, upVector, floorZ)
+    -- CONFIG
+    local SCAN_LIMIT = 30.0    -- Max track width search
+    local SCAN_STEP = 1.0      -- Check every 1 meter (Precision)
+    local WALL_HEIGHT_MIN = 0.5 -- Something must be 0.5 blocks higher than floor to be a wall
     
-    -- 2. Fallback to Flat Raycast
-    if not p then 
-        p = self:findWallFlat(origin, direction, upVector) 
+    -- STAGE 1: TOP-DOWN SCAN (The "Height Check")
+    -- We step outwards from the car, casting rays DOWN from the sky.
+    for dist = 2.0, SCAN_LIMIT, SCAN_STEP do
+        local checkPos = origin + (direction * dist)
+        
+        -- Cast from slightly above the potential wall height down to below the floor
+        local rayStart = checkPos + (upVector * 3.0) 
+        local rayEnd = checkPos - (upVector * 2.0)
+        
+        local hit, result = sm.physics.raycast(rayStart, rayEnd)
+        
+        if hit then
+            -- CHECK: Is this hit significantly higher than the track floor?
+            -- "result.pointWorld.z" is the height of the object we hit.
+            -- "floorZ" is the height of the track center.
+            local heightDiff = result.pointWorld.z - floorZ
+            
+            if heightDiff > WALL_HEIGHT_MIN then
+                -- VALID WALL FOUND
+                -- Optional: Verify it's not a roof (normal check)
+                if result.normalWorld.z < 0.7 then
+                     -- We found a wall! 
+                     -- Refinement: Do a quick horizontal check at this distance to find the exact face
+                     local faceStart = origin + (direction * (dist - SCAN_STEP)) + (upVector * 1.0)
+                     local faceEnd = origin + (direction * (dist + 1.0)) + (upVector * 1.0)
+                     local hitFace, resFace = sm.physics.raycast(faceStart, faceEnd)
+                     if hitFace then return resFace.pointWorld end
+                     
+                     return result.pointWorld
+                end
+            end
+            -- If heightDiff is low, it's just the floor. Keep scanning outward.
+        else
+            -- We hit nothing (Void). 
+            -- If we stepped off the edge of the world, this effectively "Is" the wall limit for off-road tracks.
+            -- Uncomment below if you want void to count as a wall:
+            -- return checkPos 
+        end
     end
-    
-    return p
+
+    -- STAGE 2: FLAT RAYCAST (Backup for overhangs/tunnels)
+    -- If top-down failed (maybe we are in a tunnel?), try shooting a laser straight out.
+    local flatStart = origin + (upVector * 1.0)
+    local flatEnd = origin + (direction * SCAN_LIMIT)
+    local hit, result = sm.physics.raycast(flatStart, flatEnd)
+    if hit then
+        -- Strict Normal Check: Ignore floors/ramps
+        if result.normalWorld.z < 0.7 then
+            return result.pointWorld
+        end
+    end
+
+    -- STAGE 3: FAILURE
+    return nil
 end
 
 -- --- TRACK SCAN (LOOP) ---
@@ -201,29 +248,12 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             local rightVec = currentDir:cross(stableUp):normalize() * -1 
             local leftVec = -rightVec
             
-            -- [[ FIX 3: STRICT HEIGHT FILTER ]]
-            local function getCleanWallHit(origin, dir)
-                local range = 50.0
-                local hit, result = sm.physics.raycast(origin, origin + (dir * range))
-                if hit then
-                    -- Filter A: Normal Check (Is surface pointing up?)
-                    if result.normalWorld.z > 0.7 then return nil end
-
-                    -- Filter B: Height Consistency Check
-                    -- Since we scan horizontally from Z+1.0, a vertical wall hit MUST be at Z+1.0.
-                    -- If the hit point is lower than the scanner eyes by > 0.5, it hit the floor/ramp.
-                    local heightDiff = origin.z - result.pointWorld.z
-                    if heightDiff > 0.5 then 
-                        return nil -- REJECT: We hit something below us (the floor)
-                    end
-                    
-                    return result.pointWorld
-                end
-                return nil
-            end
-
-            local rawLeft = getCleanWallHit(scanOrigin, leftVec)
-            local rawRight = getCleanWallHit(scanOrigin, rightVec)
+            -- GET CURRENT FLOOR HEIGHT for comparison
+            local currentFloorZ = currentPos.z
+            
+            -- PASS 1-2-3 LOGIC
+            local rawLeft = self:findWallStrict(currentPos, leftVec, stableUp, currentFloorZ) 
+            local rawRight = self:findWallStrict(currentPos, rightVec, stableUp, currentFloorZ)
             
             -- [[ LOGIC: Left Wall ]]
             local leftWall = rawLeft
@@ -935,26 +965,60 @@ end
 
 function TrackScanner.redrawVisualization(self)
     self:clearDebugEffects()
-
     if not self.clientTrackData then return end
 
-    -- STEP: Change this number to skip more/less nodes
-    -- 1 = All nodes, 4 = Every 4th node (saves FPS and visual limit)
-    local step = 2
+    local step = 4 
 
     for i = 1, #self.clientTrackData, step do
         local node = self.clientTrackData[i]
         
-        if self.visMode == 1 then
-            self:spawnDot(node.pos, sm.color.new("00ff00")) -- Green Line
-        elseif self.visMode == 2 then
-            self:spawnDot(node.mid, sm.color.new("00ffff")) -- Blue Center
-        elseif self.visMode == 3 then
-            -- Skeleton
-            self:spawnDot(node.mid, sm.color.new("00ffff"))
-            self:spawnDot(node.left, sm.color.new("ff0000"))
-            self:spawnDot(node.right, sm.color.new("ff0000"))
+        -- VISUALIZE RAYS
+        if self.visMode == 3 then -- Skeleton Mode
+            -- Center Dot
+            self:spawnDot(node.mid, sm.color.new("00ffff")) 
+            
+            -- Left Wall Ray
+            local colorL = sm.color.new("00ff00") -- Green = Good
+            -- If the distance is exactly the "default" gap (meaning we interpolated), make it RED
+            -- (You'll need to check your logic, but usually interpolated walls are perfectly smooth)
+            self:spawnLine(node.mid, node.left, colorL)
+            self:spawnDot(node.left, colorL)
+
+            -- Right Wall Ray
+            local colorR = sm.color.new("00ff00")
+            self:spawnLine(node.mid, node.right, colorR)
+            self:spawnDot(node.right, colorR)
+        
+        else
+            -- Normal Dot logic
+            local pos = (self.visMode == 1) and node.pos or node.mid
+            local col = (self.visMode == 1) and sm.color.new("00ff00") or sm.color.new("00ffff")
+            self:spawnDot(pos, col)
         end
+    end
+end
+
+-- NEW HELPER: Draw Lines
+function TrackScanner.spawnLine(self, startPos, endPos, color)
+    if not startPos or not endPos then return end
+    
+    -- SM doesn't have a native "Line" effect, so we simulate it with dots
+    -- or use the "Shape - Pipe" effect if available, but dots are safer.
+    local p1 = sm.vec3.new(startPos.x, startPos.y, startPos.z)
+    local p2 = sm.vec3.new(endPos.x, endPos.y, endPos.z)
+    local dist = (p1 - p2):length()
+    local dir = (p2 - p1):normalize()
+    
+    -- Draw 5 dots along the line
+    for d = 0, dist, (dist/5) do
+        local p = p1 + (dir * d)
+        local effect = sm.effect.createEffect("Loot - GlowItem")
+        effect:setScale(sm.vec3.new(0.2, 0.2, 0.2)) -- Small dots for lines
+        effect:setPosition(p)
+        effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+        effect:setParameter("Color", color)
+        effect:start()
+        table.insert(self.debugEffects, effect)
     end
 end
 
