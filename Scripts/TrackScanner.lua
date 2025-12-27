@@ -168,6 +168,15 @@ function TrackScanner.findWallStrict(self, origin, direction, upVector, floorZ)
         local hit, result = sm.physics.raycast(rayStart, rayEnd)
         
         if hit then
+            -- [[ DEBUG PRINT: MICRO ]]
+            -- We only print if we are close to the car (dist < 10) to reduce spam
+            -- and only for the first few checks
+            if dist < 10.0 then
+                local type = (result.normalWorld.z > 0.6) and "FLOOR" or "WALL"
+                local diff = result.pointWorld.z - currentFloorZ
+                print(string.format("   -> Scan @ %.1f | HitZ: %.1f (FloorZ: %.1f) | Diff: %.1f | NormZ: %.2f | Type: %s", 
+                    dist, result.pointWorld.z, currentFloorZ, diff, result.normalWorld.z, type))
+            end
             -- [[ ANALYSIS ]]
             local hitHeight = result.pointWorld.z
             local normalZ = result.normalWorld.z
@@ -339,6 +348,20 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             currentStepSize = sm.util.lerp(4.0, 1.5, severity)
 
             currentPos = midPoint + (currentDir * currentStepSize)
+            -- [[ DEBUG PRINT: MACRO ]]
+            -- Only print the first 60 nodes so we don't flood the console
+            if iterations < 60 then 
+                local lDist = (leftWall - currentPos):length()
+                local rDist = (rightWall - currentPos):length()
+                local width = (leftWall - rightWall):length()
+                
+                -- "Offset" tells us if the node is centered (should be near 0)
+                -- If this is huge, the scanner is drifting.
+                local centerOffset = (midPoint - currentPos):length()
+                
+                print(string.format("[Node %d] W:%.1f | L:%.1f R:%.1f | Turn:%.1f | Offset:%.1f", 
+                    iterations, width, lDist, rDist, turnAngle, centerOffset))
+            end
             iterations = iterations + 1
 
             -- Loop Closure
