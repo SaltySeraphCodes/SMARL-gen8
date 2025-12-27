@@ -151,37 +151,35 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
         if hit then
             local hitZ = result.pointWorld.z
             local normZ = result.normalWorld.z
+            local diff = hitZ - runningFloorZ 
+            local absDiff = math.abs(diff)
             local bumpDif = math.abs(hitZ-runningFloorZ) -- check for up and down difference
             -- [[ ANALYSIS ]]
             
-            -- CHecks for bump in flat ground First
-            if normZ > 0.7 and  bumpDif > STEP_THRESHOLD and bumpDif < TUNNEL_THRESHOLD then
-                print("Hit Ground Wall",normZ,hitZ,runningFloorZ)
+            -- [[ CHECK A: GROUND WALL (Curb/Step Up) ]]
+            -- Must be facing UP (Norm > 0.7)
+            -- Must be a STEP UP (diff > Threshold). Ignore Dips (diff < 0).
+            if normZ > 0.7 and diff > STEP_THRESHOLD and diff < TUNNEL_THRESHOLD then
+                -- print("Hit Ground Wall (Curb)", normZ, hitZ, runningFloorZ)
                 return result.pointWorld, dist
             end
 
-            -- CHECK B: Walls            
-            if normZ <= 0.7 and bumpDif > STEP_THRESHOLD and bumpDif < TUNNEL_THRESHOLD then
-                print("Hit Wall Wall",normZ,hitZ,runningFloorZ)
+            -- [[ CHECK B: VERTICAL WALL ]]
+            -- Must be facing SIDEWAYS (Norm <= 0.7)
+            -- Must be higher than the floor (diff > Threshold)
+            if normZ <= 0.7 and diff > STEP_THRESHOLD and diff < TUNNEL_THRESHOLD then
+                -- print("Hit Vertical Wall", normZ, hitZ, runningFloorZ)
                 return result.pointWorld, dist
             end
             
-            -- CHECK C: Ceiling/Bridge Safety
-            -- If we hit something WAY above us (like a bridge roof 10 units up), ignore it.
-            if (hitZ - runningFloorZ) > TUNNEL_THRESHOLD then
-                -- Ignore this hit, it's probably a tunnel roof, keep scanning below it?
-                -- (In a simple raycast, we can't see 'through' the roof. 
-                --  We assume the +30 ray hits the track. If it hits a roof, this point is invalid.)
-                -- Fall through to start scanning horizontally
-            else
-                -- It is valid Floor/Slope. Update running Z.
-                -- We only update if the change isn't drastic (to avoid falling into deep holes)
-                if math.abs(hitZ - runningFloorZ) < 2.0 then
-                    runningFloorZ = hitZ
-                else
-                    print("Found incline")
-                    -- Set a node flag that it is on a incline? increase running floor?
-                end
+            -- [[ CHECK C: VALID FLOOR UPDATE ]]
+            -- If it's not a wall, is it valid floor?
+            -- It must not be a ceiling (diff < TUNNEL)
+            -- We update running Z to handle slopes/dips
+            if absDiff < TUNNEL_THRESHOLD then
+                 -- If it's a massive drop, be careful, but generally update floor
+                 -- Use a slight Lerp or hard set? Hard set is better for steps.
+                 runningFloorZ = hitZ
             end
         else
             -- Hit Nothing (Void).
@@ -227,9 +225,24 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         local floorZ = currentPos.z
         local groundHit, groundRes = sm.physics.raycast(currentPos + sm.vec3.new(0,0,5), currentPos - sm.vec3.new(0,0,5))
         if groundHit then
-            -- Smooth Z movement (Shock Absorber)
-            floorZ = sm.util.lerp(currentPos.z, groundRes.pointWorld.z, 0.2)
+            local hitZ = groundRes.pointWorld.z
+            
+            if iterations == 0 then
+                -- [[ CRITICAL FIX: SNAP START ]]
+                -- On the very first node, ignore smoothing. Snap EXACTLY to the floor.
+                -- This ensures our baseline 'centerFloorZ' is perfect for the first wall sweep.
+                floorZ = hitZ
+            else
+                -- [[ SHOCK ABSORBER ]]
+                -- For the rest of the track, smooth out bumps (20% correction)
+                floorZ = sm.util.lerp(currentPos.z, hitZ, 0.2) -- Check this...
+            end
+            
+            -- Update position (hover 0.1 above floor)
             currentPos = sm.vec3.new(currentPos.x, currentPos.y, floorZ + 0.1)
+        else
+            -- Scan Failed (Void?) - Maintain previous Z or Drop
+            -- print("Center Floor Scan Missed!")
         end
 
         -- B. INITIAL VECTORS (Guess based on travel direction)
@@ -984,17 +997,24 @@ function TrackScanner.redrawVisualization(self)
             -- Center Dot
             self:spawnDot(node.mid, sm.color.new("00ffff")) 
             
-            -- Left Wall Ray
-            local colorL = sm.color.new("00ff00") -- Green = Good
-            -- If the distance is exactly the "default" gap (meaning we interpolated), make it RED
-            -- (You'll need to check your logic, but usually interpolated walls are perfectly smooth)
-            --self:spawnLine(node.mid, node.left, colorL)
-            self:spawnDot(node.left, colorL,"17153a0e-8461-442f-b172-3a899c1ae99f") --,"62cc44fb-2a53-4bf4-9c0d-616a19f2d184") 
-
-            -- Right Wall Ray
-            local colorR = sm.color.new("00ff00")
-            --self:spawnLine(node.mid, node.right, colorR)
-            self:spawnDot(node.right, colorR,"17153a0e-8461-442f-b172-3a899c1ae99f")
+            local lDir = (node.left - node.mid):normalize()
+            local rDir = (node.right - node.mid):normalize()
+            
+            -- Calculate expected scan start/end based on the recorded width
+            -- (This is an approximation, but visualizes the area well)
+            local lDist = (node.left - node.mid):length()
+            local rDist = (node.right - node.mid):length()
+            
+            local lStart = node.mid + (lDir * math.max(2.0, lDist - 6.0))
+            local lEnd   = node.mid + (lDir * (lDist + 6.0))
+            
+            -- Draw Blue Line representing the Left Scan Area
+            self:spawnLine(lStart, lEnd, sm.color.new("0000ff"))
+            
+            -- Draw Blue Line representing the Right Scan Area
+            local rStart = node.mid + (rDir * math.max(2.0, rDist - 6.0))
+            local rEnd   = node.mid + (rDir * (rDist + 6.0))
+            self:spawnLine(rStart, rEnd, sm.color.new("0000ff"))
         
         else
             -- Normal Dot logic
