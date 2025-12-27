@@ -757,11 +757,35 @@ function TrackScanner.assignSectors(self, nodes)
 end
 
 function TrackScanner.snapChainToFloor(self, nodes)
+    print("TrackScanner: Snapping all nodes to floor...")
     for i, node in ipairs(nodes) do
+        -- 1. Snap the RACING LINE (location)
         local rayStart = node.location + sm.vec3.new(0, 0, 5.0)
         local rayEnd = node.location - sm.vec3.new(0, 0, 10.0)
         local hit, res = sm.physics.raycast(rayStart, rayEnd)
-        if hit then node.location = res.pointWorld + sm.vec3.new(0, 0, 0.5) end
+        
+        if hit then 
+            -- Hover 0.25 above ground to prevent Z-fighting
+            node.location = res.pointWorld + sm.vec3.new(0, 0, 0.25) 
+            
+            -- Also align the banking (Up Vector) to this hit
+            if node.upVector then
+               node.upVector = sm.vec3.lerp(node.upVector, res.normalWorld, 0.5):normalize()
+            end
+        end
+
+        -- 2. Snap the CENTER LINE (mid)
+        -- We do a separate raycast because the center might be on a different slope/height
+        local midStart = node.mid + sm.vec3.new(0, 0, 5.0)
+        local midEnd = node.mid - sm.vec3.new(0, 0, 10.0)
+        local hitMid, resMid = sm.physics.raycast(midStart, midEnd)
+
+        if hitMid then
+            node.mid = resMid.pointWorld + sm.vec3.new(0, 0, 0.25)
+        else
+            -- If raycast misses (e.g. center is over a hole), align Z with the racing line
+            node.mid.z = node.location.z
+        end
     end
 end
 
