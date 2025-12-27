@@ -241,8 +241,10 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         local leftVec = -rightVec
 
         -- [[ PASS 1: ROUGH SCAN ]]
-        local searchL = forceWideLeft and 999.0 or prevLeftDist
-        local searchR = forceWideRight and 999.0 or prevRightDist
+        local isStart = (iterations == 0)
+        
+        local searchL = (forceWideLeft or isStart) and 999.0 or prevLeftDist
+        local searchR = (forceWideRight or isStart) and 999.0 or prevRightDist
 
         local lPos1, lDist1 = self:findWallSweep(currentPos, leftVec, stableUp, searchL, floorZ, "Pass1-L")
         local rPos1, rDist1 = self:findWallSweep(currentPos, rightVec, stableUp, searchR, floorZ, "Pass1-R")
@@ -1098,21 +1100,42 @@ function TrackScanner.clearDebugEffects(self)
 end
 
 function TrackScanner.cl_visEvent(self, data)
+    -- HELPER: Convert {x,y,z} table back to sm.vec3
+    local function toVec3(t)
+        if not t then return nil end
+        return sm.vec3.new(t.x, t.y, t.z)
+    end
+
     -- CASE 1: START
     if data.type == "start" then
         if data.chain == "race" then
             self.clientTrackData = {} -- Clear local cache
         end
 
-    -- CASE 2: BATCH (Store data, don't draw yet)
+    -- CASE 2: BATCH (Convert & Store)
     elseif data.type == "batch" then
         if not self.clientTrackData then self.clientTrackData = {} end
-        for _, node in ipairs(data.nodes) do
+        
+        for _, rawNode in ipairs(data.nodes) do
+            -- CONVERT ALL POSITIONS TO VECTORS NOW
+            local node = {
+                id = rawNode.id,
+                mid = toVec3(rawNode.mid),
+                pos = toVec3(rawNode.pos), -- Optimized line
+                left = toVec3(rawNode.left),
+                right = toVec3(rawNode.right),
+                
+                -- Debug Vectors (Direction)
+                debugLeft = toVec3(rawNode.debugLeft),
+                debugRight = toVec3(rawNode.debugRight)
+            }
             table.insert(self.clientTrackData, node)
         end
-        -- Update viz incrementally
+        
+        -- Update viz
         self:redrawVisualization() 
     end
+
 end
 
 function TrackScanner.redrawVisualization(self)
@@ -1168,16 +1191,22 @@ function TrackScanner.spawnLine(self, startPos, endPos, color,uuid)
     end
 end
 
-function TrackScanner.spawnDot(self, posTable, color,uuid)
-    if not posTable then return end
+function TrackScanner.spawnDot(self, pos, color, uuid)
+    if not pos then return end -- Safety check
+    
     local effect = sm.effect.createEffect("Loot - GlowItem")
-    effect:setScale(sm.vec3.new(0.2,0.2,0.2))
-    effect:setPosition(sm.vec3.new(posTable.x, posTable.y, posTable.z))
-    effect:setParameter("uuid", sm.uuid.new(uuid or "4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
+    effect:setScale(sm.vec3.new(0.2, 0.2, 0.2))
+    effect:setPosition(pos)
+    
+    -- Default to the "Blue Dot" UUID if none provided
+    local effectUUID = uuid or "4a1b886b-913e-4aad-b5b6-6e41b0db23a6"
+    effect:setParameter("uuid", sm.uuid.new(effectUUID))
+    
     effect:setParameter("Color", color)
     effect:start()
     table.insert(self.debugEffects, effect)
 end
+
 
 function TrackScanner.cl_visEvent_old(self, data)
     -- Initialize container if missing
