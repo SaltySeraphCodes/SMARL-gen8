@@ -346,8 +346,8 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         end
 
         -- Update Memory
-        prevLeftDist = lDist
-        prevRightDist = rDist
+        prevLeftDist = lDist or prevLeftDist
+        prevRightDist = rDist or prevLeftDist
 
         -- 5. CALCULATE MIDPOINT
         local midPoint = (leftWall + rightWall) * 0.5
@@ -358,7 +358,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         local stepSize = 4.0 -- Default Step
         
         if iterations > 0 then
-            local prevNode = self.rawNodes[#self.rawNodes - 1]
+            local prevNode = self.rawNodes[#self.rawNodes]
             local targetDir = (midPoint - prevNode.mid):normalize()
             
             -- Calculate Turn Severity
@@ -967,7 +967,6 @@ function TrackScanner.serializeTrackData(self)
                 mid = self:vecToTable(node.mid),      -- Center Line
                 left = self:vecToTable(node.leftWall), -- Raw Wall Hit
                 right = self:vecToTable(node.rightWall), -- Raw Wall Hit
-                
                 width = node.width,
                 dist = node.distFromStart,
                 bank = node.bank,
