@@ -4,7 +4,7 @@ dofile("globals.lua")
 TrackScanner = class(nil)
 
 -- [[ TUNING ]]
-local SCAN_STEP_SIZE = 4.0 
+local SCAN_STEP_SIZE = 4.0
 local SCAN_WIDTH_MAX = 80.0 
 local WALL_SCAN_HEIGHT = 30.0 
 local FLOOR_DROP_THRESHOLD = 1.5 
@@ -150,64 +150,68 @@ function TrackScanner.findWallPoint(self, origin, direction, upVector)
 end
 
 function TrackScanner.findWallStrict(self, origin, direction, upVector, floorZ)
-    -- CONFIG
-    local SCAN_LIMIT = 30.0    -- Max track width search
-    local SCAN_STEP = 1.0      -- Check every 1 meter (Precision)
-    local WALL_HEIGHT_MIN = 0.5 -- Something must be 0.5 blocks higher than floor to be a wall
+    -- [[ CONFIG ]]
+    local SCAN_LIMIT = 30.0     -- Max scan distance
+    local SCAN_GRAIN = 0.25     -- Precision (Lower = smoother lines, higher cost)
+    local WALL_HEIGHT_MIN = 0.25 -- Lowered to catch curbs (0.25 blocks high)
     
     -- STAGE 1: TOP-DOWN SCAN (The "Height Check")
-    -- We step outwards from the car, casting rays DOWN from the sky.
-    for dist = 2.0, SCAN_LIMIT, SCAN_STEP do
+    -- We step outwards from the car, looking for a sudden height jump
+    local dist = 2.0 -- Start 2 units out to avoid self-collision
+    
+    while dist < SCAN_LIMIT do
         local checkPos = origin + (direction * dist)
         
-        -- Cast from slightly above the potential wall height down to below the floor
-        local rayStart = checkPos + (upVector * 3.0) 
+        -- Ray 1: Top-Down (Check for height difference)
+        -- Start high enough to clear fences, end low enough to find the ground
+        local rayStart = checkPos + (upVector * 4.0) 
         local rayEnd = checkPos - (upVector * 2.0)
         
         local hit, result = sm.physics.raycast(rayStart, rayEnd)
         
         if hit then
-            -- CHECK: Is this hit significantly higher than the track floor?
-            -- "result.pointWorld.z" is the height of the object we hit.
-            -- "floorZ" is the height of the track center.
+            -- Check Height Difference relative to the track center
             local heightDiff = result.pointWorld.z - floorZ
             
             if heightDiff > WALL_HEIGHT_MIN then
-                -- VALID WALL FOUND
-                -- Optional: Verify it's not a roof (normal check)
-                if result.normalWorld.z < 0.7 then
-                     -- We found a wall! 
-                     -- Refinement: Do a quick horizontal check at this distance to find the exact face
-                     local faceStart = origin + (direction * (dist - SCAN_STEP)) + (upVector * 1.0)
-                     local faceEnd = origin + (direction * (dist + 1.0)) + (upVector * 1.0)
-                     local hitFace, resFace = sm.physics.raycast(faceStart, faceEnd)
-                     if hitFace then return resFace.pointWorld end
-                     
-                     return result.pointWorld
+                -- [[ FOUND POTENTIAL WALL ]]
+                -- Now we need to find the EXACT face.
+                -- We know the wall started somewhere between (dist - SCAN_GRAIN) and (dist).
+                
+                -- Fine Scan: Shoot a horizontal ray in that small window to hit the face
+                local faceSearchStart = origin + (direction * (dist - (SCAN_GRAIN * 2))) + (upVector * 0.5)
+                local faceSearchEnd   = origin + (direction * (dist + 0.5)) + (upVector * 0.5)
+                
+                local hitFace, resFace = sm.physics.raycast(faceSearchStart, faceSearchEnd)
+                
+                if hitFace then
+                    -- We hit the face! Return this accurate point.
+                    return resFace.pointWorld
+                else
+                    -- We missed the face (maybe it's a sloped bank?), return the top-down point as fallback
+                    return result.pointWorld
                 end
             end
-            -- If heightDiff is low, it's just the floor. Keep scanning outward.
-        else
-            -- We hit nothing (Void). 
-            -- If we stepped off the edge of the world, this effectively "Is" the wall limit for off-road tracks.
-            -- Uncomment below if you want void to count as a wall:
-            -- return checkPos 
+            
+            -- If heightDiff is small, it's just the floor. Update floorZ to handle slopes?
+            -- (Optional: floorZ = result.pointWorld.z)
         end
+        
+        -- Step forward
+        dist = dist + SCAN_GRAIN
     end
 
-    -- STAGE 2: FLAT RAYCAST (Backup for overhangs/tunnels)
-    -- If top-down failed (maybe we are in a tunnel?), try shooting a laser straight out.
+    -- STAGE 2: FLAT RAYCAST (Backup for tunnels/overhangs)
     local flatStart = origin + (upVector * 1.0)
     local flatEnd = origin + (direction * SCAN_LIMIT)
     local hit, result = sm.physics.raycast(flatStart, flatEnd)
     if hit then
-        -- Strict Normal Check: Ignore floors/ramps
+        -- Strict Normal Check: Ignore floors/ramps (Normal Z < 0.7 means it's a wall)
         if result.normalWorld.z < 0.7 then
             return result.pointWorld
         end
     end
 
-    -- STAGE 3: FAILURE
     return nil
 end
 
@@ -329,7 +333,9 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.5):normalize()
             end
             
-            if turnAngle > 5.0 then currentStepSize = 2.0 else currentStepSize = 4.0 end
+            local severity = math.min(turnAngle, 20.0) / 20.0 -- 0.0 to 1.0
+            currentStepSize = sm.util.lerp(4.0, 1.5, severity)
+
             currentPos = midPoint + (currentDir * currentStepSize)
             iterations = iterations + 1
 
@@ -967,7 +973,7 @@ function TrackScanner.redrawVisualization(self)
     self:clearDebugEffects()
     if not self.clientTrackData then return end
 
-    local step = 4 
+    local step = 3
 
     for i = 1, #self.clientTrackData, step do
         local node = self.clientTrackData[i]
