@@ -217,22 +217,21 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     -- Memory
     local prevLeftDist = 10.0
     local prevRightDist = 10.0
-    local GAP_TOLERANCE = 8.0 
     
-    -- FORCE WIDE FLAGS: If we missed a wall, force the next scan to check everywhere
+    -- FORCE WIDE FLAGS
     local forceWideLeft = false
     local forceWideRight = false
     
-    print("TrackScanner: Starting Safer Refined Scan...")
+    print("TrackScanner: Starting Server-Safe Scan...")
 
     while not loopClosed and iterations < 2000 do
         
-        -- A. GROUND TRUTH (Snap First, Smooth Later)
+        -- A. GROUND TRUTH
         local floorZ = currentPos.z
         local groundHit, groundRes = sm.physics.raycast(currentPos + sm.vec3.new(0,0,30), currentPos - sm.vec3.new(0,0,10))
         if groundHit then
-            if iterations == 0 then floorZ = groundRes.pointWorld.z -- Snap
-            else floorZ = sm.util.lerp(currentPos.z, groundRes.pointWorld.z, 0.2) end -- Smooth
+            if iterations == 0 then floorZ = groundRes.pointWorld.z 
+            else floorZ = sm.util.lerp(currentPos.z, groundRes.pointWorld.z, 0.2) end
             currentPos = sm.vec3.new(currentPos.x, currentPos.y, floorZ + 0.1)
         end
 
@@ -241,17 +240,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         local rightVec = currentDir:cross(stableUp):normalize() * -1
         local leftVec = -rightVec
 
-        -- [[ DEBUG: VISUALIZE VECTORS ]]
-        -- Draw the direction we are about to scan (Only for the first few nodes to check orientation)
-        if iterations < 5 then
-            print("Drawing Debug Vectors for Node " .. iterations)
-            -- LEFT = RED, RIGHT = BLUE
-            self:spawnLine(currentPos, currentPos + (leftVec * 10), sm.color.new("ff0000")) 
-            self:spawnLine(currentPos, currentPos + (rightVec * 10), sm.color.new("0000ff"))
-        end
-
         -- [[ PASS 1: ROUGH SCAN ]]
-        -- If forceWide is true, pass a huge 'lastDist' (999) to trigger the override in findWallSweep
         local searchL = forceWideLeft and 999.0 or prevLeftDist
         local searchR = forceWideRight and 999.0 or prevRightDist
 
@@ -260,21 +249,18 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
 
         -- Handle Misses
         if lPos1 then forceWideLeft = false else 
-            lPos1 = currentPos + (leftVec * prevLeftDist) -- Fake it
-            forceWideLeft = true -- Missed! Next scan must be wide.
+            lPos1 = currentPos + (leftVec * prevLeftDist) 
+            forceWideLeft = true 
         end
         if rPos1 then forceWideRight = false else 
-            rPos1 = currentPos + (rightVec * prevRightDist) -- Fake it
-            forceWideRight = true -- Missed! Next scan must be wide.
+            rPos1 = currentPos + (rightVec * prevRightDist) 
+            forceWideRight = true 
         end
 
-        -- [[ REFINEMENT DECISION ]]
+        -- [[ REFINEMENT ]]
         local finalMid, finalLeft, finalRight, finalWidth
         
-        -- ONLY REFINE IF WE HIT BOTH WALLS
-        -- If we missed one, refining will just center us between a Wall and a Fake Point (bad).
         if (not forceWideLeft) and (not forceWideRight) then
-            -- 1. Calculate the 'Skew-Corrected' Geometry
             local tempMid = (lPos1 + rPos1) * 0.5
             local wallSpan = lPos1 - rPos1
             local refinedLeftVec = wallSpan:normalize()
@@ -283,21 +269,13 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             local hintDistL = (lPos1 - tempMid):length()
             local hintDistR = (rPos1 - tempMid):length()
             
-            -- [[ PASS 2: REFINED SCAN ]]
             local lPos2, lDist2 = self:findWallSweep(tempMid, refinedLeftVec, stableUp, hintDistL, floorZ, "Refine-L")
             local rPos2, rDist2 = self:findWallSweep(tempMid, refinedRightVec, stableUp, hintDistR, floorZ, "Refine-R")
             
-            -- Final Fallbacks (If Refine missed, revert to Pass 1 data)
             finalLeft = lPos2 or lPos1
             finalRight = rPos2 or rPos1
-            
-            if lPos2 and rPos2 then
-                 finalMid = (lPos2 + rPos2) * 0.5
-            else
-                 finalMid = tempMid -- Refine failed, stick to calculated center
-            end
+            finalMid = (lPos2 and rPos2) and ((lPos2 + rPos2) * 0.5) or tempMid
         else
-            -- SKIP REFINEMENT
             finalLeft = lPos1
             finalRight = rPos1
             finalMid = (lPos1 + rPos1) * 0.5
@@ -318,22 +296,24 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 local dot = currentDir:dot(targetDir)
                 local turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
                 
-                -- Dynamic Speed
                 if turnAngle > 5.0 then stepSize = 2.0 end
                 if turnAngle > 25.0 then stepSize = 1.5 end
                 
-                -- Steering Damping
                 nextDir = sm.vec3.lerp(currentDir, targetDir, 0.3):normalize()
                 if nextDir:dot(currentDir) < 0 then nextDir = currentDir end
                 prevNode.outVector = nextDir
             end
         end
 
-        -- D. SAVE
+        -- D. SAVE NODE (With Debug Vectors)
         table.insert(self.rawNodes, {
             id = iterations + 1, mid = finalMid, location = finalMid,
             leftWall = finalLeft, rightWall = finalRight, width = finalWidth,
-            inVector = currentDir, outVector = nextDir, isJump = false
+            inVector = currentDir, outVector = nextDir, isJump = false,
+            
+            -- [[ SAVE VECTORS FOR CLIENT TO DRAW ]]
+            debugLeft = leftVec,
+            debugRight = rightVec
         })
 
         currentDir = nextDir
@@ -1147,7 +1127,6 @@ function TrackScanner.redrawVisualization(self)
         if self.visMode == 3 then -- Skeleton/Debug Mode
             -- 1. Center Dot
             self:spawnDot(node.mid, sm.color.new("00ffffff"))
-            
             -- 2. Wall Dots
             self:spawnDot(node.leftWall, sm.color.new("ff0000ff"),"1f334b62-8955-4406-8848-91e03228c330") -- Red traffic cone for left
             self:spawnDot(node.rightWall, sm.color.new("0000ffff"),"4f1c0036-389b-432e-81de-8261cb9f9d57") -- Blue  pipe corner for right
@@ -1175,27 +1154,17 @@ function TrackScanner.redrawVisualization(self)
     end
 end
 
--- NEW HELPER: Draw Lines
-function TrackScanner.spawnLine(self, startPos, endPos, color, uuid)
+function TrackScanner.spawnLine(self, startPos, endPos, color,uuid)
     if not startPos or not endPos then return end
     
-    -- SM doesn't have a native "Line" effect, so we simulate it with dots
-    -- or use the "Shape - Pipe" effect if available, but dots are safer.
-    local p1 = sm.vec3.new(startPos.x, startPos.y, startPos.z)
-    local p2 = sm.vec3.new(endPos.x, endPos.y, endPos.z)
-    local dist = (p1 - p2):length()
-    local dir = (p2 - p1):normalize()
+    -- Draw 5 dots to simulate a line
+    local dist = (startPos - endPos):length()
+    local dir = (endPos - startPos):normalize()
+    local steps = 5
     
-    -- Draw 5 dots along the line
-    for d = 0, dist, (dist/5) do
-        local p = p1 + (dir * d)
-        local effect = sm.effect.createEffect("Loot - GlowItem")
-        effect:setScale(sm.vec3.new(0.1, 0.1, 0.1)) -- Small dots for lines
-        effect:setPosition(p)
-        effect:setParameter("uuid", sm.uuid.new(uuid or "4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-        effect:setParameter("Color", color)
-        effect:start()
-        table.insert(self.debugEffects, effect)
+    for i = 0, steps do
+        local p = startPos + (dir * (dist * (i/steps)))
+        self:spawnDot(p, color,uuid)
     end
 end
 
