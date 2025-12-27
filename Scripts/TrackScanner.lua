@@ -318,9 +318,9 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 -- RESTRICTION 1: The Angle Clamp
                 -- OLD: 20.0 degrees
                 -- NEW: 45.0 degrees (Allows hairpin turns)
-                if turnAngle > 45.0 then
-                    print(prevNode.id,">45 turn angle",turnAngle)
-                    local slerpFactor = 45.0 / turnAngle
+                if turnAngle > 50.0 then
+                    print(prevNode.id,">50 turn angle",turnAngle)
+                    local slerpFactor = 50.0 / turnAngle
                     rawNewDir = sm.vec3.lerp(prevNode.inVector, rawNewDir, slerpFactor):normalize()
                 end
 
@@ -332,7 +332,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
                 -- OLD: 0.5 (50% lag)
                 -- NEW: 0.9 (10% lag - nearly instant reaction)
                 -- If you set this to 1.0, it might jitter on jagged walls. 0.9 is a safe sweet spot.
-                currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.8):normalize()
+                currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.7):normalize()
             end
             
             local severity = math.min(turnAngle, 20.0) / 20.0 -- 0.0 to 1.0
