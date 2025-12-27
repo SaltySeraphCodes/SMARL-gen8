@@ -250,6 +250,7 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
             
             -- CASE A: Vertical Surface (Wall)
             if normZ < 0.5 then
+                print("found wall",normZ)
                 return result.pointWorld, dist
             end
             
