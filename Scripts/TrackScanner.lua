@@ -124,7 +124,7 @@ function TrackScanner.findWallFlatUp(self, origin, direction, lastDist)
 end
 
 
-function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist, centerFloorZ)
+function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist, centerFloorZ,iteration)
     local PAD = 6
     local GRAIN = 0.2
     local STEP_THRESHOLD = 0.40
@@ -197,7 +197,7 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
     if p then return p, d end
 
     -- Total Failure
-    print("Find wall failed")
+    print("Find wall failed",iteration)
     return nil, nil
 end
 
@@ -251,8 +251,8 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         local leftVec = -rightVec
 
         -- [[ PASS 1: ROUGH SCAN ]]
-        local lPos1, lDist1 = self:findWallSweep(currentPos, leftVec, stableUp, prevLeftDist, floorZ)
-        local rPos1, rDist1 = self:findWallSweep(currentPos, rightVec, stableUp, prevRightDist, floorZ)
+        local lPos1, lDist1 = self:findWallSweep(currentPos, leftVec, stableUp, prevLeftDist, floorZ,iterations)
+        local rPos1, rDist1 = self:findWallSweep(currentPos, rightVec, stableUp, prevRightDist, floorZ,iterations)
 
         -- Pass 1 Fallbacks (Crucial for vector math)
         if not lPos1 then lPos1 = currentPos + (leftVec * prevLeftDist) end
@@ -280,8 +280,8 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             local hintDistL = (lPos1 - tempMid):length()
             local hintDistR = (rPos1 - tempMid):length()
             
-            local lPos2, lDist2 = self:findWallSweep(tempMid, refinedLeftVec, stableUp, hintDistL, floorZ)
-            local rPos2, rDist2 = self:findWallSweep(tempMid, refinedRightVec, stableUp, hintDistR, floorZ)
+            local lPos2, lDist2 = self:findWallSweep(tempMid, refinedLeftVec, stableUp, hintDistL, floorZ,iterations)
+            local rPos2, rDist2 = self:findWallSweep(tempMid, refinedRightVec, stableUp, hintDistR, floorZ,iterations)
             
             -- Pass 2 Fallbacks
             if not lPos2 then lPos2 = tempMid + (refinedLeftVec * hintDistL) end
