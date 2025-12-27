@@ -164,7 +164,7 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
             -- Must be facing UP (Norm > 0.7)
             -- Must be a STEP UP (diff > Threshold). Ignore Dips (diff < 0).
             if normZ > 0.7 and diff > STEP_THRESHOLD and diff < TUNNEL_THRESHOLD then
-                print("Hit Ground Wall (Curb)", normZ, hitZ, runningFloorZ,iteration)
+                print("Hit Ground Wall (Curb)", normZ, hitZ, runningFloorZ,debugName)
                 return result.pointWorld, dist
             end
 
@@ -172,7 +172,7 @@ function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist,
             -- Must be facing SIDEWAYS (Norm <= 0.7)
             -- Must be higher than the floor (diff > Threshold)
             if normZ <= 0.7 and diff > STEP_THRESHOLD and diff < TUNNEL_THRESHOLD then
-                print("Hit Vertical Wall", normZ, hitZ, runningFloorZ,iteration)
+                print("Hit Vertical Wall", normZ, hitZ, runningFloorZ,debugName)
                 return result.pointWorld, dist
             end
             
