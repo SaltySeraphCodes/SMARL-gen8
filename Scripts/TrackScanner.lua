@@ -68,532 +68,288 @@ end
 
 -- --- CORE SCANNING UTILS ---
 
-function TrackScanner.getVizData(self, chain)
-    local vizData = {}
-    for _, node in ipairs(chain) do
-        -- Create a minimal object: { l = location, t = type }
-        -- This discards walls, vectors, width, banks, etc.
-        table.insert(vizData, {
-            l = node.location,
-            t = node.pointType or 0
-        })
-    end
-    return vizData
-end
 
-function TrackScanner.findFloorPoint(self, origin, upVector)
-    -- Scan from a bit lower (5.0) to avoid hitting low ceilings as 'floor'
-    local scanStart = origin + (upVector * 5.0)
-    local scanEnd = origin - (upVector * 20.0)
-    local hit, result = sm.physics.raycast(scanStart, scanEnd)
-    if hit then return result.pointWorld, result.normalWorld end
+-- [[ 1. FALLBACK A: "Fan Scan" (Angle Down/Up) ]]
+-- Adapted from Generator.getWallAngleDown
+function TrackScanner.findWallAngleDown(self, origin, direction, lastDist)
+    local searchLimit = math.max(15.0, lastDist + 5.0) -- Look a bit past where we expect the wall
+    local zOffsetLimit = 7.0 
+    local zStep = 0.5 
+    local zOffsetStart = origin.z
+
+    -- Scan from Top (+7) to Bottom (-7) relative to car height
+    for k = zOffsetLimit, -zOffsetLimit, -zStep do 
+        local targetPos = origin + (direction * searchLimit)
+        targetPos.z = zOffsetStart + k -- Adjust target Z
+        
+        local hit, result = sm.physics.raycast(origin, targetPos)
+        
+        if hit then
+            -- We hit something! Check if it's a valid wall (not floor)
+            if result.normalWorld.z < 0.7 then
+                return result.pointWorld, (result.pointWorld - origin):length()
+            end
+        end
+    end
     return nil, nil
 end
 
-function TrackScanner.findWallTopDown(self, origin, direction, upVector, floorZ)
-    local perpLimit = SCAN_WIDTH_MAX
-    local startOffset = 2.0 
-    for k = startOffset, perpLimit, SCAN_GRAIN do
-        local scanPos = origin + (direction * k)
-        local rayStart = scanPos + (upVector * WALL_SCAN_HEIGHT)
-        local rayEnd = scanPos - (upVector * WALL_SCAN_HEIGHT) 
-        local hit, result = sm.physics.raycast(rayStart, rayEnd)
-        if hit then
-            local hitHeight = result.pointWorld.z
-            local heightDiff = math.abs(hitHeight - floorZ)
-            if heightDiff > FLOOR_DROP_THRESHOLD then
-                local wallFaceSearchStart = origin + (direction * (k - SCAN_GRAIN)) + (upVector * 0.5)
-                local wallFaceSearchEnd = origin + (direction * (k + SCAN_GRAIN)) + (upVector * 0.5)
-                local hitFace, resFace = sm.physics.raycast(wallFaceSearchStart, wallFaceSearchEnd)
-                if hitFace then return resFace.pointWorld else return nil end
-            end
-            if heightDiff < 0.8 then floorZ = hitHeight end
-        else
-            return origin + (direction * (k - SCAN_GRAIN))
-        end
+-- [[ 2. FALLBACK B: "Elevator Scan" (Flat then Up) ]]
+-- Adapted from Generator.getWallFlatUp
+function TrackScanner.findWallFlatUp(self, origin, direction, lastDist)
+    local searchLimit = math.max(15.0, lastDist + 5.0)
+    local zOffsetLimit = 7.0
+    local zStep = 0.5
+    
+    -- First: Try straight flat
+    local targetPos = origin + (direction * searchLimit)
+    local hit, result = sm.physics.raycast(origin, targetPos)
+    
+    if hit and result.normalWorld.z < 0.7 then
+         return result.pointWorld, (result.pointWorld - origin):length()
     end
-    return nil
-end
-
-function TrackScanner.findWallFlat(self, origin, direction, upVector)
-    local scanStart = origin + (upVector * 1.5) 
-    local scanEnd = origin + (direction * SCAN_WIDTH_MAX)
-    local hit, result = sm.physics.raycast(scanStart, scanEnd)
-    if hit then return result.pointWorld end
-    return nil
-end
-
-function TrackScanner.findWallPoint(self, origin, direction, upVector)
-    -- [[ FIX: WIDER CONE SEARCH ]]
-    -- Increased angle to 35 degrees to catch walls in sharp hairpins
-    local bestPoint = nil
-    local minDst = 999.0
     
-    -- Check 5 angles: Center, +/- 15, +/- 35
-    local angles = { 0, 15, -15, 35, -35 } 
-    
-    for _, ang in ipairs(angles) do
-        local rot = sm.quat.angleAxis(math.rad(ang), upVector)
-        local scanDir = rot * direction
+    -- If flat failed, try lifting the target Z up gradually
+    -- (Good for walls that might be slightly above us in a tunnel)
+    for k = zStep, zOffsetLimit, zStep do
+        local elevatedTarget = targetPos + sm.vec3.new(0, 0, k)
+        hit, result = sm.physics.raycast(origin, elevatedTarget)
         
-        -- 1. Try Top-Down (Best for barriers)
-        local floorZ = origin.z
-        local p = self:findWallTopDown(origin, scanDir, upVector, floorZ)
-        
-        -- 2. Fallback to Flat Raycast
-        if not p then 
-            p = self:findWallFlat(origin, scanDir, upVector) 
-        end
-        
-        -- Keep the CLOSEST valid wall hit
-        if p then
-            local dst = (p - origin):length()
-            if dst < minDst then
-                minDst = dst
-                bestPoint = p
-            end
+        if hit and result.normalWorld.z < 0.7 then
+            return result.pointWorld, (result.pointWorld - origin):length()
         end
     end
     
-    return bestPoint
+    return nil, nil
 end
 
-function TrackScanner.findWallStrict(self, origin, direction, upVector, floorZ)
-    -- [[ CONFIG ]]
-    local SCAN_LIMIT = 30.0     
-    local SCAN_GRAIN = 0.5      -- 0.5 is precise enough (0.25 is overkill/slow)
-    local currentFloorZ = floorZ
+
+function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist, centerFloorZ)
+    local PAD = 6
+    local GRAIN = 0.2
+    local STEP_THRESHOLD = 0.40
+    local TUNNEL_THRESHOLD = 5.0 -- How much of a difference to flag a tunnel check.
     
-    local dist = 2.0 
-    
-    while dist < SCAN_LIMIT do
+    local startSearch = math.max(2.0, lastDist - PAD)
+    local endSearch = math.min(35.0, lastDist + PAD)
+
+    -- Override: If we lost the wall previously (lastDist is huge/default), scan everything
+    if lastDist > 30.0 then startSearch = 2.0 end
+   
+    local runningFloorZ = centerFloorZ
+    -- STAGE 1: TOP-DOWN SWEEP
+    for dist = startSearch, endSearch, GRAIN do
         local checkPos = origin + (direction * dist)
         
-        -- Ray 1: Top-Down (The "Drone" View)
-        -- We scan from high up to see what is below us
-        local rayStart = checkPos + (upVector * 5.0) 
-        local rayEnd = checkPos - (upVector * 5.0) -- Scan deep to find floor on down-slopes
-        
-        local hit, result = sm.physics.raycast(rayStart, rayEnd)
-        
-        if hit then
-            -- [[ DEBUG PRINT: MICRO ]]
-            -- We only print if we are close to the car (dist < 10) to reduce spam
-            -- and only for the first few checks
-            if dist < 10.0 then
-                local type = (result.normalWorld.z > 0.6) and "FLOOR" or "WALL"
-                local diff = result.pointWorld.z - currentFloorZ
-                print(string.format("   -> Scan @ %.1f | HitZ: %.1f (FloorZ: %.1f) | Diff: %.1f | NormZ: %.2f | Type: %s", 
-                    dist, result.pointWorld.z, currentFloorZ, diff, result.normalWorld.z, type))
-            end
-            -- [[ ANALYSIS ]]
-            local hitHeight = result.pointWorld.z
-            local normalZ = result.normalWorld.z
-            
-            -- Is this surface "Walkable"? (Pointing Up)
-            if normalZ > 0.6 then
-                -- IT IS FLOOR (Banked or Flat)
-                -- We do NOT stop. We update our reference height and keep going.
-                currentFloorZ = hitHeight
-            else
-                -- IT IS A WALL (Vertical-ish)
-                -- Check: Is it actually higher than our current floor level?
-                -- (Prevents detecting the edge of a divot as a wall)
-                if hitHeight > (currentFloorZ + 0.25) then
-                    return result.pointWorld
-                end
-            end
-        else
-            -- [[ VOID DETECTION ]]
-            -- We hit nothing. We stepped off the edge of the world.
-            -- For a race track, the "Edge" is the wall.
-            -- return checkPos -- Uncomment to treat Void as Wall (good for floating tracks)
-        end
-        
-        dist = dist + SCAN_GRAIN
-    end
-
-    -- STAGE 2: Safety Check (Flat Ray)
-    -- Only runs if we found nothing above (e.g. Tunnel Ceiling blocked top-down)
-    local flatStart = origin + (upVector * 1.0)
-    local flatEnd = origin + (direction * SCAN_LIMIT)
-    local hit, result = sm.physics.raycast(flatStart, flatEnd)
-    if hit and result.normalWorld.z < 0.6 then
-        return result.pointWorld
-    end
-
-    return nil
-end
-
-function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist, floorZ)
-    local SCAN_START = math.max(2.0, lastDist - 5.0) 
-    local SCAN_LIMIT = 35.0
-    local GRAIN = 0.5     
-    
-    -- [[ FIX: INCREASE THRESHOLD ]]
-    -- A wall must be at least 0.75 blocks higher than the track center to count.
-    -- This ignores small bumps, curbs, and cambers.
-    local THRESHOLD = 0.75 
-    
-    local currentFloorZ = floorZ
-
-    for dist = SCAN_START, SCAN_LIMIT, GRAIN do
-        local checkPos = origin + (direction * dist)
-        
-        -- Raycast from SKY down to GROUND
-        local rayStart = checkPos + (upVector * 5.0)
-        local rayEnd = checkPos - (upVector * 5.0) 
+        -- [[ REQUESTED RAYCAST: +30 to -5 ]]
+        -- We cast from high up to catch top-of-hills, and go down to find dips.
+        local rayStart = checkPos + (upVector * 30.0)
+        local rayEnd   = checkPos - (upVector * 10.0) 
         
         local hit, result = sm.physics.raycast(rayStart, rayEnd)
         
         if hit then
             local hitZ = result.pointWorld.z
             local normZ = result.normalWorld.z
+            local bumpDif = math.abs(hitZ-runningFloorZ) -- check for up and down difference
+            -- [[ ANALYSIS ]]
             
-            -- [[ FIX: STRICT FILTER ]]
-            -- 1. Is it a Vertical Wall? (Normal is horizontal)
-            -- 2. AND is it actually sticking up out of the ground?
-            local isVertical = normZ < 0.5
-            local isTallEnough = hitZ > (floorZ + THRESHOLD)
-            print(isVertical,isTallEnough,normZ)
-            if isVertical and isTallEnough then
-                print("found wall")
+            -- CHecks for bump in flat ground First
+            if normZ > 0.7 and  bumpDif > STEP_THRESHOLD and bumpDif < TUNNEL_THRESHOLD then
+                print("Hit Ground Wall",normZ,hitZ,runningFloorZ)
+                return result.pointWorld, dist
+            end
+
+            -- CHECK B: Walls            
+            if normZ <= 0.7 and bumpDif > STEP_THRESHOLD and bumpDif < TUNNEL_THRESHOLD then
+                print("Hit Wall Wall",normZ,hitZ,runningFloorZ)
                 return result.pointWorld, dist
             end
             
-            -- Case B: High Barrier / Fence (Non-vertical but high)
-            if hitZ > (floorZ + 1.5) then -- reduce?
-                print("found high barrier")
-                return result.pointWorld, dist
+            -- CHECK C: Ceiling/Bridge Safety
+            -- If we hit something WAY above us (like a bridge roof 10 units up), ignore it.
+            if (hitZ - runningFloorZ) > TUNNEL_THRESHOLD then
+                -- Ignore this hit, it's probably a tunnel roof, keep scanning below it?
+                -- (In a simple raycast, we can't see 'through' the roof. 
+                --  We assume the +30 ray hits the track. If it hits a roof, this point is invalid.)
+                -- Fall through to start scanning horizontally
+            else
+                -- It is valid Floor/Slope. Update running Z.
+                -- We only update if the change isn't drastic (to avoid falling into deep holes)
+                if math.abs(hitZ - runningFloorZ) < 2.0 then
+                    runningFloorZ = hitZ
+                else
+                    print("Found incline")
+                    -- Set a node flag that it is on a incline? increase running floor?
+                end
             end
-            
-            -- If not a wall, assume it is floor and update Z for next step
-            -- (But constrain it so it doesn't climb walls)
-            if math.abs(hitZ - floorZ) < 1.0 then
-                currentFloorZ = hitZ
-            end
+        else
+            -- Hit Nothing (Void).
+            -- If scanning -5.0 isn't deep enough for your hills, increase rayEnd to -10.0
         end
     end
 
-    -- STAGE 2: HORIZONTAL FALLBACK
-    local flatStart = origin + (upVector * 1.0)
-    local flatEnd = origin + (direction * SCAN_LIMIT)
-    local hit, result = sm.physics.raycast(flatStart, flatEnd)
-    
-    -- Fix: Ensure fallback also ignores low obstacles
-    if hit and result.normalWorld.z < 0.6 and result.pointWorld.z > (floorZ + 0.5) then
-        return result.pointWorld, (result.pointWorld - origin):length()
-    end
+    -- STAGE 2: FALLBACKS (If Top-Down failed to return)
+    -- Try the "Fan Scan" (Center -> Out/Down)
+    local p, d = self:findWallAngleDown(origin, direction, lastDist)
+    if p then return p, d end
 
+    -- Try the "Elevator Scan" (Center -> Out/Up)
+    p, d = self:findWallFlatUp(origin, direction, lastDist)
+    if p then return p, d end
+
+    -- Total Failure
+    print("Find wall failed")
     return nil, nil
 end
 
 -- --- TRACK SCAN (LOOP) ---
+-- Two pass scan
 function TrackScanner.scanTrackLoop(self, startPos, startDir)
     self.rawNodes = {}
     local currentPos = startPos
     local currentDir = startDir:normalize()
-    local currentUp = sm.vec3.new(0, 0, 1) -- Visual Up only
+    local currentUp = sm.vec3.new(0, 0, 1) 
     
     local iterations = 0
     local loopClosed = false
     
-    -- Memory for Fallbacks
+    -- Memory
     local prevLeftDist = 10.0
     local prevRightDist = 10.0
-    local GAP_TOLERANCE = 8.0 -- If scan is nil, how far to extend previous wall
+    local GAP_TOLERANCE = 8.0 
     
-    print("TrackScanner: Starting Logic-Match Scan...")
+    print("TrackScanner: Starting 2-Pass Refined Scan...")
 
     while not loopClosed and iterations < 2000 do
         
-        -- 1. FLOOR CHECK (Get ground truth)
+        -- A. GROUND TRUTH (Find Z)
         local floorZ = currentPos.z
         local groundHit, groundRes = sm.physics.raycast(currentPos + sm.vec3.new(0,0,5), currentPos - sm.vec3.new(0,0,5))
-        
         if groundHit then
-            -- TARGET Z is the actual floor
-            local targetZ = groundRes.pointWorld.z
-            
-            -- FIX: DAMPEN THE Z MOVEMENT
-            -- Instead of snapping instantly, only move 10% of the way there.
-            -- This makes the scanner "float" over bumps.
-            local newZ = sm.util.lerp(currentPos.z, targetZ, 0.1)
-            
-            currentPos = sm.vec3.new(currentPos.x, currentPos.y, newZ)
-            floorZ = newZ -- Use the smoothed Z for calculations
+            -- Smooth Z movement (Shock Absorber)
+            floorZ = sm.util.lerp(currentPos.z, groundRes.pointWorld.z, 0.2)
+            currentPos = sm.vec3.new(currentPos.x, currentPos.y, floorZ + 0.1)
         end
 
-        -- 2. SETUP VECTORS (Stabilized)
+        -- B. INITIAL VECTORS (Guess based on travel direction)
         local stableUp = sm.vec3.new(0,0,1)
         local rightVec = currentDir:cross(stableUp):normalize() * -1
         local leftVec = -rightVec
 
-        -- 3. SCAN (Using new Sweep)
-        local lPos, lDist = self:findWallSweep(currentPos, leftVec, stableUp, prevLeftDist, floorZ)
-        local rPos, rDist = self:findWallSweep(currentPos, rightVec, stableUp, prevRightDist, floorZ)
+        -- [[ PASS 1: ROUGH SCAN ]]
+        local lPos1, lDist1 = self:findWallSweep(currentPos, leftVec, stableUp, prevLeftDist, floorZ)
+        local rPos1, rDist1 = self:findWallSweep(currentPos, rightVec, stableUp, prevRightDist, floorZ)
 
-        -- 4. FALLBACK LOGIC (Gap Handling)
-        local leftWall = lPos
-        if not leftWall then
-            -- Fallback: Use previous distance (Assume straight wall)
-            leftWall = currentPos + (leftVec * prevLeftDist)
-            lDist = prevLeftDist
+        -- Pass 1 Fallbacks (Crucial for vector math)
+        if not lPos1 then lPos1 = currentPos + (leftVec * prevLeftDist) end
+        if not rPos1 then rPos1 = currentPos + (rightVec * prevRightDist) end
+
+        -- [[ REFINEMENT STEP ]]
+        -- 1. Calculate the 'Skew-Corrected' Center
+        local tempMid = (lPos1 + rPos1) * 0.5
+        
+        -- 2. Calculate the 'Skew-Corrected' Perpendicular Vectors
+        -- The vector connecting RightWall -> LeftWall is the perfect width line.
+        local wallSpan = lPos1 - rPos1
+        local spanLen = wallSpan:length()
+        
+        -- Safety: If track is impossibly narrow (<1.0), skip refinement to avoid math errors
+        local finalMid, finalLeft, finalRight, finalWidth
+        
+        if spanLen > 1.0 then
+            local refinedLeftVec = wallSpan:normalize()
+            local refinedRightVec = -refinedLeftVec
+            
+            -- [[ PASS 2: REFINED SCAN ]]
+            -- Scan again from the NEW center, along the NEW perfect vectors.
+            -- We use the distance from Pass 1 as the hint.
+            local hintDistL = (lPos1 - tempMid):length()
+            local hintDistR = (rPos1 - tempMid):length()
+            
+            local lPos2, lDist2 = self:findWallSweep(tempMid, refinedLeftVec, stableUp, hintDistL, floorZ)
+            local rPos2, rDist2 = self:findWallSweep(tempMid, refinedRightVec, stableUp, hintDistR, floorZ)
+            
+            -- Pass 2 Fallbacks
+            if not lPos2 then lPos2 = tempMid + (refinedLeftVec * hintDistL) end
+            if not rPos2 then rPos2 = tempMid + (refinedRightVec * hintDistR) end
+            
+            -- Finalize Data
+            finalLeft = lPos2
+            finalRight = rPos2
+            finalMid = (lPos2 + rPos2) * 0.5
+            finalWidth = (lPos2 - rPos2):length()
+            
+            -- Update Distance Memory (using refined distances)
+            prevLeftDist = (lPos2 - finalMid):length()
+            prevRightDist = (rPos2 - finalMid):length()
         else
-            -- Check for massive spikes (impossible geometry)
-            if math.abs(lDist - prevLeftDist) > GAP_TOLERANCE and iterations > 5 then
-                 -- Smooth it out if it jumps too fast
-                 lDist = (lDist + prevLeftDist) * 0.5 
-                 leftWall = currentPos + (leftVec * lDist)
-            end
+            -- Skip refinement if Pass 1 failed badly
+            finalMid = tempMid
+            finalLeft = lPos1
+            finalRight = rPos1
+            finalWidth = spanLen
+            prevLeftDist = lDist1 or prevLeftDist
+            prevRightDist = rDist1 or prevRightDist
         end
 
-        local rightWall = rPos
-        if not rightWall then
-            rightWall = currentPos + (rightVec * prevRightDist)
-            rDist = prevRightDist
-        else
-            if math.abs(rDist - prevRightDist) > GAP_TOLERANCE and iterations > 5 then
-                 rDist = (rDist + prevRightDist) * 0.5
-                 rightWall = currentPos + (rightVec * rDist)
-            end
-        end
-
-        -- Update Memory
-        prevLeftDist = lDist or prevLeftDist
-        prevRightDist = rDist or prevLeftDist
-
-        -- 5. CALCULATE MIDPOINT
-        local midPoint = (leftWall + rightWall) * 0.5
-        local width = (leftWall - rightWall):length()
-
-        -- 6. STEERING & DYNAMIC STEP
+        -- C. STEERING & ADVANCE
         local nextDir = currentDir
-        local stepSize = 4.0 -- Default Step
+        local stepSize = 5
         
         if iterations > 0 then
-            local prevNode = self.rawNodes[#self.rawNodes]
-            local targetDir = (midPoint - prevNode.mid):normalize()
-            
-            -- Calculate Turn Severity
-            local dot = currentDir:dot(targetDir)
-            local turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
-            
-            -- Dynamic Step: Slow down on turns
-            if turnAngle > 5.0 then stepSize = 2.0 end
-            if turnAngle > 25.0 then stepSize = 1.5 end -- Hairpins
-            
-            -- Apply Steering (0.6 Lerp = Responsive but smooth)
-            nextDir = sm.vec3.lerp(currentDir, targetDir, 0.6):normalize()
-            
-            -- Prevent reversing
-            if nextDir:dot(currentDir) < 0 then nextDir = currentDir end
-            
-            prevNode.outVector = nextDir
+            local prevNode = self.rawNodes[#self.rawNodes] -- Get last saved node
+            if prevNode then
+                local targetDir = (finalMid - prevNode.mid):normalize()
+                
+                -- Turn Severity
+                local dot = currentDir:dot(targetDir)
+                local turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
+                -- Dynamic Speed
+                if turnAngle > 5.0 then stepSize = 3 end
+                if turnAngle > 25.0 then stepSize = 2 end
+                print("TA",turnAngle,stepSize)
+
+                nextDir = sm.vec3.lerp(currentDir, targetDir, 0.6):normalize()
+                
+                -- Anti-Reverse
+                if nextDir:dot(currentDir) < 0 then nextDir = currentDir end
+                
+                prevNode.outVector = nextDir
+            end
         end
 
-        -- 7. SAVE NODE
+        -- D. SAVE NODE
         table.insert(self.rawNodes, {
             id = iterations + 1,
-            mid = midPoint,       -- The computed center
-            location = midPoint,  -- Racing line (initially center)
-            leftWall = leftWall,
-            rightWall = rightWall,
-            width = width,
+            mid = finalMid,
+            location = finalMid,
+            leftWall = finalLeft,
+            rightWall = finalRight,
+            width = finalWidth,
             inVector = currentDir,
             outVector = nextDir,
             isJump = false
         })
 
-        -- 8. ADVANCE
+        -- E. ADVANCE
         currentDir = nextDir
-        currentPos = midPoint + (currentDir * stepSize)
+        currentPos = finalMid + (currentDir * stepSize)
         iterations = iterations + 1
 
-        -- 9. LOOP CLOSURE
+        -- F. LOOP CLOSURE
         local distToStart = (currentPos - startPos):length()
-        if iterations > 30 and distToStart < 15.0 then
+        if iterations > 30 and distToStart < stepSize + 5 then
             print("TrackScanner: Loop Closed.")
             loopClosed = true
-            -- Link End to Start
             self.rawNodes[#self.rawNodes].outVector = (self.rawNodes[1].mid - self.rawNodes[#self.rawNodes].mid):normalize()
         end
     end
     
-    -- Cleanup and Prep for Save
     self:calculateTrackDistances(self.rawNodes)
     return self.rawNodes
 end
 
-function TrackScanner.scanTrackLoop_old(self, startPos, startDir)
-    self.rawNodes = {}
-    local currentPos = startPos
-    local currentDir = startDir
-    
-    -- "currentUp" is for data recording only.
-    local currentUp = sm.vec3.new(0, 0, 1) 
-    
-    local iterations = 0
-    local maxIterations = 2000 
-    local loopClosed = false
-    
-    local prevLeftDist = 10.0 
-    local prevRightDist = 10.0
-    local GAP_TOLERANCE = 12.0 
-    
-    local currentStepSize = SCAN_STEP_SIZE 
-
-    print("TrackScanner: Starting Lifted 3D Race Scan (Height Check)...")
-
-    while not loopClosed and iterations < maxIterations do
-        local floorPos, floorNormal = self:findFloorPoint(currentPos, currentUp)
-        
-        if floorPos then
-            currentPos = floorPos
-            currentUp = sm.vec3.lerp(currentUp, floorNormal, 0.1):normalize()
-            
-            -- [[ FIX 1: LIFT THE EYES ]]
-            -- Scan from 1.0 unit above the floor
-            local scanOrigin = currentPos + (floorNormal * 1.0)
-
-            -- [[ FIX 2: STABLE HORIZON ]]
-            local stableUp = sm.vec3.new(0, 0, 1)
-            local rightVec = currentDir:cross(stableUp):normalize() * -1 
-            local leftVec = -rightVec
-            
-            -- GET CURRENT FLOOR HEIGHT for comparison
-            local currentFloorZ = currentPos.z
-            
-            -- PASS 1-2-3 LOGIC
-            local rawLeft = self:findWallStrict(currentPos, leftVec, stableUp, currentFloorZ) 
-            local rawRight = self:findWallStrict(currentPos, rightVec, stableUp, currentFloorZ)
-            
-            -- [[ LOGIC: Left Wall ]]
-            local leftWall = rawLeft
-            local validLeft = false
-            if rawLeft then
-                local dist = (rawLeft - currentPos):length()
-                if dist > 2.0 then 
-                    if iterations == 0 or (dist < prevLeftDist + GAP_TOLERANCE) then
-                        prevLeftDist = dist
-                        validLeft = true
-                    end
-                end
-            end
-            if not validLeft then leftWall = currentPos + (leftVec * prevLeftDist) end
-
-            -- [[ LOGIC: Right Wall ]]
-            local rightWall = rawRight
-            local validRight = false
-            if rawRight then
-                local dist = (rawRight - currentPos):length()
-                if dist > 2.0 then 
-                    if iterations == 0 or (dist < prevRightDist + GAP_TOLERANCE) then
-                        prevRightDist = dist
-                        validRight = true
-                    end
-                end
-            end
-            if not validRight then rightWall = currentPos + (rightVec * prevRightDist) end
-
-            -- Calculate Midpoint
-            local midPoint = (leftWall + rightWall) * 0.5
-            midPoint.z = currentPos.z + 0.5 
-            
-            local trackWidth = (leftWall - rightWall):length()
-
-            -- Bank Calculation
-            local bankAngle = 0.0
-            if (leftWall.z - rightWall.z) > 2.0 then bankAngle = 1.0 end 
-            if (rightWall.z - leftWall.z) > 2.0 then bankAngle = -1.0 end 
-
-            table.insert(self.rawNodes, {
-                id = iterations + 1,
-                location = midPoint, 
-                mid = midPoint,     
-                leftWall = leftWall,
-                rightWall = rightWall,
-                width = trackWidth,
-                inVector = currentDir, 
-                outVector = currentDir, 
-                upVector = currentUp, 
-                bank = bankAngle,
-                incline = currentDir.z,
-                isJump = false,
-                sectorID = 1 
-            })
-
-            -- [[ Steering Logic ]]
-            local turnAngle = 0
-            if iterations > 0 then
-                local prevNode = self.rawNodes[#self.rawNodes-1]
-                local rawNewDir = (midPoint - prevNode.location):normalize()
-                
-                local dot = prevNode.inVector:dot(rawNewDir)
-                turnAngle = math.deg(math.acos(math.max(-1, math.min(1, dot))))
-
-                -- RESTRICTION 1: The Angle Clamp
-                -- OLD: 20.0 degrees
-                -- NEW: 45.0 degrees (Allows hairpin turns)
-                if turnAngle > 50.0 then
-                    print(prevNode.id,">50 turn angle",turnAngle)
-                    local slerpFactor = 50.0 / turnAngle
-                    rawNewDir = sm.vec3.lerp(prevNode.inVector, rawNewDir, slerpFactor):normalize()
-                end
-
-                -- Prevent reversing
-                if rawNewDir:dot(prevNode.inVector) < 0.0 then rawNewDir = prevNode.inVector end
-                prevNode.outVector = rawNewDir
-                
-                -- RESTRICTION 2: The "Lag" (Damping)
-                -- OLD: 0.5 (50% lag)
-                -- NEW: 0.9 (10% lag - nearly instant reaction)
-                -- If you set this to 1.0, it might jitter on jagged walls. 0.9 is a safe sweet spot.
-                currentDir = sm.vec3.lerp(currentDir, rawNewDir, 0.7):normalize()
-            end
-            
-            local severity = math.min(turnAngle, 20.0) / 20.0 -- 0.0 to 1.0
-            currentStepSize = sm.util.lerp(4.0, 1.5, severity)
-
-            currentPos = midPoint + (currentDir * currentStepSize)
-            -- [[ DEBUG PRINT: MACRO ]]
-            -- Only print the first 60 nodes so we don't flood the console
-            if iterations < 60 then 
-                local lDist = (leftWall - currentPos):length()
-                local rDist = (rightWall - currentPos):length()
-                local width = (leftWall - rightWall):length()
-                
-                -- "Offset" tells us if the node is centered (should be near 0)
-                -- If this is huge, the scanner is drifting.
-                local centerOffset = (midPoint - currentPos):length()
-                
-                print(string.format("[Node %d] W:%.1f | L:%.1f R:%.1f | Turn:%.1f | Offset:%.1f", 
-                    iterations, width, lDist, rDist, turnAngle, centerOffset))
-            end
-            iterations = iterations + 1
-
-            -- Loop Closure
-            local distToStart = (currentPos - startPos):length()
-            local isAligned = currentDir:dot(startDir) > 0.8
-            if iterations > 40 and distToStart < 25.0 and isAligned then
-                print("TrackScanner: Loop Closed successfully.")
-                loopClosed = true
-                local lastNode = self.rawNodes[#self.rawNodes]
-                local firstNode = self.rawNodes[1]
-                lastNode.outVector = (firstNode.location - lastNode.location):normalize()
-            end
-        else
-            -- Void Logic
-            local jumpCounter = iterations - #self.rawNodes
-            local jumpGravity = sm.vec3.new(0,0,-0.5) * (jumpCounter * 0.5)
-            currentPos = currentPos + (currentDir * currentStepSize) + jumpGravity
-            if jumpCounter > JUMP_SEARCH_LIMIT then break end
-            iterations = iterations + 1
-        end
-    end
-    
-    return self.rawNodes
-end
 
 function TrackScanner.calculateTrackDistances(self, nodes)
     local totalDist = 0.0
@@ -1171,6 +927,18 @@ function TrackScanner.sv_sendVis(self)
 end
 
 -- --- VISUALIZATION ---
+function TrackScanner.getVizData(self, chain)
+    local vizData = {}
+    for _, node in ipairs(chain) do
+        -- Create a minimal object: { l = location, t = type }
+        -- This discards walls, vectors, width, banks, etc.
+        table.insert(vizData, {
+            l = node.location,
+            t = node.pointType or 0
+        })
+    end
+    return vizData
+end
 
 -- HELPER: centralized cleanup
 function TrackScanner.clearDebugEffects(self)
