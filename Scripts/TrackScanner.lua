@@ -12,7 +12,7 @@ local SCAN_GRAIN = 0.5
 local MARGIN_SAFETY = 7.0
 local JUMP_SEARCH_LIMIT = 20
 local LOOP_Z_TOLERANCE = 6.0
-
+SCAN_LIMIT = 2000 -- maximum nodes to search
 -- [[ MODES ]]
 local SCAN_MODE_RACE = 1
 local SCAN_MODE_PIT = 2
@@ -221,7 +221,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
     
     print("TrackScanner: Starting 2-Pass Refined Scan...")
 
-    while not loopClosed and iterations < 2000 do
+    while not loopClosed and iterations < SCAN_LIMIT do
         
         -- A. GROUND TRUTH (Find Z)
         local floorZ = currentPos.z
@@ -345,7 +345,9 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
             self.rawNodes[#self.rawNodes].outVector = (self.rawNodes[1].mid - self.rawNodes[#self.rawNodes].mid):normalize()
         end
     end
-    
+    if iterations >= SCAN_LIMIT then
+        print("Somethihng went wrong or track too long")
+    end
     self:calculateTrackDistances(self.rawNodes)
     return self.rawNodes
 end
@@ -473,7 +475,7 @@ end
 function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     local nodes = isPit and self.pitChain or self.rawNodes
     local count = #nodes
-    if count < 3 then return end
+    if count < 3 or count >= SCAN_LIMIT then print("Skipping Optimizations") return end
 
     local MARGIN = MARGIN_SAFETY or 6.0
     local STEP_SIZE = 0.7  -- Increased from 0.2 (Faster movement)
