@@ -787,7 +787,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local localY = vecToTarget:dot(carRight)
     
     self.dbg_PP_Y = localY
-    
+
     -- Curvature = 2 * y / L^2
     local curvature = (2.0 * localY) / (lookaheadDist * lookaheadDist)
     local wheelBase = 3.0 
@@ -797,8 +797,26 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local steerOutput = targetSteerAngle / MAX_WHEEL_ANGLE_RAD
     local yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
     local damping = yawRate * (self.STEERING_Kd_BASE or 0.5)
+    local rawOutput = steerOutput - damping
+    local clampedOutput = math.max(math.min(rawOutput, 1.0), -1.0)
+
+    -- [[ FIX: APPLY SLEW RATE LIMIT ]]
+    if self.lastSteerOut then
+        local maxChange = STEERING_SLEW_RATE * dt
+        local delta = clampedOutput - self.lastSteerOut
+        
+        -- Clamp the change to maxChange
+        if delta > maxChange then
+            clampedOutput = self.lastSteerOut + maxChange
+        elseif delta < -maxChange then
+            clampedOutput = self.lastSteerOut - maxChange
+        end
+    end
     
-    return math.max(math.min(steerOutput - damping, 1.0), -1.0)
+    -- Save for next frame
+    self.lastSteerOut = clampedOutput
+
+    return clampedOutput
 end
 
 

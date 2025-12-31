@@ -123,8 +123,14 @@ end
 
 function DriverGen8.client_init(self)
     if not ALL_DRIVERS then ALL_DRIVERS = {} end
-    table.insert(ALL_DRIVERS, self)
+    local alreadyExists = false
+    for _, driver in ipairs(ALL_DRIVERS) do
+        if driver == self then alreadyExists = true break end
+    end
     
+    if not alreadyExists then
+        table.insert(ALL_DRIVERS, self)
+    end
     -- 2. Generate Dimensions Locally (So CameraManager has offsets)
     -- We can reuse the global helpers since they are loaded on client too
     if self.shape and self.body then

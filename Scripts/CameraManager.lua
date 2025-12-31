@@ -868,6 +868,23 @@ function CameraManager.cl_ms_tick(self) -- frame tick
     self:sv_performTimedFuncts()
     self.recentSwitchTimer:tick()
 
+    -- [[ FIX: PRUNE ZOMBIE RACERS ]]
+    -- Remove any tracked racers that no longer exist physically
+    if self.trackedRacers then
+        for i = #self.trackedRacers, 1, -1 do
+            local racer = self.trackedRacers[i]
+            -- Check if Shape exists
+            if not racer or not racer.shape or not sm.exists(racer.shape) then
+                table.remove(self.trackedRacers, i)
+            end
+        end
+        
+        -- If we lost our primary target, trigger a re-decision immediately
+        if #self.trackedRacers == 0 and self.trackedRacer then
+            self.trackedRacer = nil
+            self.cameraHoldTimer:start(0) -- Force new camera choice next tick
+        end
+    end
 end
 
 function CameraManager.cl_tickClock(self) -- second tick
