@@ -301,7 +301,9 @@ end
 
 -- Helpers
 function get_los(camera, driver)
-    if not camera or not driver or not driver.shape then return false end
+    if not camera or not driver or not driver.shape or not sm.exists(driver.shape) then 
+        return false 
+    end
     -- Simple raycast from camera to car
     local camPos = camera.location
     local carPos = driver.shape:getWorldPosition()

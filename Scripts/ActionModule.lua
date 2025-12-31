@@ -78,16 +78,17 @@ function ActionModule.setSteering(self, steerFactor, currentSpeed)
     local bearings = sm.interactable.getBearings(self.Driver.interactable)
     if #bearings > 0 then
         local currentAngle = bearings[1]:getAngle()
-        -- If we are asking for Left, but wheel is stuck Right, 
+        -- If we are asking for Left, but wheel is stuck Right...
         local error = math.abs(targetAngle - currentAngle)
-        if error > 0.5 then -- >28 degrees disagreement
-             -- For debug potential
-             return
+        
+        -- [[ FIX: DO NOT RETURN. Just print warning if debugging. ]]
+        -- If we return here, the car goes limp in a crash!
+        if error > 0.5 then 
+             -- Optional: self.Driver.Decision.stuckTimer = self.Driver.Decision.stuckTimer + 0.1
         end
     end
 
-
-    -- Normal Operation
+    -- Normal Operation (ALWAYS APPLY FORCE)
     self:applyBearingForce(targetAngle, 5)
     self.steeringOut = targetAngle
 end

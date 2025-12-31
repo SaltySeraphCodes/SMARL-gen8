@@ -17,10 +17,14 @@ function Leaderboard.updateRealTimePositions(self)
     
     -- 1. SORT BY ABSOLUTE DISTANCE (Meters)
     table.sort(allDrivers, function(a, b)
-        -- [SAFE ACCESS] Check if perception exists before reading
-        local distA = (a.perceptionData and a.perceptionData.Navigation and a.perceptionData.Navigation.totalRaceDistance) or -1.0
-        local distB = (b.perceptionData and b.perceptionData.Navigation and b.perceptionData.Navigation.totalRaceDistance) or -1.0
+        -- Use cached distance if live distance flickers to 0
+        local distA = (a.perceptionData and a.perceptionData.Navigation and a.perceptionData.Navigation.totalRaceDistance) or a.lastKnownDist or -1.0
+        local distB = (b.perceptionData and b.perceptionData.Navigation and b.perceptionData.Navigation.totalRaceDistance) or b.lastKnownDist or -1.0
         
+        -- Cache valid distances for next frame
+        if distA > 0 then a.lastKnownDist = distA end
+        if distB > 0 then b.lastKnownDist = distB end
+
         if distA ~= distB then return distA > distB end
         return (a.id or 0) > (b.id or 0)
     end)

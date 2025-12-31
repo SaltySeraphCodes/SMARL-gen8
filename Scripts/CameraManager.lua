@@ -483,7 +483,10 @@ function CameraManager.cl_calculateHoodPos(self,racer)
     local carDir = racerShape:getAt()
     local carUp = racerShape:getUp() -- Use the 'Up' vector for vertical offset
     local centerPosition = racerShape:getWorldPosition()
-    local rearLength = (self.trackedRacer.carDimensions and self.trackedRacer.carDimensions['rear']:length() * 0.3) or 0
+    local rearLength = 1.0 -- Default safe value
+    if self.trackedRacer.carDimensions and self.trackedRacer.carDimensions['rear'] then
+        rearLength = self.trackedRacer.carDimensions['rear']:length() * 0.3
+    end
     local targetRearLoc = centerPosition + (carDir * -rearLength) -- A point behind the center
     local newHoodPos = targetRearLoc + (carUp * 2) -- 3 units above the rear point (dynamic height)
     return newHoodPos

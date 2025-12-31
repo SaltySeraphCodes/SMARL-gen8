@@ -437,12 +437,30 @@ function PerceptionModule.build_navigation_data(self)
         nav.roadCurvatureRadius = self:calculateCurvatureRadius(pA, pB, pC)
         nav.longCurvatureRadius = self:calculateCurvatureRadius(pA, pC, pD)
         
+        -- [[ FIX: CALCULATE CURVE DIRECTION ]]
+        -- Use the Cross Product Z-component to find direction.
+        -- In SM: Forward x Right = Down (Negative Z). 
+        -- So Right Turn = Negative Z, Left Turn = Positive Z.
+        local vec1 = (pC - pA):normalize()
+        local vec2 = (pD - pC):normalize()
+        local crossZ = vec1:cross(vec2).z
+        
+        -- Threshold of 0.001 filters out noise on straight roads
+        if crossZ < -0.001 then
+            nav.longCurveDirection = 1 -- RIGHT
+        elseif crossZ > 0.001 then
+            nav.longCurveDirection = -1 -- LEFT
+        else
+            nav.longCurveDirection = 0 -- STRAIGHT
+        end
+
         -- NEW: Calculate High Precision Metrics
         local totalDist, lapProg = self:calculateRaceMetrics(nav.closestPointData)
         nav.totalRaceDistance = totalDist
         nav.lapProgress = lapProg
     else
         nav.roadCurvatureRadius = MAX_CURVATURE_RADIUS
+        nav.longCurveDirection = 0 -- [[ Safety Default ]]
         nav.totalRaceDistance = 0
         nav.lapProgress = 0
     end
@@ -519,11 +537,23 @@ end
 function PerceptionModule.build_opponent_data(self)
     local list = self:get_other_racers()
     local data = { count = #list, racers = list, isLeftLaneClear = true, isRightLaneClear = true }
-    
+    local bestDraft = nil -- drafting target
+    local bestDraftScore = -1
     for _, op in ipairs(list) do
         -- Simple collision prediction
         if op.timeToCollision < 1.0 then data.collisionRisk = op end
-        
+        -- Check for draft: Ahead, close enough, safe closing speed
+        if op.isAhead and op.distance < 35.0 and op.distance > 5.0 then
+            -- Are we lined up behind them? (Bias difference is small)
+            local myBias = self.perceptionData.Navigation.trackPositionBias or 0
+            if math.abs(op.opponentBias - myBias) < 0.3 then
+                -- This is a candidate
+                if op.distance > bestDraftScore then -- Pick the furthest one in range (cleaner air?) or closest?
+                     bestDraft = op
+                     bestDraftScore = op.distance
+                end
+            end
+        end
         -- Lane Clearance
         local opHalfWidth = 0.2 -- Normalized bias width
         local opLeft = op.opponentBias - opHalfWidth
@@ -532,7 +562,7 @@ function PerceptionModule.build_opponent_data(self)
         if opRight > -0.2 then data.isLeftLaneClear = false end
         if opLeft < 0.2 then data.isRightLaneClear = false end
     end
-    
+    data.draftingTarget = bestDraft 
     data.isOvertakePossible = (not data.collisionRisk and data.count > 0 and (data.isLeftLaneClear or data.isRightLaneClear))
     return data
 end
@@ -559,7 +589,8 @@ function PerceptionModule.calculateWallAvoidance(self)
     return {
         marginLeft = marginL,
         marginRight = marginR,
-        isLeftCritical = marginL <= CRITICAL_WALL_MARGIN,
-        isRightCritical = marginR <= CRITICAL_WALL_MARGIN
+        isForwardLeftCritical = marginL <= CRITICAL_WALL_MARGIN,
+        isForwardRightCritical = marginR <= CRITICAL_WALL_MARGIN
+
     }
 end

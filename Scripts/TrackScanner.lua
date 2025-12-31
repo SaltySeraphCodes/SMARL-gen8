@@ -113,55 +113,74 @@ end
 
 
 -- [[ 3. MAIN SENSOR: Combined Sweep (FIXED) ]]
+-- [[ 3. MAIN SENSOR: Combined Sweep (FIXED HEIGHT) ]]
 function TrackScanner.findWallSweep(self, origin, direction, upVector, lastDist, debugName)
-    -- REMOVED: centerFloorZ dependency. We rely on the origin + direction + upVector.
-    
-    local GRAIN = 1.0 -- Coarser grain for performance, we refine later
+    local GRAIN = 0.2 -- Finer grain for precision
     local PAD = 10.0 
     
     local startSearch = math.max(2.0, lastDist - PAD)
     local endSearch = math.min(MAX_TRACK_WIDTH, lastDist + PAD)
     
-    -- If we lost track recently, widen the search
     if lastDist > (MAX_TRACK_WIDTH - 5) then 
         startSearch = 2.0 
         endSearch = MAX_TRACK_WIDTH
     end
     
-    -- We perform a "Comb" scan.
-    -- Instead of checking one height, we check a vertical strip relative to the UP vector.
-    
     for dist = startSearch, endSearch, GRAIN do
         local checkPos = origin + (direction * dist)
         
-        -- Raycast segment: From 2 blocks above track to 1 block below track (relative to surface normal)
-        -- This catches curbs AND walls.
-        local rayStart = checkPos + (upVector * 3.0)
-        local rayEnd   = checkPos - (upVector * 2.0) 
+        -- Scan Segment
+        local rayStart = checkPos + (upVector * 10)
+        local rayEnd   = checkPos - (upVector * 10) 
         
         local hit, result = sm.physics.raycast(rayStart, rayEnd)
         
         if hit then
-            -- We hit something. Is it a wall or just the floor continuing?
-            -- We compare the normal of the hit to our Up Vector.
             local dot = result.normalWorld:dot(upVector)
             
-            -- If dot < 0.5, the surface is mostly vertical relative to our floor (Wall)
-            -- If dot > 0.5, it's flat (Floor/Slope)
-            if dot < 0.5 then
-                return result.pointWorld, dist
+            -- HIT CONDITION: Wall (Vertical) OR Curb (Step Up)
+            local isWall = dot < 0.5
+            local isCurb = false
+            if not isWall then
+                 local heightDiff = (result.pointWorld - origin):dot(upVector)
+                 if heightDiff > 0.75 then isCurb = true end
             end
             
-            -- Check for "Curb" (Step up)
-            -- If the hit point is significantly higher than our scanner origin (relative to Up)
-            local heightDiff = (result.pointWorld - origin):dot(upVector)
-            if heightDiff > 0.75 then
-                return result.pointWorld, dist
+            if isWall or isCurb then
+                -- [[ REFINEMENT STEP: FIND FLOOR HEIGHT ]]
+                -- We hit the wall face. Now we want the Z-height of the ROAD at the base of this wall.
+                -- Strategy: Move 0.75m away from the wall (back towards track) and raycast DOWN.
+                
+                local wallNormal = result.normalWorld
+                -- If it's a curb (flat top), use the scan direction reversed
+                if isCurb then wallNormal = -direction end
+                
+                -- Move slightly into the track
+                local probePos = result.pointWorld + (wallNormal * 0.35)
+                
+                -- Raycast relative DOWN
+                local floorStart = probePos + (upVector * 2.0)
+                local floorEnd   = probePos - (upVector * 4.0)
+                local fHit, fRes = sm.physics.raycast(floorStart, floorEnd)
+                
+                local finalPoint = result.pointWorld
+                
+                if fHit then
+                    -- Project the wall point onto the floor plane we just found
+                    -- Logic: Keep X/Y of wall hit, but adopt Z (height) of the floor hit (relative to UpVector)
+                    
+                    -- Calculate vertical distance between WallHit and FloorHit
+                    local vDiff = (fRes.pointWorld - finalPoint):dot(upVector)
+                    
+                    -- Shift WallHit to match Floor Height
+                    finalPoint = finalPoint + (upVector * vDiff)
+                end
+
+                return finalPoint, dist
             end
         end
     end
 
-    -- No wall found
     return nil, nil
 end
 
@@ -206,8 +225,7 @@ function TrackScanner.scanTrackLoop(self, startPos, startDir)
         end
 
         -- B. CALCULATE VECTORS (Relative to Surface)
-        -- Cross product ensures 'rightVec' is parallel to the banked track
-        local rightVec = currentDir:cross(currentUp):normalize() * -1
+        local rightVec = currentDir:cross(currentUp):normalize()
         local leftVec = -rightVec
 
         -- [[ PASS 1: SCAN ]]
@@ -402,6 +420,35 @@ function TrackScanner.scanPitLaneFromAnchors(self)
     self:addPitNode(nodes, nodeIdCounter, PIT_ANCHORS.endPoint.shape:getWorldPosition(), PIT_ANCHORS.endPoint.shape:getAt(), PIT_ANCHORS.endPoint)
 
     self.pitChain = nodes
+
+    -- [[ NEW: Auto-Link Pit Exit to Main Track ]]
+    -- We assume the main track is already scanned in self.rawNodes or self.nodeChain
+    local mainTrack = self.nodeChain
+    if not mainTrack or #mainTrack == 0 then mainTrack = self.rawNodes end
+
+    if mainTrack and #mainTrack > 0 then
+        local pitEnd = nodes[#nodes]
+        local bestNode = nil
+        local minDst = math.huge
+        
+        -- Find the closest main track node to the pit exit anchor
+        for _, mainNode in ipairs(mainTrack) do
+            local dist = (mainNode.location - pitEnd.location):length()
+            if dist < minDst then
+                minDst = dist
+                bestNode = mainNode
+            end
+        end
+        
+        if bestNode then
+            -- Save the Main Node ID into the Pit Node
+            pitEnd.mergeTargetIndex = bestNode.id
+            print("TrackScanner: Auto-Linked Pit Exit to Main Node " .. bestNode.id)
+        else
+            print("TrackScanner: Warning - Could not link Pit Exit (Main track too far?)")
+        end
+    end
+    
     print("TrackScanner: Pit Scan Complete. Nodes: " .. #nodes)
 end
 
@@ -433,16 +480,14 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
     local count = #nodes
     if count < 3 then return end
 
-    -- [[ DYNAMIC TUNING ]]
-    local MARGIN = 3.0           -- Minimum distance from wall
-    local MAX_STEP = 2.5         -- Max jump per iteration (for stability)
-    local TENSION_SCALAR = 80.0  -- Strength of the "pull" (Higher = faster convergence)
-    
+    local MARGIN = MARGIN_SAFETY or 7 -- Keep 3.0 blocks from the walls
+    local TENSION = 0.5 -- How aggressive the "string" pulls tight (0.1 = loose/slow, 0.8 = snaps instantly)
+
     -- 1. Fill Gaps
     nodes = self:fillGaps(nodes, 6.0)
     count = #nodes 
 
-    print("TrackScanner: Optimizing ("..iterations.." passes) with Dynamic Tension...")
+    print("TrackScanner: Optimizing ("..iterations.." passes) using String Tightening...")
 
     local totalMovement = 0
 
@@ -453,171 +498,63 @@ function TrackScanner.optimizeRacingLine(self, iterations, isPit)
         for i = 1, count do
             local node = nodes[i]
             
-            -- Skip jumps or missing wall data
             if not node.isJump and node.leftWall and node.rightWall then 
                 local prev = nodes[(i - 2) % count + 1]
                 local next = nodes[(i % count) + 1]
 
+                -- A. FIND THE "IDEAL" SPOT
+                -- The shortest path is a straight line between Prev and Next.
+                local idealPoint = (prev.location + next.location) * 0.5
+
+                -- B. PROJECT ONTO TRACK WIDTH
+                -- We only want to move the node Laterally (Left/Right), not forward/backward.
+                -- We project the 'idealPoint' onto the line connecting LeftWall -> RightWall.
                 local wallVec = node.rightWall - node.leftWall
-                local trackWidth = wallVec:length()
-                local wallDir = wallVec:normalize()
-
-                -- Current Position State
-                local currentDist = (node.location - node.leftWall):dot(wallDir)
+                local wallLenSq = wallVec:length() * wallVec:length() -- Length Squared for projection math
                 
-                -- [[ MEASURE TENSION ]]
-                -- Test points slightly to the Left and Right to see which improves Curvature (1/Radius)
-                local probeDist = 0.5 
-                local pLeft    = node.location - (wallDir * probeDist)
-                local pRight   = node.location + (wallDir * probeDist)
-
-                local kLeft    = self:getCurvature(prev.location, pLeft, next.location)
-                local kRight   = self:getCurvature(prev.location, pRight, next.location)
-
-                -- Gradient: We want to move towards LOWER Curvature (flatter line)
-                -- If kLeft < kRight, gradient is negative (move left). 
-                local gradient = kRight - kLeft
-                
-                -- [[ DYNAMIC STEP SIZE ]]
-                -- If gradient is large (huge difference), step big. If small, step tiny.
-                local stepSize = math.abs(gradient) * TENSION_SCALAR
-                
-                -- Clamp step to avoid explosions
-                if stepSize > MAX_STEP then stepSize = MAX_STEP end
-                
-                -- Determine direction (+1 for Right, -1 for Left)
-                local dir = 0
-                if gradient > 0.0001 then dir = 1      -- Right has higher curvature, go Right? NO. We want LOW curvature.
-                elseif gradient < -0.0001 then dir = -1 end -- Left has higher curvature, go Right.
-                
-                -- CORRECTION: 
-                -- We want MINIMUM curvature.
-                -- If kLeft is SMALLER (0.1) than kRight (0.5), we want to go LEFT.
-                -- (0.5 - 0.1) = 0.4 (Positive Gradient). 
-                -- So if gradient > 0, we go Left? Let's check logic:
-                -- kRight (High/Bad) - kLeft (Low/Good) = Positive. We want Good (Left). 
-                -- So Gradient > 0 implies Move Left (-).
-                
-                local move = 0
-                if gradient > 0.00001 then move = -stepSize -- Go Left
-                elseif gradient < -0.00001 then move = stepSize -- Go Right
-                end
-
-                -- Apply Move
-                if math.abs(move) > 0.01 then
-                    local newDist = currentDist + move
+                if wallLenSq > 0.1 then
+                    local wallDir = wallVec:normalize()
                     
-                    -- Hard Clamp to Margin
-                    if newDist < MARGIN then newDist = MARGIN end
-                    if newDist > (trackWidth - MARGIN) then newDist = trackWidth - MARGIN end
+                    -- Vector from Left Wall to the Ideal Point
+                    local toIdeal = idealPoint - node.leftWall
                     
-                    local newPos = node.leftWall + (wallDir * newDist)
+                    -- Project to find "T" (0.0 = Left Wall, 1.0 = Right Wall)
+                    local t = toIdeal:dot(wallVec) / wallLenSq
                     
-                    -- Track delta
-                    iterMovement = iterMovement + (newPos - node.location):length()
-                    node.location = newPos
+                    -- C. APPLY MARGINS (Clamp T)
+                    -- Convert margin (e.g. 3.0) to a percentage of width
+                    local marginPct = MARGIN / math.sqrt(wallLenSq)
+                    if marginPct > 0.45 then marginPct = 0.45 end -- Safety if track is tiny
+                    
+                    if t < marginPct then t = marginPct end
+                    if t > (1.0 - marginPct) then t = 1.0 - marginPct end
+                    
+                    -- D. MOVE THE NODE
+                    -- Calculate the actual Target Position in world space
+                    local targetPos = node.leftWall + (wallVec * t)
+                    
+                    -- Move current location towards target based on Tension
+                    local moveVec = (targetPos - node.location) * TENSION
+                    
+                    -- Apply
+                    node.location = node.location + moveVec
+                    iterMovement = iterMovement + moveVec:length()
                 end
             end
         end
         totalMovement = totalMovement + iterMovement
         
-        -- Early exit if we have settled
-        if iter > 10 and iterMovement < 1.0 then
-            print("TrackScanner: Converged early at iteration " .. iter)
-            break
+        -- Early Exit if the string is tight
+        if iter > 5 and iterMovement < 1.0 then
+             print("TrackScanner: Converged early at iteration " .. iter)
+             break
         end
     end
     
     print("TrackScanner: Optimization Complete. Total Movement: " .. math.floor(totalMovement))
 
-    -- 3. FINALIZE (Standard cleanup)
-    self:smoothPositions(nodes, 2) -- Light smooth after aggressive shifts
-    nodes = self:resampleChain(nodes, 3.0)
-    self:calculateTrackDistances(nodes)
-    self:snapChainToFloor(nodes)
-    self:assignSectors(nodes)
-    self:recalculateNodeProperties(nodes) 
-
-    if isPit then self.pitChain = nodes else self.nodeChain = nodes end
-    self:sv_saveToStorage()
-end
-
-function TrackScanner.optimizeRacingLine_old(self, iterations, isPit)
-    local nodes = isPit and self.pitChain or self.rawNodes
-    local count = #nodes
-    if count < 3 then --or count >= SCAN_LIMIT then 
-        print("Skipping Optimizations") return end
-
-    local MARGIN = MARGIN_SAFETY or 5
-    local STEP_SIZE = 0.5  -- Increased from 0.2 (Faster movement)
-    
-    -- [[ 1. FILL GAPS ]]
-    nodes = self:fillGaps(nodes, 6.0)
-    count = #nodes 
-
-    print("TrackScanner: Optimizing ("..iterations.." passes) - AGGRESSIVE Mode...")
-
-    local totalMovement = 0
-
-    -- [[ 2. OPTIMIZATION LOOP ]]
-    for iter = 1, iterations do
-        local iterMovement = 0
-        for i = 1, count do
-            local node = nodes[i]
-            
-            if not node.isJump and node.leftWall and node.rightWall then 
-                local prev = nodes[(i - 2) % count + 1]
-                local next = nodes[(i % count) + 1]
-
-                local wallVec = node.rightWall - node.leftWall
-                local trackWidth = wallVec:length()
-                local wallDir = wallVec:normalize()
-
-                -- Current Position
-                local currentDist = (node.location - node.leftWall):dot(wallDir)
-                
-                -- Test Candidates (Wider steps)
-                local pCurrent = node.location
-                local pLeft    = node.location - (wallDir * STEP_SIZE)
-                local pRight   = node.location + (wallDir * STEP_SIZE)
-
-                local rCurrent = self:getLocalRadius(prev.location, pCurrent, next.location)
-                local rLeft    = self:getLocalRadius(prev.location, pLeft, next.location)
-                local rRight   = self:getLocalRadius(prev.location, pRight, next.location)
-
-                -- Move towards larger radius
-                local move = 0.0
-                if rLeft > rCurrent and rLeft > rRight then 
-                    move = -STEP_SIZE
-                elseif rRight > rCurrent and rRight > rLeft then 
-                    move = STEP_SIZE
-                end
-                
-                -- Apply Move
-                if move ~= 0 then
-                    local newDist = currentDist + move
-                    -- Hard Clamp to Margin
-                    if newDist < MARGIN then newDist = MARGIN end
-                    if newDist > (trackWidth - MARGIN) then newDist = trackWidth - MARGIN end
-                    
-                    local newPos = node.leftWall + (wallDir * newDist)
-                    
-                    -- Track how much we actually moved for debugging
-                    iterMovement = iterMovement + (newPos - node.location):length()
-                    node.location = newPos
-                end
-            end
-        end
-        totalMovement = totalMovement + iterMovement
-    end
-    
-    print("TrackScanner: Optimization Complete. Total Node Movement: " .. math.floor(totalMovement))
-
-    -- [[ 3. LIGHT SMOOTHING ]]
-    -- We only do 1 pass now. 5 passes was washing out the apex.
-    self:smoothPositions(nodes, 1)
-
-    -- [[ 4. FINALIZE ]]
+    -- 3. FINALIZE
+    self:smoothPositions(nodes, 2)
     nodes = self:resampleChain(nodes, 3.0)
     self:calculateTrackDistances(nodes)
     self:snapChainToFloor(nodes)
@@ -827,22 +764,26 @@ function TrackScanner.serializeTrackData(self)
         for i, node in ipairs(chain) do
             table.insert(targetTable, {
                 id = node.id,
-                -- Positions
-                pos = self:vecToTable(node.location),   -- Racing Line
+                -- 1. GEOMETRY (Vectors as tables)
+                pos = self:vecToTable(node.location),   -- Racing Line (Legacy name 'pos' for compatibility)
                 mid = self:vecToTable(node.mid),        -- Center Line
                 left = self:vecToTable(node.leftWall),  -- Left Wall Anchor
                 right = self:vecToTable(node.rightWall),-- Right Wall Anchor
                 
-                -- Vectors (CRITICAL FOR AI)
+                -- 2. VECTORS (Critical for AI)
                 perp = self:vecToTable(node.perp),      -- The "Rail" direction (Side-to-Side)
                 out = self:vecToTable(node.outVector),  -- The Forward direction
                 
-                -- Metadata
+                -- 3. METADATA (From serializeTrackData_old)
                 width = node.width,
-                dist = node.distFromStart,
-                bank = node.bank,
+                dist = node.distFromStart,              -- Distance in meters
+                prog = node.raceProgress,               -- Normalized 0.0-1.0
+                bank = node.bank or 0.0,
+                incline = node.incline or 0.0,
                 isJump = node.isJump,
-                sectorID = node.sectorID
+                sectorID = node.sectorID or 1,
+                pointType = node.pointType or 0,         -- 0=Normal, 2=PitEntry, 5=PitBox, etc.
+                mergeIndex = node.mergeTargetIndex
             })
         end
     end
@@ -867,6 +808,8 @@ function TrackScanner.deserializeChain(self, savedChain)
         local locVec = self:tableToVec(data.pos) -- Saved as 'pos', runtime uses 'location'
         local leftVec = self:tableToVec(data.left)
         local rightVec = self:tableToVec(data.right)
+        local outVec  = self:tableToVec(data.out)
+        local perpVec = self:tableToVec(data.perp)
         
         -- Rebuild Node
         local node = {
@@ -875,14 +818,22 @@ function TrackScanner.deserializeChain(self, savedChain)
             location = locVec,
             leftWall = leftVec,
             rightWall = rightVec,
+            
+            -- Restore Vectors if they existed, else we'll recalc later
+            outVector = outVec,
+            perp = perpVec,
+            upVector = sm.vec3.new(0,0,1), -- Default, will be fixed by snap
+            
+            -- Metadata
             width = data.width,
             distFromStart = data.dist,
+            raceProgress = data.prog,
             bank = data.bank,
+            incline = data.incline,
             isJump = data.isJump,
-            
-            -- Recalculate derived vectors immediately so the chain is usable
-            upVector = sm.vec3.new(0,0,1), -- Default, will be fixed by snap
-            sectorID = 1 -- Default, will be reassigned
+            sectorID = data.sectorID or 1,
+            pointType = data.pointType or 0,
+            mergeTargetIndex = data.mergeIndex
         }
         table.insert(restoredNodes, node)
     end
@@ -890,40 +841,6 @@ function TrackScanner.deserializeChain(self, savedChain)
     return restoredNodes
 end
 
-function TrackScanner.serializeTrackData_old(self)
-    local raceNodes = {}
-    local pitNodes = {}
-    
-    local function serializeChain(chain, targetTable)
-        for i, node in ipairs(chain) do
-            local dataNode = {
-                id = node.id,
-                pos = self:vecToTable(node.location), -- THE OPTIMIZED LINE
-                mid = self:vecToTable(node.mid),      -- THE CENTER LINE
-                width = node.width,
-                dist = node.distFromStart,   -- Distance in meters
-                prog = node.raceProgress,    -- Normalized 0.0-1.0
-                bank = node.bank,
-                incline = node.incline,
-                out = self:vecToTable(node.outVector),
-                perp = self:vecToTable(node.perp),
-                isJump = node.isJump,
-                sectorID = node.sectorID,
-                pointType = node.pointType 
-            }
-            table.insert(targetTable, dataNode)
-        end
-    end
-
-    serializeChain(self.nodeChain, raceNodes)
-    serializeChain(self.pitChain, pitNodes)
-
-    return { 
-        timestamp = os.time(), 
-        raceChain = raceNodes, 
-        pitChain = pitNodes 
-    }
-end
 
 function TrackScanner.sv_saveToStorage(self)
     print("TrackScanner: Saving to World Storage...")
@@ -1127,25 +1044,35 @@ function TrackScanner.cl_visEvent(self, data)
         if not self.clientTrackData then self.clientTrackData = {} end
         
         for _, rawNode in ipairs(data.nodes) do
-            -- CONVERT ALL POSITIONS TO VECTORS NOW
             local node = {
                 id = rawNode.id,
-                mid = toVec3(rawNode.mid),
-                pos = toVec3(rawNode.pos), -- Optimized line
-                left = toVec3(rawNode.left),
-                right = toVec3(rawNode.right),
                 
-                -- Debug Vectors (Direction)
+                -- Convert all vectors needed for visualization
+                mid = toVec3(rawNode.mid),
+                pos = toVec3(rawNode.pos),   -- Racing Line
+                left = toVec3(rawNode.left), -- Left Wall
+                right = toVec3(rawNode.right),-- Right Wall
+                
+                -- Debug Vectors (Only present during live scan, not save/load)
+                -- We use 'perp' to reconstruct debug lines if debugLeft/Right are missing
+                perp = toVec3(rawNode.perp), 
+                
                 debugLeft = toVec3(rawNode.debugLeft),
                 debugRight = toVec3(rawNode.debugRight)
             }
+            
+            -- Fallback: If live debug vectors are missing (loaded from file), create them from perp
+            if not node.debugLeft and node.perp then
+                node.debugLeft = node.perp * -1 -- Left is usually -Perp
+                node.debugRight = node.perp     -- Right is +Perp
+            end
+
             table.insert(self.clientTrackData, node)
         end
         
         -- Update viz
         self:redrawVisualization() 
     end
-
 end
 
 function TrackScanner.redrawVisualization(self)
@@ -1159,25 +1086,26 @@ function TrackScanner.redrawVisualization(self)
         
         if self.visMode == 3 then -- Skeleton/Debug Mode
             -- 1. Center Dot
-            self:spawnDot(node.mid, sm.color.new("00ffffff"))
+            self:spawnDot(node.mid, sm.color.new("00ffffff")) -- light blue mid?
             -- 2. Wall Dots
-            self:spawnDot(node.leftWall, sm.color.new("ff0000ff"),"1f334b62-8955-4406-8848-91e03228c330") -- Red traffic cone for left
-            self:spawnDot(node.rightWall, sm.color.new("0000ffff"),"4f1c0036-389b-432e-81de-8261cb9f9d57") -- Blue  pipe corner for right
+            self:spawnDot(node.left, sm.color.new("ff0080ff"),"1f334b62-8955-4406-8848-91e03228c330") -- Red traffic cone for left
+            self:spawnDot(node.right, sm.color.new("8000ffff"),"4f1c0036-389b-432e-81de-8261cb9f9d57") -- Blue  pipe corner for right
             
             -- 3. [[ DIRECTION VISUALIZATION ]]
             -- Draw a line 5 units long showing where the scanner was pointing
-            if node.debugLeftVec and node.debugRightVec then
+            if node.debugLeft and node.debugRight then
+
                 local lStart = node.mid
-                local lEnd   = node.mid + (node.debugLeftVec * 5.0)
+                local lEnd   = node.mid + (node.debugLeft * 5)
                 
                 local rStart = node.mid
-                local rEnd   = node.mid + (node.debugRightVec * 5.0)
+                local rEnd   = node.mid + (node.debugRight * 5)
                 
                 -- LEFT = RED LINE
-                self:spawnLine(lStart, lEnd, sm.color.new("ff0000ff"),"add3acc6-a6fd-44e8-a384-a7a16ce13c81") -- idk
+                self:spawnLine(lStart, lEnd, sm.color.new("ff0000ff"),"add3acc6-a6fd-44e8-a384-a7a16ce13c81") -- sensor
                 
                 -- RIGHT = BLUE LINE
-                self:spawnLine(rStart, rEnd, sm.color.new("0000ffff"),"add3acc6-a6fd-44e8-a384-a7a16ce13c81") -- Sensor
+                self:spawnLine(rStart, rEnd, sm.color.new("000ffff"),"add3acc6-a6fd-44e8-a384-a7a16ce13c81") -- Sensor
             end
             
         else
@@ -1193,7 +1121,7 @@ function TrackScanner.spawnLine(self, startPos, endPos, color,uuid)
     -- Draw 5 dots to simulate a line
     local dist = (startPos - endPos):length()
     local dir = (endPos - startPos):normalize()
-    local steps = 5
+    local steps = 3
     
     for i = 0, steps do
         local p = startPos + (dir * (dist * (i/steps)))
@@ -1218,42 +1146,6 @@ function TrackScanner.spawnDot(self, pos, color, uuid)
 end
 
 
-function TrackScanner.cl_visEvent_old(self, data)
-    -- Initialize container if missing
-    if not self.debugEffects then self.debugEffects = {} end
-    
-    -- CASE 1: START (Clear previous effects)
-    if data.type == "start" then
-        if data.chain == "race" then
-            -- Clear everything when race scan starts to prevent ghosts
-            for _, effect in ipairs(self.debugEffects) do 
-                if effect and sm.exists(effect) then effect:destroy() end 
-            end
-            self.debugEffects = {}
-        end
-        
-    -- CASE 2: BATCH (Add new effects)
-    elseif data.type == "batch" then
-        local color = sm.color.new("00ff00") -- Green (Race)
-        if data.chain == "pit" then color = sm.color.new("ff00ff") end -- Pink (Pit)
-        
-        for _, nodeData in ipairs(data.nodes) do
-            -- Create Effect
-            local effect = sm.effect.createEffect("Loot - GlowItem")
-            effect:setScale(sm.vec3.new(0,0,0)) 
-            
-            -- Handle key mismatch (pos vs location)
-            local p = nodeData.pos or nodeData.location or {x=0,y=0,z=0}
-            effect:setPosition(sm.vec3.new(p.x, p.y, p.z))
-            
-            effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-            effect:setParameter("Color", color)
-            effect:start()
-            
-            table.insert(self.debugEffects, effect)
-        end
-    end
-end
 
 function TrackScanner.cl_showAlert(self, msg)
     sm.gui.displayAlertText(msg, 3)

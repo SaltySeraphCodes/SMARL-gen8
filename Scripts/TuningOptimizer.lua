@@ -42,6 +42,8 @@ function TuningOptimizer:init(driver)
     self.peakLatAccel = 0.0
     self.slipEvents = 0
 
+    self.lastSaveTime = 0
+
     print("TuningOptimizer: Initialized with Physics Profiling")
 end
 
@@ -103,11 +105,17 @@ function TuningOptimizer:applyProfile(profile)
     end
 end
 
-function TuningOptimizer:saveProfile()
+function TuningOptimizer:saveProfile(force)
     -- [[ LOCK CHECK ]]
     if self.learningLocked then return end
 
-    local success, data = pcall(sm.json.open, TUNING_PROFILES)
+    -- [[ FIX: SAVE COOLDOWN ]]
+    -- Only write to disk if forced (e.g. game closing) or 60s passed
+    local now = os.time()
+    if not force and (now - self.lastSaveTime < 60) then return end
+    self.lastSaveTime = now
+
+    local success, data = pcall(sm.json.open, TUNING_FILE)
     if not success or type(data) ~= "table" then data = {} end
     
     local typeKey = self.fingerprint or "GENERIC"
@@ -119,8 +127,8 @@ function TuningOptimizer:saveProfile()
         dampingFactor = self.dampingFactor,
         lookaheadMult = self.lookaheadMult,
         tractionConstant = self.tractionConstant,
-        learnedGrip = self.learnedGrip, -- Save the grip
-        updated = os.time()
+        learnedGrip = self.learnedGrip, 
+        updated = now
     }
     sm.json.save(data, TUNING_FILE)
 end

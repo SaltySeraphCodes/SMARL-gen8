@@ -59,7 +59,17 @@ local VISUALIZE_RAYS = true
 
 -- [[ BRAKING PHYSICS ]]
 local BRAKING_POWER_FACTOR = 0.9 
-local SCAN_DISTANCE = 120.0       
+local SCAN_DISTANCE = 120.0      
+
+
+-- [[ MODE SPEEDS ]]
+FORMATION_SPEED = 25.0
+FORMATION_DISTANCE = 8.0
+FORMATION_BIAS_OUTSIDE = 0.5
+FORMATION_BIAS_INSIDE = -0.5
+
+CAUTION_SPEED = 35.0
+CAUTION_DISTANCE = 15.0
 
 function DecisionModule.server_init(self,driver)
     self.Driver = driver 
@@ -395,7 +405,7 @@ function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
     local nav = perceptionData.Navigation
     local wall = perceptionData.WallAvoidance or {marginLeft=99, marginRight=99}
     local radius = self.smoothedRadius or 1000.0
-    local curveDir = nav.longCurveDirection 
+    local curveDir = nav.longCurveDirection or 0 
     local carSpeed = perceptionData.Telemetry.speed or 0
     
     -- [NEW] Calculate Apex Position Logic
@@ -775,6 +785,8 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     -- 4. PURE PURSUIT LOGIC
     local carRight = telemetry.rotations.right
     local localY = vecToTarget:dot(carRight)
+    
+    self.dbg_PP_Y = localY
     
     -- Curvature = 2 * y / L^2
     local curvature = (2.0 * localY) / (lookaheadDist * lookaheadDist)

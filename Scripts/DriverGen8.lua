@@ -42,7 +42,11 @@ function DriverGen8.client_onDestroy(self)
 end
 
 
-function DriverGen8.server_onDestroy(self) if ALL_DRIVERS then for k, v in pairs(ALL_DRIVERS) do if v.id == self.id then table.remove(ALL_DRIVERS, k) end end end end
+function DriverGen8.server_onDestroy(self)
+    -- Can force save profile here if we deem necessary
+    if ALL_DRIVERS then for k, v in pairs(ALL_DRIVERS) do if v.id == self.id then table.remove(ALL_DRIVERS, k) 
+    end end end 
+end
 
 function DriverGen8.server_init(self)
     print("Driver: Initializing Gen 8 AI System...")
@@ -292,19 +296,26 @@ function DriverGen8.updatePitBehavior(self, dt)
         
     -- STATE 5: Exiting Box / Merging
     elseif self.pitState == 5 then
-        -- Check if we reached end of pit chain
-        if currentNode.mergeTargetIndex then
-            print(self.id, "MERGING TO TRACK")
+        -- Check if we reached end of pit chain OR if we hit the merge node
+        local isAtEnd = (nav.closestPointData.baseNode.id >= #self.pitChain)
+        
+        if currentNode.mergeTargetIndex or isAtEnd then
+            print(self.id, "MERGING TO TRACK (Triggered)")
+            
             self.activeChain = self.nodeChain
             self.pitState = 0
             self.assignedBox = nil
             self.Perception.chain = self.nodeChain
-            -- Snap to merge node
-            local mergeNode = self.nodeChain[currentNode.mergeTargetIndex]
-            if mergeNode then self.Perception.currentNode = mergeNode end
             
-            -- FORCE LAP CHECK (If pit lane skipped start line)
-            -- We assume pitting constitutes a lap if successful
+            -- If we used the fallback "End of Chain", we need to find where we are on the main track
+            if currentNode.mergeTargetIndex then
+                local mergeNode = self.nodeChain[currentNode.mergeTargetIndex]
+                if mergeNode then self.Perception.currentNode = mergeNode end
+            else
+                -- Fallback: Force a global search on the main track next tick
+                self.Perception.currentNode = nil 
+            end
+            
             self:handleLapCross() 
         end
     end
@@ -406,12 +417,19 @@ function DriverGen8.resetCar(self, force)
                     self.liftPlaced = true
                     self.resetPosTimeout = 0
                     
-                    -- Reset decision module stuck flags so we don't immediately think we are stuck again
+                    -- [[ FIX: Update Perception Immediately ]]
+                    -- Tell perception exactly where we are so it doesn't search the whole map.
+                    if self.Perception then
+                        self.Perception.currentNode = spawnAttemptNode
+                    end
+                    
+                    -- Reset decision module stuck flags
                     if self.Decision then
                         self.Decision.stuckTimer = 0
                         self.Decision.isStuck = false
                         self.Decision.smoothedRadius = 1000 
                     end
+                    
                     success = true
                     break
                 end
@@ -655,6 +673,55 @@ function DriverGen8.deserializeTrackNode(self, dataNode)
         pointType = pType,
         isPitEntry = isEntry, 
         mergeTargetIndex = nil 
+    }
+end
+
+-- [[ UPDATED DESERIALIZER ]]
+function DriverGen8.deserializeTrackNode(self, dataNode)
+    local function toVec3(t) 
+        if not t then return nil end 
+        return sm.vec3.new(t.x, t.y, t.z) 
+    end
+    
+    local pType = dataNode.pointType or 0
+    local isEntry = (pType == 2) 
+    
+    -- 1. Load Vectors
+    -- 'pos' = Optimized Racing Line
+    -- 'mid' = Geometric Center Line
+    -- 'perp' = Wall-to-Wall Vector (Banking)
+    local loadedPerp = toVec3(dataNode.perp)
+    local loadedOut = toVec3(dataNode.out)
+    local loadedMid = toVec3(dataNode.mid)
+    local loadedPos = toVec3(dataNode.pos) or toVec3(dataNode.location) -- Handle legacy
+
+    -- 2. Safety Fallback: Mid defaults to Pos if missing
+    if not loadedMid then loadedMid = loadedPos end
+
+    -- 3. Safety Fallback: Perp defaults to Cross Product if missing
+    if not loadedPerp and loadedOut then
+         -- Guess "Right" by crossing Forward with Global Up
+         loadedPerp = loadedOut:cross(sm.vec3.new(0,0,1)):normalize() * -1
+    end
+
+    return {
+        id = dataNode.id, 
+        location = loadedPos, 
+        mid = loadedMid, -- Critical for lane offsets
+        width = dataNode.width,
+        distFromStart = dataNode.dist or 0.0,
+        raceProgress = dataNode.prog or 0.0,
+        bank = dataNode.bank, 
+        incline = dataNode.incline,
+        
+        outVector = loadedOut, 
+        perp = loadedPerp, -- Guaranteed valid vector
+        
+        isJump = dataNode.isJump, 
+        sectorID = dataNode.sectorID or 1,
+        pointType = pType,
+        isPitEntry = isEntry, 
+        mergeTargetIndex = dataNode.mergeIndex or dataNode.mergeTargetIndex
     }
 end
 
