@@ -336,8 +336,52 @@ function PerceptionModule:calculateRaceMetrics(closestPointData)
     
     return totalRaceDistance, math.max(0.0, math.min(1.0, progress))
 end
-
 function PerceptionModule.calculateNavigationInputs(self, navigation_data)
+    local telemetry = self.perceptionData.Telemetry or {}
+    local nav = navigation_data or {}
+    nav.trackPositionBias = 0.0 
+    nav.racingLineBias = 0.0 
+    
+    if not nav.closestPointData then return nav end
+    
+    local node = nav.closestPointData.baseNode
+    local width = node.width or 20.0
+    local halfWidth = width / 2
+    
+    -- 1. Calculate Lookahead
+    local lookaheadDist = 12.0 + (telemetry.speed * 0.6)
+    local targetPos = self:getPointInDistance(node, nav.closestPointData.tOnSegment, lookaheadDist, self.chain)
+    nav.nodeGoalDirection = (targetPos - telemetry.location):normalize()
+    nav.centerlineTarget = targetPos
+    
+    -- 2. Calculate Lateral Position (Track Bias)
+    local nextNode = getNextItem(self.chain, node.id, 1)
+    if nextNode then
+        -- [[ FIX: USE SAVED 3D PERP VECTOR ]]
+        -- Fallback to calculated 2D perp only if the node data is missing
+        local segPerp = node.perp
+        if not segPerp then
+             local segDir = (nextNode.location - node.location):normalize()
+             segPerp = sm.vec3.new(-segDir.y, segDir.x, 0) -- Legacy 2D fallback
+        end
+        
+        -- Calculate distance from Center Line (mid)
+        -- Note: We use 'mid' for lateral offset calculation to be consistent with the Scanner
+        local carOffset = telemetry.location - node.mid
+        local latDist = carOffset:dot(segPerp)
+        
+        nav.lateralMeters = latDist
+        nav.trackPositionBias = -math.min(math.max(latDist / halfWidth, -1.0), 1.0)
+        
+        -- Racing Line Bias (Where is the green line relative to center?)
+        local optimalOffset = (node.location - node.mid):dot(segPerp)
+        nav.racingLineBias = -math.min(math.max(optimalOffset / halfWidth, -1.0), 1.0)
+    end
+    
+    return nav
+end
+
+function PerceptionModule.calculateNavigationInputs_old(self, navigation_data)
     local telemetry = self.perceptionData.Telemetry or {}
     local nav = navigation_data or {}
     nav.trackPositionBias = 0.0 

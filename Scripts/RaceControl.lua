@@ -472,30 +472,57 @@ function RaceControl.sv_init_track_data(self)
     local trackData = sm.storage.load(TRACK_DATA_CHANNEL)
     
     if trackData then
-        -- Load Main Race Chain
-        if trackData.raceChain then 
-            self.trackNodeChain = trackData.raceChain
-        elseif trackData.nodes then 
-            self.trackNodeChain = trackData.nodes
-        else 
-            self.trackNodeChain = trackData 
+        -- 1. Deserialize Race Chain
+        local rawChain = trackData.raceChain or trackData.nodes or trackData
+        self.trackNodeChain = {}
+        if rawChain then
+            for _, nodeData in ipairs(rawChain) do
+                table.insert(self.trackNodeChain, self:deserializeTrackNode(nodeData))
+            end
         end
         
-        -- Load Pit Chain and Send to PitManager
-        -- [FIX] Disabled loading old manual PIT_DATA for now
-        -- local manualPitData = sm.storage.load(PIT_DATA) or {} 
-        -- local pitBoxes = manualPitData.pitBoxes or {} 
-        local pitBoxes = nil -- Force nil to trigger anchor-based fallback in PitManager
-
-        if self.PitManager then
-            local pitChain = trackData.pitChain
-            self.PitManager:sv_loadPitData(pitChain, pitBoxes)
+        -- 2. Deserialize Pit Chain (Prevent crash in PitManager)
+        local cleanPitChain = {}
+        if trackData.pitChain then
+            for _, nodeData in ipairs(trackData.pitChain) do
+                table.insert(cleanPitChain, self:deserializeTrackNode(nodeData))
+            end
         end
+        
+        -- 3. Pass Clean Objects to Manager
+        local pitBoxes = nil 
+        if self.PitManager then
+            self.PitManager:sv_loadPitData(cleanPitChain, pitBoxes)
+        end
+        
+        print("RaceControl: Track Data Loaded & Deserialized ("..#self.trackNodeChain.." race nodes, " .. #cleanPitChain .. " pit nodes)")
     else
         print("RaceControl: No Track Data Found!")
     end
 end
 
+
+function RaceControl.deserializeTrackNode(self, dataNode)
+    local function toVec3(t) 
+        if not t then return nil end 
+        return sm.vec3.new(t.x, t.y, t.z) 
+    end
+    
+    return {
+        id = dataNode.id, 
+        location = toVec3(dataNode.pos), -- Restore 'pos' to 'location'
+        mid = toVec3(dataNode.mid) or toVec3(dataNode.pos),
+        width = dataNode.width,
+        distFromStart = dataNode.dist or 0.0,
+        
+        -- Vectors needed for spawning
+        outVector = toVec3(dataNode.out), 
+        perp = toVec3(dataNode.perp),
+        
+        sectorID = dataNode.sectorID or 1,
+        pointType = dataNode.pointType or 0
+    }
+end
 function RaceControl.exportSimplifyChain(self, nodeChain)
     local simpChain = {}
     for k, v in ipairs(nodeChain) do

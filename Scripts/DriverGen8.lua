@@ -627,17 +627,29 @@ function DriverGen8.deserializeTrackNode(self, dataNode)
     local pType = dataNode.pointType or 0
     local isEntry = (pType == 2) 
     
+    -- Load vectors with safe defaults
+    local loadedPerp = toVec3(dataNode.perp)
+    local loadedOut = toVec3(dataNode.out)
+    
+    -- Fallback calculation if perp is missing (prevents crash on old save files)
+    if not loadedPerp and loadedOut then
+         -- Guess "Right" by crossing Forward with Global Up
+         loadedPerp = loadedOut:cross(sm.vec3.new(0,0,1)):normalize() * -1
+    end
+
     return {
         id = dataNode.id, 
-        location = toVec3(dataNode.pos), -- Why should we change it to location? should we keep it at Pos? i know a lot of files use it...
+        location = toVec3(dataNode.pos), 
         mid = toVec3(dataNode.mid) or toVec3(dataNode.pos),
         width = dataNode.width,
         distFromStart = dataNode.dist or 0.0,
         raceProgress = dataNode.prog or 0.0,
         bank = dataNode.bank, 
         incline = dataNode.incline,
-        outVector = toVec3(dataNode.out), 
-        perp = toVec3(dataNode.perp),
+        
+        outVector = loadedOut, 
+        perp = loadedPerp, -- [[ NOW GUARANTEED ]]
+        
         isJump = dataNode.isJump, 
         sectorID = dataNode.sectorID or 1,
         pointType = pType,

@@ -74,8 +74,8 @@ CAMERA_MODES = { RACE_CAM = 0, DRONE_CAM = 1, FREE_CAM = 2, ONBOARD_CAM = 3, FIN
 ZOOM_METHODS = { IN = 0, OUT = 1, STAY = 2 }
 
 WHEEL_DB = {
-    ["62758dca-2d3e-4363-9827-02d24296decb"] = "SML", -- Small Wheel
-    ["809b7c84-e35a-497e-9083-d9633d7894a8"] = "LRG", -- Large Wheel
+    ["69e362c3-32aa-4cd1-adc0-dcfc47b92c0d"] = "SML", -- Small Wheel
+    ["db66f0b1-0c50-4b74-bdc7-771374204b1f"] = "LRG", -- Large Wheel
     -- Add generic/mod fallback or specific mod UUIDs here
 }
 
