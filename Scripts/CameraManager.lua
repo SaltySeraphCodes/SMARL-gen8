@@ -770,71 +770,98 @@ function CameraManager.build_all_drivers(self) -- Builds a set of proper driver 
 end
 
 function CameraManager.cl_decideCameraAndFocus(self) -- Runs onfixed after cameraHold Timer runs out
-    -- Highest Priority: Check for a close battle
     local racers = getAllDrivers()
+    
+    -- [[ FIX 1: IMMEDIATE FAIL-SAFE ]]
+    -- If there are no drivers at all, force Idle immediately to break the loop
+    if not racers or #racers == 0 then
+        self.trackedRacer = nil
+        self.trackedRacers = {}
+        
+        -- Force Drone Cam (Safe default that doesn't rely on car position)
+        self:setCameraMode(CAMERA_MODES.DRONE_CAM)
+        self.droneCameraPos = sm.vec3.new(0,0,50)
+        self.trackingLocation = sm.vec3.new(0,0,5)
+        
+        self.cameraHoldTimer:start(2.0) -- Wait 2 seconds before checking again
+        return
+    end
+
+    -- Highest Priority: Check for a close battle
     local battleCars = self:findClosestBattle(racers, 15) -- 15m threshold
-    -- Delay types
+    
     if battleCars then
-        --print("battleCars")
         -- Priority 1: Focus on the closest battle
         self:setCameraMode(CAMERA_MODES.DRONE_CAM)
-        self.trackedRacers = {} --reset tracked 
+        self.trackedRacers = {} 
         self.trackedRacer = battleCars[1]
         self:addTrackedRacer(battleCars[1])
         self:addTrackedRacer(battleCars[2])
         self.trackingBias = 0.5
-        self.cameraHoldTimer:start(8.0)  -- TODO: Implement Timer()
+        self.cameraHoldTimer:start(8.0)
         return
     end
 
-    -- Car camera points ( shortcut until we detect events better)
-    local sorted_drivers = getDriversByCameraPoints() -- ranks each car by how interesting their situation is (cars around, crashing, etc)
-    if sorted_drivers ~= nil and #sorted_drivers > 1 then  
+    -- Priority 2: Car camera points
+    local sorted_drivers = getDriversByCameraPoints() 
+    
+    -- [[ FIX 2: VALIDATION CHECK ]]
+    -- Ensure the driver actually exists before trying to track them
+    if sorted_drivers ~= nil and #sorted_drivers > 0 then  
         local firstDriver = getDriverFromId(sorted_drivers[1].driver)
-        -- check if driver???
-        self.trackedRacers = {}
-        self.trackedRacer = firstDriver
-        self:addTrackedRacer(firstDriver) -- Maybe do top two or 3?
-        local mode = self:getRandomCamMode({CAMERA_MODES.DRONE_CAM,CAMERA_MODES.RACE_CAM,CAMERA_MODES.ONBOARD_CAM}) -- gets random cam mode until better event detection
-        if mode == CAMERA_MODES.RACE_CAM then -- Double check that works, if not then go Drone
-            local result = self:cl_assignBestCam()
-            if not result then -- fallback to drone camera
-                self:cl_resetDroneArrays()
-                self:setCameraMode(CAMERA_MODES.DRONE_CAM)
-                self.cameraHoldTimer:start(5)
-                return
-            else
-                self:setCameraMode(mode)
-                self.cameraHoldTimer:start(7)
-                return
+        
+        if firstDriver and sm.exists(firstDriver.shape) then
+            self.trackedRacers = {}
+            self.trackedRacer = firstDriver
+            self:addTrackedRacer(firstDriver) 
+
+            local mode = self:getRandomCamMode({CAMERA_MODES.DRONE_CAM,CAMERA_MODES.RACE_CAM,CAMERA_MODES.ONBOARD_CAM})
+            
+            if mode == CAMERA_MODES.RACE_CAM then 
+                local result = self:cl_assignBestCam()
+                if not result then 
+                    self:cl_resetDroneArrays()
+                    self:setCameraMode(CAMERA_MODES.DRONE_CAM)
+                    self.cameraHoldTimer:start(5)
+                    return
+                else
+                    self:setCameraMode(mode)
+                    self.cameraHoldTimer:start(7)
+                    return
+                end
             end
+            self:setCameraMode(mode)
+            self.cameraHoldTimer:start(8)
+            return
         end
-        self:setCameraMode(mode)
-        self.cameraHoldTimer:start(8)
-        return
     end
 
     -- --- PRIORITY 3: Default Tracking (Follow the Leader) ---
-    local DEFAULT_HOLD_TIME = 5.0 -- seconds
-    local raceLeader = getDriverByPos(1) -- Assumed function to get the current leader
+    local DEFAULT_HOLD_TIME = 5.0 
+    local raceLeader = getDriverByPos(1) 
 
-    if raceLeader then
+    if raceLeader and sm.exists(raceLeader.shape) then
         self.trackedRacers = {}
         self.trackedRacer = raceLeader
         self:addTrackedRacer(raceLeader)
         self.trackingBias = 0.7
 
-        -- Default to Drone Cam when nothing else is happening
         self:setCameraMode(CAMERA_MODES.DRONE_CAM) 
         self.cameraHoldTimer:start(DEFAULT_HOLD_TIME)
         return
     end
 
     -- --- PRIORITY 4: Idle/Fallback (No Leader, No Data) ---
+    -- [[ FIX 3: CLEANUP ]]
+    -- Clear the tracked variables so cl_ms_tick doesn't panic
+    self.trackedRacer = nil
+    self.trackedRacers = {}
+    
+    self:setCameraMode(CAMERA_MODES.DRONE_CAM) -- Force a mode so we don't get stuck in Onboard
     self.droneCameraPos = sm.vec3.new(0,0,50)
     self.trackingLocation = sm.vec3.new(0,0,5)
-    --self:exitCamera() -- Release control (or set to a known safe view)
-    self.cameraHoldTimer:start(3.0) -- Check again soon
+    
+    self.cameraHoldTimer:start(3.0) 
 end
 
 function CameraManager.getRandomCamMode(self,camModeList)

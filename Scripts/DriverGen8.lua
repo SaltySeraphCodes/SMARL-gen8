@@ -974,96 +974,34 @@ function DriverGen8:drawDebugLine(startPos, endPos, color, poolName)
 end
 
 function DriverGen8.client_onUpdate(self, dt)
+
     -- Initialize Pool if missing
     if not self.effectPool then self.effectPool = {} end
 
     if self.shape then self.location = self.shape:getWorldPosition() end
-
-
-    --[[ TARGET POINT VISUALIZER 
-    -- Draws a Magenta Orb where the Decision Module wants to go
-    if self.Decision and self.Decision.latestDebugData and self.Decision.latestDebugData.targetPoint then
-        local tp = self.Decision.latestDebugData.targetPoint
-        if not self.TargetEffect then
-            self.TargetEffect = sm.effect.createEffect("Loot - GlowItem")
-            self.TargetEffect:setScale(sm.vec3.new(0,0,0))
-            self.TargetEffect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-            -- Magenta Color for Target
-            self.TargetEffect:setParameter("Color", sm.color.new(1, 0, 1, 1)) 
-            self.TargetEffect:start()
-        end
-        self.TargetEffect:setPosition(tp)
-    elseif self.TargetEffect then
-        self.TargetEffect:stop()
-    end]]
-
-    --[[ CoM VISUALIZER disabled for now
-    if self.body and self.shape then 
-        if self.CoMDebugEffect then
-            if not self.CoMDebugEffect:isPlaying() then self.CoMDebugEffect:start() end
-            self.CoMDebugEffect:setPosition(self.body.centerOfMassPosition)
-        else
-            local comWorld = self.body.centerOfMassPosition 
-            -- Blue Dot for Center of Mass
-            local effect = sm.effect.createEffect("Loot - GlowItem", nil)
-            effect:setScale(sm.vec3.new(0,0,0))
-            effect:setPosition(comWorld)
-            effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-            effect:setParameter("Color", sm.color.new(0, 0, 1, 1))
-            if not effect:isPlaying() then effect:start() end
-            self.CoMDebugEffect = effect
-        end
-    end]]
-    local activeDots = 0
-    --[[ CONTEXT RAYS VISUALIZER 
+    
     local activeDots = 0
 
-    if false then -- self.clientDebugRays then (Disabled for now)
-        -- Process Lines (Context Rays)
-        for _, line in ipairs(self.clientDebugRays) do
-            local color = sm.color.new(0,1,0,1) 
-            if line.c == 2 then color = sm.color.new(1,1,0,1) end 
-            if line.c == 3 then color = sm.color.new(1,0,0,1) end 
-            if line.c == 4 then color = sm.color.new(0,1,1,1) end 
-            
-            local dir = (line.e - line.s)
-            local length = dir:length()
-            local step = 1.5 
-            local normDir = dir:normalize()
-            
-            for d = 0, length, step do
-                activeDots = activeDots + 1
-                local worldPos = line.s + (normDir * d)
-                
-                local effect = self.effectPool[activeDots]
-                if not effect then
-                    effect = sm.effect.createEffect("Loot - GlowItem", nil)
-                    effect:setScale(sm.vec3.new(0,0,0)) 
-                    effect:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-                    effect:setParameter("Color", color)
-                    table.insert(self.effectPool, effect)
-                end
-                
-                if not effect:isPlaying() then effect:start() end
-                effect:setPosition(worldPos)
-                effect:setParameter("Color", color)
-            end
-        end
-    end]]
+    -- [[ FIX: READ FROM NETWORKED VARIABLE ]]
+    -- Previously tried to read self.Decision.latestDebugData (which is nil on client)
+    local dbg = self.clientDebugRays 
 
-    if self.Decision and self.Decision.latestDebugData then
-        local dbg = self.Decision.latestDebugData
-        
+    if dbg then
         -- 1. MAGENTA: The Final Target
         if dbg.targetPoint then
             if not self.effTarget then 
                 self.effTarget = sm.effect.createEffect("Loot - GlowItem")
                 self.effTarget:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-                self.effTarget:setParameter("Color", sm.color.new(1, 0, 1, 1)) -- Magenta
                 self.effTarget:setScale(sm.vec3.new(0, 0, 0))
                 self.effTarget:start()
             end
             self.effTarget:setPosition(dbg.targetPoint)
+            
+            -- Use Optimizer Status Color
+            local statusColor = dbg.statusColor or sm.color.new(1, 0, 1, 1) -- Default Magenta
+            self.effTarget:setParameter("Color", statusColor)
+        elseif self.effTarget then
+            self.effTarget:stop() -- Hide if data is missing but dbg exists
         end
 
         -- 2. CYAN: The "Future Center" (The Anchor)
@@ -1076,20 +1014,22 @@ function DriverGen8.client_onUpdate(self, dt)
                 self.effCenter:start()
             end
             self.effCenter:setPosition(dbg.futureCenter)
+        elseif self.effCenter then
+            self.effCenter:stop()
         end
         
         -- 3. YELLOW LINE: The "Perp" Vector
         if dbg.futureCenter and dbg.usedPerp then
             local startP = dbg.futureCenter
-            local endP = dbg.futureCenter + (dbg.usedPerp * 5.0) -- Draw 5m line showing "Left"
+            local endP = dbg.futureCenter + (dbg.usedPerp * 5.0) 
             self:drawDebugLine(startP, endP, sm.color.new(1,1,0,1), "perpLinePool")
         end
     end
 
-    -- Cleanup
+    -- Cleanup unused effects in the line pool
     for i = activeDots + 1, #self.effectPool do
         local effect = self.effectPool[i]
-        if effect:isPlaying() then effect:stop() end
+        if effect and effect:isPlaying() then effect:stop() end
     end
 end
 

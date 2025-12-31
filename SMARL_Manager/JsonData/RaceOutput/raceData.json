@@ -7,5 +7,57 @@
 		"lapsLeft" : 10.0,
 		"status" : 1.0
 	},
-	"rt" : null
+	"rt" : 
+	[
+		
+		{
+			"bestLap" : 0.0,
+			"dist" : 0.0,
+			"finished" : false,
+			"fl" : 100.0,
+			"gapDist" : 0.0,
+			"gapTime" : 2.470328229206233e-323,
+			"interval" : 0.0,
+			"lap" : 0.0,
+			"lastLap" : 0.0,
+			"locX" : 0.0,
+			"locY" : 0.0,
+			"locZ" : 0.0,
+			"name" : "Racer ?",
+			"pitState" : 0.0,
+			"place" : 1.0,
+			"primary_color" : "#000000",
+			"prog" : 0.0,
+			"secondary_color" : "#000000",
+			"speed" : 0.0,
+			"st" : [ 0.0, 0.0, 0.0 ],
+			"th" : 100.0,
+			"tt" : 2.0
+		},
+		
+		{
+			"bestLap" : 0.0,
+			"dist" : 0.0,
+			"finished" : false,
+			"fl" : 100.0,
+			"gapDist" : 0.0,
+			"gapTime" : 2.470328229206233e-323,
+			"interval" : 2.470328229206233e-323,
+			"lap" : 0.0,
+			"lastLap" : 0.0,
+			"locX" : 0.0,
+			"locY" : 0.0,
+			"locZ" : 0.0,
+			"name" : "Racer ?",
+			"pitState" : 0.0,
+			"place" : 2.0,
+			"primary_color" : "#000000",
+			"prog" : 0.0,
+			"secondary_color" : "#000000",
+			"speed" : 0.0,
+			"st" : [ 0.0, 0.0, 0.0 ],
+			"th" : 100.0,
+			"tt" : 2.0
+		}
+	]
 }

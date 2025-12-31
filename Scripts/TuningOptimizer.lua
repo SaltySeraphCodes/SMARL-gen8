@@ -193,6 +193,11 @@ function TuningOptimizer:recordFrame(perceptionData)
     
     -- Detect Slip (Yaw Rate vs Steering Input mismatch could go here)
     -- For now, we assume if PeakY is huge, we slid.
+    local ppError = self.driver.Decision.dbg_PP_Y or 0
+    local instability = math.abs(ppError)
+    
+    -- [[ NEW: VISUALIZE ]]
+    self:updateDebugVisuals(instability, self.tcsVariance)
 
     self.tickCount = self.tickCount + 1
 end
@@ -364,4 +369,32 @@ function TuningOptimizer:generatePhysicsFingerprint(driver)
     -- NEW FORMAT: M[Mass]_L[Len]_W[Wid]_[WheelType]
     -- Example: M1500_L12.0_W7.0_LRG
     return string.format("M%d_L%.1f_W%.1f_%s", massBucket, lengthBucket, widthBucket, wheelTag)
+end
+
+
+function TuningOptimizer:updateDebugVisuals(instability, tcsVariance)
+    -- Requires DecisionModule to have initialized the effect
+    if not self.driver or not self.driver.Decision or not self.driver.Decision.latestDebugData then return end
+    
+    local color = sm.color.new(0, 1, 0, 1) -- DEFAULT: GREEN (Good)
+    
+    -- PRIORITY 1: SLIDING (Yellow)
+    if tcsVariance > 0.05 then
+        color = sm.color.new(1, 1, 0, 1) -- YELLOW
+    end
+    
+    -- PRIORITY 2: PATH ERROR (Red)
+    -- If we are more than 1.0m off the racing line
+    if math.abs(instability) > 1.0 then
+        color = sm.color.new(1, 0, 0, 1) -- RED
+    end
+    
+    -- Send to Decision Module to render
+    -- (You need to update DecisionModule to accept a color override, or just print it)
+    if self.driver.id % 10 == 0 then -- Don't spam print
+       -- print(self.driver.id, "Stability:", instability, "TCS Var:", tcsVariance)
+    end
+    
+    -- Direct Injection into the Decision Module's Debug Data for rendering
+    self.driver.Decision.latestDebugData.statusColor = color
 end

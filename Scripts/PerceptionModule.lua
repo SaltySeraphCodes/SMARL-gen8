@@ -77,11 +77,14 @@ function PerceptionModule:findClosestNodeFallback(chain, carLocation)
     return closestNode
 end
 
-function PerceptionModule.findClosestPointOnTrack(self, location, chain)
+function PerceptionModule.findClosestPointOnTrack(self, location, chain, allowFallback)
+    -- Default to true if not provided
+    if allowFallback == nil then allowFallback = true end
+    
     local telemetry = self.perceptionData.Telemetry or {}
     local carLocation = location or telemetry.location or self.Driver.body:getWorldPosition()
     
-    -- 1. Try Local Search first (Optimization)
+    -- 1. Try Local Search first
     local segmentStartNode = self.currentNode
     local fallbackNeeded = (segmentStartNode == nil)
     local closestPoint = nil
@@ -123,11 +126,13 @@ function PerceptionModule.findClosestPointOnTrack(self, location, chain)
     end
     
     -- 2. Global Fallback Search
-    if fallbackNeeded then
+    -- [[ FIX: Only run if allowFallback is TRUE ]]
+    if fallbackNeeded and allowFallback then
         local globalNode = self:findClosestNodeFallback(chain, carLocation)
         if globalNode then
              self.currentNode = globalNode
-             return self:findClosestPointOnTrack(location, chain) -- Recursion for precise fit
+             -- [[ FIX: RECURSE WITH FALLBACK DISABLED ]]
+             return self:findClosestPointOnTrack(location, chain, false) 
         end
     end
     
@@ -140,37 +145,33 @@ function PerceptionModule.findClosestPointOnTrack(self, location, chain)
     return closestPoint
 end
 
-
+-- [[ CLEANUP: Use this single version of getPointInDistance ]]
+-- (You had two definitions in your file; delete the other one)
 function PerceptionModule:getPointInDistance(baseNode, start_t, distance, chain)
     local remainingDistance = distance
     local currentNode = baseNode
     if not currentNode or distance <= 0 then return baseNode.location end
-    local nextNode = getNextItem(chain, currentNode.id, 1)
-    if nextNode then
-        local segmentVector = nextNode.location - currentNode.location
-        local segmentLength = segmentVector:length()
-        local distanceToEndOfSegment = segmentLength * (1.0 - start_t)
-        if distanceToEndOfSegment >= remainingDistance then
-            local target_t = start_t + (remainingDistance / segmentLength)
-            return currentNode.location + segmentVector * target_t
-        else
-            remainingDistance = remainingDistance - distanceToEndOfSegment
-            currentNode = nextNode
-        end
-    end
+    
     local nodeDitsTimeout = 0
-    local timeoutLimit = 300 
-    while remainingDistance > 0 and nodeDitsTimeout < timeoutLimit do
-        nextNode = getNextItem(chain, currentNode.id, 1)
+    -- Safety Limit
+    while remainingDistance > 0 and nodeDitsTimeout < 100 do
+        local nextNode = getNextItem(chain, currentNode.id, 1)
         if not nextNode then return currentNode.location end 
+        
         local segmentVector = nextNode.location - currentNode.location
         local segmentLength = segmentVector:length()
-        if segmentLength >= remainingDistance then
-            local target_t = remainingDistance / segmentLength
+        
+        -- Adjust for start_t on first iteration
+        local effectiveLength = segmentLength
+        if nodeDitsTimeout == 0 then effectiveLength = segmentLength * (1.0 - start_t) end
+        
+        if effectiveLength >= remainingDistance then
+            local target_t = (nodeDitsTimeout == 0) and (start_t + (remainingDistance / segmentLength)) or (remainingDistance / segmentLength)
             return currentNode.location + segmentVector * target_t
         else
-            remainingDistance = remainingDistance - segmentLength
+            remainingDistance = remainingDistance - effectiveLength
             currentNode = nextNode
+            start_t = 0 -- Reset t for subsequent nodes
             nodeDitsTimeout = nodeDitsTimeout + 1
         end
     end
@@ -263,37 +264,6 @@ function PerceptionModule.get_world_rotations(self)
     return rotationData
 end 
 
-
-
-function PerceptionModule:getPointInDistance(baseNode, start_t, distance, chain)
-    local remainingDistance = distance
-    local currentNode = baseNode
-    if not currentNode or distance <= 0 then return baseNode.location end
-    
-    local nodeDitsTimeout = 0
-    while remainingDistance > 0 and nodeDitsTimeout < 100 do
-        local nextNode = getNextItem(chain, currentNode.id, 1)
-        if not nextNode then return currentNode.location end 
-        
-        local segmentVector = nextNode.location - currentNode.location
-        local segmentLength = segmentVector:length()
-        
-        -- Adjust for start_t on first iteration
-        local effectiveLength = segmentLength
-        if nodeDitsTimeout == 0 then effectiveLength = segmentLength * (1.0 - start_t) end
-        
-        if effectiveLength >= remainingDistance then
-            local target_t = (nodeDitsTimeout == 0) and (start_t + (remainingDistance / segmentLength)) or (remainingDistance / segmentLength)
-            return currentNode.location + segmentVector * target_t
-        else
-            remainingDistance = remainingDistance - effectiveLength
-            currentNode = nextNode
-            start_t = 0 -- Reset t for subsequent nodes
-            nodeDitsTimeout = nodeDitsTimeout + 1
-        end
-    end
-    return currentNode.location 
-end
 
 -- [[ METRICS & CALCULATIONS ]]
 
@@ -465,7 +435,52 @@ function PerceptionModule.build_navigation_data(self)
         nav.lapProgress = 0
     end
     
-    local inputs = self:calculateNavigationInputs(nav) 
+    -- [[ NEW: SCAN FOR NEXT CORNER (Distance Based) ]]
+    -- Look up to 200m ahead to find the first "Real" turn (Radius < 150m)
+    local scanDist = 0.0
+    local scanNode = nav.closestPointData.baseNode
+    nav.distToNextCorner = 999.0
+    nav.nextCornerDir = 0 -- 0=None, 1=Right, -1=Left
+    nav.nextCornerRadius = 999.0
+    
+    local MAX_SCAN_DIST = 250.0
+    local TURN_THRESH = 150.0 -- Radius below this counts as a "Corner"
+    
+    -- We will step forward 2 nodes at a time to save CPU
+    while scanDist < MAX_SCAN_DIST and scanNode do
+        local nextNode = getNextItem(self.chain, scanNode.id, 2) -- Jump 2 nodes
+        if not nextNode then break end
+        
+        scanDist = scanDist + (nextNode.location - scanNode.location):length()
+        scanNode = nextNode
+        
+        -- Calculate curvature at this future point
+        -- We need 3 points: Prev, Curr, Next to get radius
+        local pA = getNextItem(self.chain, scanNode.id, -2).location
+        local pB = scanNode.location
+        local pC = getNextItem(self.chain, scanNode.id, 2).location
+        
+        local r = self:calculateCurvatureRadius(pA, pB, pC)
+        
+        if r < TURN_THRESH then
+            -- FOUND A TURN!
+            nav.distToNextCorner = scanDist
+            nav.nextCornerRadius = r
+            --print('gr',r,scanDist)
+            
+            -- Calculate Direction
+            local v1 = (pB - pA):normalize()
+            local v2 = (pC - pB):normalize()
+            local cross = v1:cross(v2).z
+            if cross < -0.001 then nav.nextCornerDir = 1    -- Right
+            elseif cross > 0.001 then nav.nextCornerDir = -1 -- Left
+            end
+            
+            break -- Stop scanning, we found the next event
+        end
+    end
+
+    local inputs = self:calculateNavigationInputs(nav)
     nav.nodeGoalDirection = inputs.nodeGoalDirection
     nav.trackPositionBias = inputs.trackPositionBias
     return nav

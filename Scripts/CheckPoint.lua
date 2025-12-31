@@ -95,10 +95,6 @@ function CheckPoint.server_onRefresh( self )
 	self:server_init()
 end
 
-function sleep(n)  -- n: seconds freezes game?
-  local t0 = clock()
-  while clock() - t0 <= n do end
-end
 
 function CheckPoint.asyncSleep(self,func,timeout)
     --print("weait",self.globalTimer,self.gotTick,timeout)
