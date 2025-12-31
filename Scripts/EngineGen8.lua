@@ -72,7 +72,7 @@ function Engine.server_init(self)
     self.engineStats = {
         TYPE = "custom",
         COLOR = "aaaa2f",
-        MAX_SPEED = 25,
+        MAX_SPEED = 50,
         MAX_ACCEL = 0.30,
         MAX_BRAKE = 0.80,
         GEARING = {0.25, 0.30, 0.27, 0.20, 0.15},

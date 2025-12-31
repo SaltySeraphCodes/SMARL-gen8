@@ -488,13 +488,16 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     
     if self.pitState > 0 then idealBias = 0.0 end
 
-    -- --- LAYER 3: SAFETY FILTER ---
-    local isWallDanger = (wall.isLeftCritical or wall.isRightCritical)
+    local wallDist = 1.5 -- Distance to start avoiding (matches WALL_AVOID_DIST)
+    local wallCheck = false
+    if wall and (wall.marginLeft < wallDist or wall.marginRight < wallDist) then
+        wallCheck = true
+    end
     local isOpponentDanger = (opp.count > 0 and opp.collisionRisk)
-    
-    if isWallDanger or isOpponentDanger or VISUALIZE_RAYS then
+    -- Run calculation if Wall is nearby OR Opponent is risky OR Debug is on
+    if wallCheck or isOpponentDanger or VISUALIZE_RAYS then
         local safeBias, debugData = self:calculateContextBias(perceptionData, idealBias)
-        
+
         if debugData then 
             for k, v in pairs(debugData) do self.latestDebugData[k] = v end
         end
@@ -727,8 +730,8 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local yawRate = 0
     if telemetry.angularVelocity then yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up) end
 
-    local rawDamping = yawRate * (optim and optim.dampingFactor or 0.15)
-    rawDamping = rawDamping * 1.5 -- just bypassed optimizer?
+    local currentKd = (optim and optim.dampingFactor or 0.15)
+    local rawDamping = yawRate * currentKd
     -- Logic: If we are steering LEFT (-), and Damping is RIGHT (+), clamp the damping.
     if (steerOutput < 0 and rawDamping > 0) or (steerOutput > 0 and rawDamping < 0) then
         local maxDamp = math.abs(steerOutput) * 0.8
@@ -896,7 +899,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
             LookDist,
             slideSeverity
         )
-        print(logString)
+        --print(logString)
     end
 
     self.controls = controls

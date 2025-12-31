@@ -139,15 +139,23 @@ end
 
 function TuningOptimizer:reportCrash()
     -- [[ LOCK CHECK ]]
-    -- If locked, we ignore crash data. We assume the crash was due to 
-    -- external factors (opponents), not bad tuning.
     if self.learningLocked then return end
 
     self.crashDetected = true
-    -- Immediate Emergency Adjustment
-    self.cornerLimit = math.max(1.0, self.cornerLimit * 0.8) -- Slow down 20% immediately
-    self.dampingFactor = math.min(0.6, self.dampingFactor * 1.5) -- Stiffen steering
-    print(self.driver.id, "CRASH DETECTED! Emergency Limits Applied.")
+    
+    -- [[ FIX: RESET TO SAFE DEFAULTS ]]
+    -- OLD: Multiplied values (Dangerous loop)
+    -- NEW: Reset to known safe "Stiff" values.
+    
+    self.cornerLimit = 1.2      -- Slow down cornering target
+    self.dampingFactor = 0.35   -- Reset to stable damping (Don't let it stay at 0.60!)
+    self.lookaheadMult = 1.1    -- Look a bit further ahead
+    
+    -- Also punish the grip slightly in case we overestimated it
+    self.learnedGrip = math.max(0.8, self.learnedGrip - 0.1)
+
+    print(self.driver.id, "CRASH DETECTED! Resetting Tuning to Safe Defaults.")
+    self:saveProfile() -- Save the reset so we don't load the broken 0.60 profile again
 end
 
 function TuningOptimizer:recordFrame(perceptionData)
@@ -349,7 +357,7 @@ function TuningOptimizer:updateTractionConstant(val)
     if diff < 0.05 then
         if not self.tcsConverged then
             self.tcsConverged = true
-            print("Optimizer: TCS Profile CONVERGED. Locking Physics Profile.")
+            print("Optimizer: TCS Profile CONVERGED. Locking Traction Constraint.")
             self:saveProfile()
         end
     elseif diff > 0.1 then
