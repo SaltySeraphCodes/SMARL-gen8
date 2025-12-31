@@ -1,5 +1,15 @@
 
 {
+	"GENERIC" : 
+	{
+		"brakingFactor" : 15.0,
+		"cornerLimit" : 1.0,
+		"dampingFactor" : 0.60,
+		"learnedGrip" : 1.0,
+		"lookaheadMult" : 1.0,
+		"tractionConstant" : 1.972303344255209,
+		"updated" : 1767171198.0
+	},
 	"M6750_L6.0_W3.0_NIL" : 
 	{
 		"brakingFactor" : 15.150,

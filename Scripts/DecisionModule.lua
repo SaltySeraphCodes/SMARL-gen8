@@ -654,7 +654,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local lookaheadDist = math.max(12.0, speed * mult)
     
     -- Find the node ahead on the centerline
-    local centerPoint, _ = self.Driver.Perception:getFutureCenterPoint(
+    local centerPoint, _ = self:getFutureCenterPoint(
         nav.closestPointData.baseNode, 
         nav.closestPointData.tOnSegment, 
         lookaheadDist, 
