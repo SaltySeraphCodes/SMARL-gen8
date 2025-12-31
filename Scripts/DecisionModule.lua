@@ -13,14 +13,12 @@ local MIN_RADIUS_FOR_MAX_SPEED = 130.0
 -- [[ TUNING - STEERING PID ]]
 local MAX_WHEEL_ANGLE_RAD = 0.8 
 local DEFAULT_STEERING_Kp = 0.12  
-local DEFAULT_STEERING_Kd = 0.1 -- Increase damping. Resist the swing  
+local DEFAULT_STEERING_Kd = 0.45 -- Increase damping. Resist the swing  
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
--- [NEW] Slew Rate Limit (Max steering change per second)
--- 4.0 means it takes 0.25s to go from center to full lock. 
--- Prevents instant snaps that break physics.
-local STEERING_SLEW_RATE = 4.0 
+
+local STEERING_SLEW_RATE = 15 -- radians per second allowed for wheel to turn
 
 -- [[ TUNING - SPEED PID ]]
 local SPEED_Kp = 0.15             
@@ -52,7 +50,7 @@ local CORNER_PHASE_DURATION = 0.3
 local NUM_RAYS = 17            
 local VIEW_ANGLE = 120         
 local LOOKAHEAD_RANGE = 45.0   
-local SAFETY_WEIGHT = 10.0     
+local SAFETY_WEIGHT = 3      -- WAS 10.0. Set to 0.0 to disable Wall Avoidance override.
 local INTEREST_WEIGHT = 2.0    
 local WALL_AVOID_DIST = 1.5    
 local VISUALIZE_RAYS = true    
@@ -359,7 +357,8 @@ function DecisionModule:calculateContextBias(perceptionData, preferredBias)
 
     for i = 1, NUM_RAYS do
         -- Weight: Safety is 5x more important than Interest
-        local score = (interestMap[i] * 1.0) - (dangerMap[i] * 5.0)
+        local score = (interestMap[i] * INTEREST_WEIGHT) - (dangerMap[i] * SAFETY_WEIGHT)
+        
         if score > bestScore then
             bestScore = score
             bestIndex = i
@@ -402,37 +401,48 @@ function DecisionModule:getDebugLines(angles, interest, danger, bestIdx, count)
     return lines
 end
 
-function DecisionModule.handleCorneringStrategy(self, perceptionData, dt)
+function DecisionModule:handleCorneringStrategy(perceptionData, dt)
     local nav = perceptionData.Navigation
+    local speed = perceptionData.Telemetry.speed
     
-    -- 1. ACTIVE CORNERING (We are IN the turn)
-    -- If the current radius is tight, we must hit the apex NOW.
-    if nav.roadCurvatureRadius < 180.0 then
-        -- Standard Apex Logic: Inside of the turn
-        if nav.longCurveDirection == 1 then return 0.9 end -- Right Turn -> Hug Right
-        if nav.longCurveDirection == -1 then return -0.9 end -- Left Turn -> Hug Left
+    -- Reset default (No setup needed)
+    self.cornerSetupBias = 0.0
+    self.cornerSetupWeight = 0.0
+    
+    -- 1. ACTIVE CORNERING (Already in the turn)
+    -- If we are in the turn, we shouldn't be "setting up". We should be hitting the apex.
+    if nav.roadCurvatureRadius < 150.0 then
+        -- We let the Pure Pursuit / Apex logic handle the turn itself.
+        -- Just return, resetting the setup bias.
+        return 
     end
     
-    -- 2. SETUP PHASE (Distance Based)
-    -- We are on a straight, but a corner is coming.
-    if nav.distToNextCorner < 200.0 and nav.nextCornerDir ~= 0 then
-        -- Optimization: The closer we get, the wider we push.
-        -- At 200m away -> Bias 0.2
-        -- At 50m away  -> Bias 1.0
+    -- 2. SETUP PHASE (Approaching a turn)
+    -- We use Time-To-Corner instead of Distance. 
+    -- 4.0 seconds allows a smooth lane change at high speed.
+    local lookaheadTime = 4.0 
+    local triggerDist = math.max(40.0, speed * lookaheadTime)
+    
+    if nav.distToNextCorner < triggerDist and nav.nextCornerDir ~= 0 then
         
-        -- SETUP LOGIC: Go OPPOSITE to the turn direction (Open the entry)
-        -- If Next Turn is RIGHT (1), we want to be LEFT (-1).
+        -- A. DIRECTION LOGIC
+        -- If Turn is RIGHT (1), we want to be LEFT (-1).
         local setupSide = -nav.nextCornerDir 
         
-        -- Ramp up the bias as we get closer
-        local urgency = 1.0 - (math.max(0, nav.distToNextCorner - 20) / 180.0)
-        -- urgency is 0.0 at 200m, 1.0 at 20m.
+        -- B. SMOOTH URGENCY
+        -- 0.0 = Just detected (Far away)
+        -- 1.0 = At the braking zone (Close)
+        local rawUrgency = 1.0 - (nav.distToNextCorner / triggerDist)
         
-        return setupSide * urgency * 0.95 -- Target 95% width
+        -- Apply Ease-In Curve (Sine Wave) for smoothness
+        -- This makes the car start the lane change gently, then commit.
+        local smoothUrgency = math.sin(rawUrgency * (math.pi / 2))
+        
+        -- C. OUTPUT
+        -- We don't want to hug the wall 100% (risk of clipping). Target 85% width.
+        self.cornerSetupBias = setupSide * 0.85
+        self.cornerSetupWeight = smoothUrgency
     end
-
-    -- 3. CRUISING (Straight and Clear)
-    return 0.0
 end
 
 
@@ -441,33 +451,35 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     local opp = perceptionData.Opponents
     local wall = perceptionData.WallAvoidance 
     
-    -- [[ CRITICAL FIX ]]
-    -- START with the recorded line (Where we WANT to be)
-    -- DO NOT use trackPositionBias here (Where we ARE)
+    -- Ensure Debug Table Exists (Preserve Optimizer Data)
+    if not self.latestDebugData then self.latestDebugData = {} end
+
+    -- --- LAYER 1: STRATEGIC INTENT ---
     local idealBias = nav.racingLineBias or 0.0    
     
-    -- --- LAYER 1: STRATEGIC OVERRIDES ---
     if self.currentMode == "Formation" or self.currentMode == "Caution" then
         local b, _ = self:getStructuredModeTargets(perceptionData, self.currentMode)
         idealBias = b
     elseif self.currentMode == "Drafting" and opp.draftingTarget then
-        -- Follow the opponent's bias
         idealBias = opp.draftingTarget.opponentBias
     elseif self.currentMode == "Yield" then
         idealBias = self:getYieldBias(perceptionData)
     elseif self.currentMode == "DefendLine" then
-         -- Block the side we are currently on (Use Current Pos to decide, but return Target)
          local mySide = getSign(nav.trackPositionBias or 0.0)
          idealBias = mySide * DEFENSE_BIAS_FACTOR 
     elseif self.currentMode == "OvertakeDynamic" and self.dynamicOvertakeBias then
          idealBias = self.dynamicOvertakeBias
+    -- [[ NEW: APPLY CORNER SETUP ]]
+    -- If we are in "RaceLine" mode and have a setup strategy active
+    elseif self.currentMode == "RaceLine" and self.cornerSetupWeight and self.cornerSetupWeight > 0 then
+        -- Blend the Racing Line (usually 0.0) with the Setup Line (e.g. -0.8)
+        -- The closer we get to the corner, the more we listen to the Setup.
+        idealBias = (idealBias * (1.0 - self.cornerSetupWeight)) + (self.cornerSetupBias * self.cornerSetupWeight)
     end
 
-    -- --- LAYER 2: PHYSICS & SAFETY ---
+    -- --- LAYER 2: PHYSICS CONSTRAINTS ---
     if self.isCornering then
-        -- In a corner, strictly follow the geometric apex calculated by handleCorneringStrategy
         if self.currentMode == "OvertakeDynamic" then
-             -- Blend: 80% Apex, 20% Overtake Line
              idealBias = (self.targetBias * 0.8) + (idealBias * 0.2)
         else
              idealBias = self.targetBias 
@@ -476,23 +488,25 @@ function DecisionModule.getFinalTargetBias(self, perceptionData)
     
     if self.pitState > 0 then idealBias = 0.0 end
 
-    -- --- LAYER 3: CONTEXT STEERING ---
-    -- Context needs to know:
-    -- 1. Where do we WANT to go? (idealBias)
-    -- 2. Where are the dangers? (Telemetry)
-    
+    -- --- LAYER 3: SAFETY FILTER ---
     local isWallDanger = (wall.isLeftCritical or wall.isRightCritical)
     local isOpponentDanger = (opp.count > 0 and opp.collisionRisk)
     
     if isWallDanger or isOpponentDanger or VISUALIZE_RAYS then
-        -- calculateContextBias internally uses nav.trackPositionBias (Current) 
-        -- only to calculate the angles to walls/cars.
         local safeBias, debugData = self:calculateContextBias(perceptionData, idealBias)
         
-        if debugData then self.latestDebugData = debugData end
+        if debugData then 
+            for k, v in pairs(debugData) do self.latestDebugData[k] = v end
+        end
 
+        -- [[ FIX: SMOOTH BLENDING ]]
+        -- If wall avoidance disagrees with racing line, blend them instead of snapping.
         if math.abs(safeBias - idealBias) > 0.1 then
-             return safeBias
+             -- If critical danger, assume 100% safe bias. If mild, blend 50%.
+             local blend = 0.5
+             if isWallDanger then blend = 0.8 end
+             
+             return (idealBias * (1.0 - blend)) + (safeBias * blend)
         end
     end
 
@@ -563,9 +577,10 @@ function DecisionModule.determineStrategy(self, perceptionData, dt)
     elseif self.Driver.caution then self.currentMode = "Caution"; return
     elseif self.pitState > 0 then self.currentMode = "Pit"; return end
     
-    -- 2. CORNERING (Physics Logic)
-    -- We calculate this every frame, but we don't return yet. 
-    -- We want to know if we are cornering, but still run Overtake logic if possible.
+    -- [[ FIX: RUN SETUP LOGIC ]]
+    -- Calculate the corner setup bias every frame.
+    -- We do this BEFORE Overtaking logic, because setting up for a corner 
+    -- is usually more important than a risky pass unless we are dive-bombing.
     self:handleCorneringStrategy(perceptionData, dt)
 
     -- 3. INTERACTION STRATEGIES
@@ -617,9 +632,9 @@ function DecisionModule.determineStrategy(self, perceptionData, dt)
     end
 end
 
-
-function DecisionModule.calculateSteering(self, perceptionData, dt)
+function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     if not perceptionData or not perceptionData.Navigation then return 0.0 end
+    
     if not self.latestDebugData then self.latestDebugData = {} end
 
     local nav = perceptionData.Navigation
@@ -627,76 +642,123 @@ function DecisionModule.calculateSteering(self, perceptionData, dt)
     local speed = telemetry.speed
     local optim = self.Driver.Optimizer
     
-    -- [[ STEP 1: GET THE GOAL ]]
-    -- Call our new strategy function. 
-    -- This returns a value between -1.0 (Left Edge) and 1.0 (Right Edge)
+    -- 1. GET GOAL
     local targetBias = self:getFinalTargetBias(perceptionData)
     
-    -- [[ STEP 2: CLAMP & SMOOTH ]]
-    local trackWidth = 20.0
-    if nav.closestPointData and nav.closestPointData.baseNode then
-        trackWidth = nav.closestPointData.baseNode.width
+    -- 2. GET FUTURE GEOMETRY
+    local mult = (optim and optim.lookaheadMult) or 0.9
+    -- [[ FIX: DYNAMIC LOOKAHEAD SCALING ]]
+    -- If the turn is tight (Radius < 60m), shrink the lookahead.
+    -- This pulls the green ball closer to the car, allowing it to "hug" the apex.
+    local radius = nav.roadCurvatureRadius or 1000.0
+    local curveFactor = 1.0
+    
+    if radius < 60.0 then
+        -- Scale down: At 20m radius, use 50% lookahead. At 60m, use 100%.
+        curveFactor = math.max(0.5, radius / 60.0)
+    end 
+    -- STABILITY OVERRIDE:
+    if isUnstable then
+        mult = mult * 2.0 -- Look TWICE as far if sliding (e.g. 18m -> 36m)
     end
-    local halfWidth = trackWidth / 2.0
     
-    -- Safety Clamp (Don't drive off the map)
-    local safeZone = math.max(1.0, halfWidth - 3.5) -- 3.5m padding from edge
-    local maxBias = safeZone / halfWidth
-    targetBias = math.max(math.min(targetBias, maxBias), -maxBias)
-    
-    -- Smooth the target movement (prevent twitching)
-    local lerpRate = 0.15 
-    self.smoothedBias = (self.smoothedBias or 0) * (1.0 - lerpRate) + targetBias * lerpRate
-    local finalBias = self.smoothedBias
-
-    -- [[ STEP 3: CALCULATE LOOKAHEAD POINT ]]
-    local mult = (optim and optim.lookaheadMult) or 1.0 
     local lookaheadDist = math.max(12.0, speed * mult)
     
-    -- Find the node ahead on the centerline
-    local centerPoint, _ = self:getFutureCenterPoint(
+    local centerPoint, futureNode = self:getFutureCenterPoint(
         nav.closestPointData.baseNode, 
         nav.closestPointData.tOnSegment, 
         lookaheadDist, 
         self.Driver.Perception.chain
     )
 
-    -- [[ STEP 4: APPLY BIAS TO GET TARGET POINT ]]
-    -- Offset the center point by our Goal Bias
-    -- This creates the "Red Dot" the car chases
-    local perpDir = nav.closestPointData.baseNode.perp or self.Driver.shape:getRight()
-    local targetPoint = centerPoint + (perpDir * (finalBias * halfWidth))
+    -- 3. CLAMP BIAS (Using Future Width)
+    local trackWidth = 20.0
+    if futureNode then trackWidth = futureNode.width end
+    local halfWidth = trackWidth / 2.0
+    
+    local safeZone = math.max(1.0, halfWidth - 3.5) 
+    local maxBias = safeZone / halfWidth
+    
+    targetBias = math.max(math.min(targetBias, maxBias), -maxBias)
+    
+    -- Smooth
+    local lerpRate = 0.15 
+    self.smoothedBias = (self.smoothedBias or 0) * (1.0 - lerpRate) + targetBias * lerpRate
+    local finalBias = self.smoothedBias
+
+    -- 4. CALCULATE TARGET POINT
+    local perpDir = nil
+    if futureNode and futureNode.perp then
+        perpDir = futureNode.perp
+    elseif nav.closestPointData.baseNode.perp then
+        perpDir = nav.closestPointData.baseNode.perp 
+    else
+        -- Fallback: Invert Right to get Left
+        perpDir = self.Driver.shape:getRight() * -1 
+    end
+    
+    -- [[ LOGIC: SUBTRACT LEFT ]]
+    -- Center - (Left * NegativeBias) = Center + Left. Correct.
+    local targetPoint = centerPoint - (perpDir * (finalBias * halfWidth))
 
     -- Debug Data
     self.latestDebugData.targetPoint = targetPoint
     self.latestDebugData.futureCenter = centerPoint
     self.latestDebugData.usedPerp = perpDir
+    
+    if not self.latestDebugData.statusColor then
+        self.latestDebugData.statusColor = sm.color.new(0, 1, 0, 1) 
+    end
 
-    -- [[ STEP 5: PURE PURSUIT (EXECUTION) ]]
-    -- Calculate error between CAR (Current) and TARGET POINT (Goal)
+    -- 5. PURE PURSUIT
     local carPos = telemetry.location
     local vecToTarget = targetPoint - carPos
     
-    -- Transform to Local Space (How far left/right is the target relative to my nose?)
     local localY = vecToTarget:dot(telemetry.rotations.right)
-    
+    self.dbg_PP_Y = localY
     local distSq = vecToTarget:length2()
     local curvature = (2.0 * localY) / distSq
     
-    local steerOutput = curvature * 3.5 -- Gain
+    local steerOutput = curvature * 3.8 --This is the gain
     
-    -- Damping/Slew Rate logic...
+    -- CLAMP DAMPING: 
+    -- Prevent Damping from ever exceeding 80% of the Steering Input.
+    -- This ensures the car ALWAYS turns at least a little bit, even if rotating fast.
     local yawRate = 0
     if telemetry.angularVelocity then yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up) end
-    local damping = yawRate * ((optim and optim.dampingFactor) or 0.25)
-    local rawOutput = steerOutput - damping
-    
-    return math.max(math.min(rawOutput, 1.0), -1.0)
+
+    local rawDamping = yawRate * (optim and optim.dampingFactor or 0.15)
+    rawDamping = rawDamping * 1.5 -- just bypassed optimizer?
+    -- Logic: If we are steering LEFT (-), and Damping is RIGHT (+), clamp the damping.
+    if (steerOutput < 0 and rawDamping > 0) or (steerOutput > 0 and rawDamping < 0) then
+        local maxDamp = math.abs(steerOutput) * 0.8
+        if rawDamping > maxDamp then rawDamping = maxDamp end
+        if rawDamping < -maxDamp then rawDamping = -maxDamp end
+    end
+
+    local rawOutput = steerOutput - rawDamping
+    local clampedOutput = math.max(math.min(rawOutput, 1.0), -1.0)
+
+    -- [[ CHANGED: SAVE DEBUG VALUES ]]
+    self.latestDebugData.rawP = steerOutput
+    self.latestDebugData.rawD = rawDamping
+    self.latestDebugData.latErr = nav.lateralMeters or 0
+    -- [[ END CHANGE ]]
+
+    -- Slew Rate
+    --if self.lastSteerOut then
+    --    local maxChange = 4.0 * dt 
+    --    local delta = clampedOutput - self.lastSteerOut
+    --    if delta > maxChange then clampedOutput = self.lastSteerOut + maxChange
+    --    elseif delta < -maxChange then clampedOutput = self.lastSteerOut - maxChange end
+    --end
+    self.lastSteerOut = clampedOutput
+
+    return clampedOutput
 end
 
 
-
-function DecisionModule.calculateSpeedControl(self,perceptionData, steerInput)
+function DecisionModule.calculateSpeedControl(self, perceptionData, steerInput, isUnstable)
     local currentSpeed = perceptionData.Telemetry.speed
     local targetSpeed = self:getTargetSpeed(perceptionData,steerInput) -- Recalculated here
     
@@ -741,6 +803,37 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
 
     self:updateTrackState(perceptionData)
 
+    -- [[ 1. STABILITY DETECTION ]]
+    local tm = perceptionData.Telemetry
+    local isUnstable = false
+    local slideSeverity = 0.0
+    
+    if tm.velocity and tm.speed > 5.0 then
+        local velDir = tm.velocity:normalize()
+        local sideSlip = math.abs(velDir:dot(tm.rotations.right))
+        
+        -- [[ FIX 1: LOWER THRESHOLD ]]
+        -- WAS: 0.25 (15 degrees). NEW: 0.12 (7 degrees)
+        if sideSlip > 0.12 then 
+            isUnstable = true 
+            slideSeverity = sideSlip
+        end
+        
+        -- [[ FIX 2: COUNTER-STEER DETECTOR ]]
+        -- If we are Yawing Left but Steering Right hard, we are fighting a slide.
+        -- This detects instability BEFORE the slip angle gets huge.
+        local yawRate = 0
+        if tm.angularVelocity then yawRate = tm.angularVelocity:dot(tm.rotations.up) end
+        
+        -- If Yaw and Steer are opposite signs and substantial
+        local steerInput = (self.controls and self.controls.steer) or 0
+        if (yawRate > 0.5 and steerInput < -0.3) or (yawRate < -0.5 and steerInput > 0.3) then
+             isUnstable = true
+             slideSeverity = math.max(slideSeverity, 0.5) -- Treat as medium severity
+        end
+    end
+
+    -- [[ 2. STRATEGY & CONTROLS ]]
     local targetSpeedForLog = 0.0
 
     if controls.resetCar then
@@ -748,14 +841,30 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         controls.steer = 0.0; controls.throttle = 0.0; controls.brake = 0.0
     else
         self:determineStrategy(perceptionData, dt) 
-        controls.steer = self:calculateSteering(perceptionData, dt)
-        -- Capture target speed from the updated function
-        controls.throttle, controls.brake, targetSpeedForLog = self:calculateSpeedControl(perceptionData, controls.steer)
+        
+        -- PASS UNSTABLE FLAG TO STEERING
+        controls.steer = self:calculateSteering(perceptionData, dt, isUnstable)
+        
+        -- PASS UNSTABLE FLAG TO SPEED
+        controls.throttle, controls.brake, targetSpeedForLog = self:calculateSpeedControl(perceptionData, controls.steer, isUnstable)
+        
+        -- [[ 3. STABILITY ASSIST OVERRIDES ]]
+        if isUnstable then
+            -- A. THROTTLE CUT: Reduce throttle based on severity
+            -- If mild slide (0.25), cut 50%. If hard slide (0.5+), cut 100%.
+            local cutFactor = math.max(0, 1.0 - (slideSeverity * 2.0))
+            controls.throttle = controls.throttle * cutFactor
+            
+            -- B. DEBUG VISUALS: Turn RED
+            if self.latestDebugData then
+                self.latestDebugData.statusColor = sm.color.new(1, 0, 0, 1) -- RED
+            end
+        end
     end
 
+    -- [[ 4. LOGGING (Existing Code) ]]
     local spd = perceptionData.Telemetry.speed or 0 
     
-    -- Crash Detection
     if self.lastSpeed then
         local delta = spd - self.lastSpeed
         if delta < -8.0 then 
@@ -765,57 +874,27 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     end
     self.lastSpeed = spd
 
-    -- [[ TELEMETRY LOGGING ]]
     local tick = sm.game.getServerTick()
-    -- Log every 4 ticks (0.1s) for readability, or every 1 tick if debugging a crash
     if spd > 1.0 and tick % 4 == 0 then 
         local nav = perceptionData.Navigation
-        local tm = perceptionData.Telemetry
-        
-        -- 1. HEADING ERROR (Are we crab-walking?)
-        -- Calculate the angle between Car Forward and Track Forward
-        local hdgErr = 0.0
-        if nav.closestPointData and nav.closestPointData.baseNode then
-            local trackFwd = nav.closestPointData.baseNode.outVector
-            local carFwd = tm.rotations.at
-            -- Ignore Z for heading error
-            local flatTrack = sm.vec3.new(trackFwd.x, trackFwd.y, 0):normalize()
-            local flatCar = sm.vec3.new(carFwd.x, carFwd.y, 0):normalize()
-            local cross = flatCar:cross(flatTrack) -- Z component tells us Left/Right error
-            hdgErr = math.deg(math.asin(math.max(math.min(cross.z, 1), -1)))
-        end
+        local P_Term = (self.latestDebugData and self.latestDebugData.rawP) or 0
+        local D_Term = (self.latestDebugData and self.latestDebugData.rawD) or 0
+        local LookDist = (self.latestDebugData and self.latestDebugData.targetPoint and (self.latestDebugData.targetPoint - tm.location):length()) or 0
 
-        -- 2. STEERING LAG (Are the wheels obeying?)
-        local actualWheelAngle = 0.0
-        local bearings = sm.interactable.getBearings(self.Driver.interactable)
-        if #bearings > 0 then
-            -- Convert Bearing Angle (Rad) to Steer Factor (-1 to 1)
-            -- Assumes MAX_WHEEL_ANGLE_RAD is 0.8
-            actualWheelAngle = bearings[1]:getAngle() / 0.8 
-        end
-        local steerLag = controls.steer - actualWheelAngle
-
-        -- 3. LOOKAHEAD DISTANCE (Did stability logic push it out?)
-        local lookaheadDist = 0.0
-        if self.latestDebugData and self.latestDebugData.targetPoint then
-             lookaheadDist = (self.latestDebugData.targetPoint - tm.location):length()
-        end
-
-        -- 4. FORMAT STRING
-        -- [Mode] | Spd: Curr/Tgt | Steer: Cmd(Lag) | Err: Lat/Hdg | Aim: Dist
+        -- Add "UNSTABLE" tag to log if active
         local modeStr = self.currentMode or "Race"
-        if self.isCornering then modeStr = "Corn" .. tostring(self.cornerPhase) end
+        if isUnstable then modeStr = "SLIDE" end
 
         local logString = string.format(
-            "[%-6s] Spd:%02.0f/%02.0f | Str:%+.2f(Lag%+.2f) | Err:Lat%+.1f/Hdg%+.0f | Aim:%02.1fm",
+            "[%-6s] Spd:%02.0f | LatErr:%+.1fm | P(Turn):%+.2f | D(Damp):%+.2f | Final:%+.2f | Look:%02.0fm | Slip:%.2f",
             modeStr,
             spd,
-            targetSpeedForLog,
+            nav.lateralMeters or 0,
+            P_Term,
+            D_Term,
             controls.steer,
-            steerLag,
-            nav.trackPositionBias or 0.0, -- "Lat" is bias (-1 to 1) here
-            hdgErr,
-            lookaheadDist
+            LookDist,
+            slideSeverity
         )
         print(logString)
     end

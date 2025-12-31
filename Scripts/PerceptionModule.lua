@@ -21,9 +21,16 @@ function PerceptionModule.server_init(self, driver)
     -- [OPTIMIZATION] Scan static dimensions once at startup
     if self.Driver.body then
         self.Driver.carDimensions = self:scanCarDimensions()
+        
+        -- NEW: Use the actual scanned distance to the side
+        local leftDist = self.Driver.carDimensions.left:length()
+        local rightDist = self.Driver.carDimensions.right:length()
+        
+        -- Use the wider side (in case of asymmetry) and add a small safety buffer
+        self.carHalfWidth = math.max(leftDist, rightDist) + 0.2
         local aabb_min, aabb_max = self.Driver.body:getWorldAabb()
         local dimensions = aabb_max - aabb_min
-        self.carHalfWidth = math.max(dimensions.x, dimensions.y) / 2.0
+        self.bbDimensions = dimensions
     else
         self.carHalfWidth = 1.5 
     end
@@ -506,7 +513,14 @@ function PerceptionModule.build_telemetry_data(self)
     -- Dimensions
     t.carDimensions = self.Driver.carDimensions
     t.carHalfWidth = self.carHalfWidth
+    t.bbDimensions = self.bbDimensions
     
+    -- [[ FIX: READ RPM FROM ENGINE ]]
+    t.avgWheelRPM = 0
+    if self.Driver.engine and self.Driver.engine.avgWheelRPM then
+        t.avgWheelRPM = self.Driver.engine.avgWheelRPM
+    end
+
     -- Artificial Downforce (Read from linked logic blocks)
     t.downforce = 0
     for _, parent in ipairs(self.Driver.interactable:getParents()) do

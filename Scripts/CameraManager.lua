@@ -251,7 +251,7 @@ function CameraManager.setCameraMode( self,mode ) -- client
     if self.currentCameraMode ~= mode then
         self.recentSwitch = true -- hold frame
         self.recentSwitchTimer:start(40)
-        print("changing cam mode",mode)
+        --print("changing cam mode",mode)
         self.currentCameraMode = mode 
     end
 end

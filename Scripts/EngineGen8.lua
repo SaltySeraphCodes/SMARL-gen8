@@ -215,12 +215,18 @@ function Engine.calculateRPM(self)
         local steerInput = math.abs(self.driver.perceptionData.steer or 0)
         local speed = self.driver.perceptionData.Telemetry.speed
         
-        -- [[ FIX: ALLOW HIGH THROTTLE LEARNING ]]
-        -- If we are stuck at low speed (speed < 30) with high throttle, we FORCE learning.
-        local isDesperate = (speed > 5.0 and speed < 35.0 and self.accelInput > 0.8)
-        --local isCruising  = (speed > 5.0 and self.accelInput > 0.1 and self.accelInput < 0.8)
+        local yawRate = 0
+        if self.driver.perceptionData.Telemetry.angularVelocity then
+             local av = self.driver.perceptionData.Telemetry.angularVelocity
+             local up = self.driver.perceptionData.Telemetry.rotations.up
+             yawRate = math.abs(av:dot(up))
+        end
 
-        if (isDesperate ) and steerInput < 0.1 then
+        local isDesperate = (speed > 5.0 and speed < 35.0 and self.accelInput > 0.8)
+
+        -- [[ CHANGED: ADD YAW CHECK ]]
+        -- Only learn if steering is straight AND the car isn't spinning (Yaw < 0.5)
+        if (isDesperate) and steerInput < 0.1 and yawRate < 0.5 then
             isLearning = true
         end
 
@@ -245,7 +251,11 @@ function Engine.calculateRPM(self)
         end
 
         -- [PERFORM CALIBRATION]
-        if isLearning and wheelCount > 0 then
+        -- [PERFORM CALIBRATION]
+        -- [[ CHANGED: CHECK CONVERGENCE ]]
+        -- If we have already converged (locked), DO NOT update unless we are absolutely sure.
+        -- This stops the "fluctuation after corners" because we stop calculating during minor instability.
+        if isLearning and wheelCount > 0 and not tcsConverged then
             avgActualRPM = avgActualRPM / wheelCount
             
             -- Solve for Constant: Const = (Speed * 60) / RPM
@@ -273,7 +283,7 @@ function Engine.calculateRPM(self)
                 end
             end
         else
-            -- If we stop meeting conditions (e.g. brake or corner), reset the partial buffer
+            -- If we stop meeting conditions (e.g. brake or corner) OR we are converged:
             self.learnCount = 0 
             self.learnSum = 0
         end
@@ -447,20 +457,21 @@ function Engine.setRPM(self, value)
     local totalAngularVel = 0
     
     for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
-        sm.joint.setMotorVelocity(bearing, value, strength)
+        sm.joint.setMotorVelocity(bearing, value, 500)
         if self.driver and self.driver.perceptionData and self.driver.perceptionData.Telemetry then
-            local totalAngularVel = 0
-            local count = 0
             local av = bearing:getAngularVelocity()
-             totalAngularVel = totalAngularVel + math.abs(av)
-             count = count + 1
+            totalAngularVel = totalAngularVel + math.abs(av)
+            count = count + 1
         end
-        if count > 0 then
-            local avgRadS = totalAngularVel / count
-            -- Store both units for convenience
-            self.driver.perceptionData.Telemetry.avgWheelRadS = avgRadS
-            self.driver.perceptionData.Telemetry.avgWheelRPM = (avgRadS * 60) / (2 * math.pi)
-        end
+    end 
+    
+    -- Move this OUTSIDE the loop so it runs once after summing all wheels
+    if count > 0 then
+        local avgRadS = totalAngularVel / count
+        -- Store on self so Perception can read it anytime
+        self.avgWheelRPM = (avgRadS * 60) / (2 * math.pi)
+    else
+        self.avgWheelRPM = 0
     end
 end
 
@@ -522,6 +533,7 @@ function Engine.parseParents(self)
         self.accelInput = 0
     else
         self:sv_setDriverError(false)
+        if self.driver then self.driver:on_engineLoaded(self) end
     end
 end
 

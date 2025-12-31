@@ -96,7 +96,7 @@ end
 -- Helper to apply the force
 function ActionModule:applyBearingForce(angle, speed)
     for k, v in pairs(sm.interactable.getBearings(self.Driver.interactable)) do
-        sm.joint.setTargetAngle(v, angle, speed, 2000)
+        sm.joint.setTargetAngle(v, angle, 2000, 2000)
     end
 end
 
@@ -119,8 +119,8 @@ function ActionModule.applyControls(self, controls)
     end 
 end
 
-function ActionModule.server_onFixedUpdate(self,decisionData)
+function ActionModule.server_onFixedUpdate(self,decisionData,dt)
     self.decisionData = decisionData
-    self:updateGearing() 
+    self:updateGearing(dt) 
     self:applyControls(decisionData)
 end

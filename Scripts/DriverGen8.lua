@@ -223,7 +223,7 @@ function DriverGen8.server_onFixedUpdate(self, dt)
             decisionData.brake = 1.0
             decisionData.steer = 0
         end
-        self.Action:server_onFixedUpdate(decisionData)
+        self.Action:server_onFixedUpdate(decisionData,dt)
         if decisionData.resetCar then self:resetCar() end
     end
 
@@ -1018,12 +1018,12 @@ function DriverGen8.client_onUpdate(self, dt)
             self.effCenter:stop()
         end
         
-        -- 3. YELLOW LINE: The "Perp" Vector
-        if dbg.futureCenter and dbg.usedPerp then
-            local startP = dbg.futureCenter
-            local endP = dbg.futureCenter + (dbg.usedPerp * 5.0) 
-            self:drawDebugLine(startP, endP, sm.color.new(1,1,0,1), "perpLinePool")
-        end
+        ---- 3. YELLOW LINE: The "Perp" Vector
+        --if dbg.futureCenter and dbg.usedPerp then
+        --    local startP = dbg.futureCenter
+        --    local endP = dbg.futureCenter + (dbg.usedPerp * 5.0) 
+        --    self:drawDebugLine(startP, endP, sm.color.new(1,1,0,1), "perpLinePool")
+        --end
     end
 
     -- Cleanup unused effects in the line pool

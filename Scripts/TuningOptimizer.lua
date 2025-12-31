@@ -20,8 +20,8 @@ function TuningOptimizer:init(driver)
     -- [[ TUNABLE PHYSICS PARAMETERS ]]
     self.cornerLimit = 2.0      
     self.brakingFactor = 15.0   
-    self.dampingFactor = 0.25   
-    self.lookaheadMult = 1.0    
+    self.dampingFactor = 0.15   
+    self.lookaheadMult = 0.9    
     self.tractionConstant = 2.6
     
     -- [[ NEW: LEARNED PHYSICS PROFILE ]]
@@ -186,17 +186,43 @@ function TuningOptimizer:recordFrame(perceptionData)
     
     local latAccel = currentSpeed * yawRate
     
-    -- If we are holding this G-force stable (not oscillating), record it
-    if latAccel > self.peakLatAccel and self.oscillations < 2 then
+    -- [[ REFINEMENT 1: SUSTAINED GRIP CHECK ]]
+    -- Filter out collision spikes. Grip must be held for 0.25s (10 ticks) to count.
+    if latAccel > 3.0 then -- Only care about high-G events
+        self.highG_Timer = (self.highG_Timer or 0) + 1
+    else
+        self.highG_Timer = 0
+    end
+
+    -- Only record peak if we have held it for 10+ ticks AND we aren't oscillating
+    if self.highG_Timer > 10 and latAccel > self.peakLatAccel and self.oscillations < 2 then
         self.peakLatAccel = latAccel
     end
     
-    -- Detect Slip (Yaw Rate vs Steering Input mismatch could go here)
-    -- For now, we assume if PeakY is huge, we slid.
+   -- [[ FIX: CALCULATE REAL-TIME TCS VARIANCE (SLIP) ]]
+    -- Calculate what the RPM *should* be at this speed
+    -- Formula: ExpectedRPM = (Speed * 60) / Constant
+    local currentSlip = 0.0
+    
+    if tel.avgWheelRPM and self.tractionConstant > 0 and currentSpeed > 5.0 then
+        local expectedRPM = (currentSpeed * 60.0) / self.tractionConstant
+        local actualRPM = tel.avgWheelRPM
+        
+        if expectedRPM > 50 then
+            local ratio = actualRPM / expectedRPM
+            -- If Ratio is 1.2, we have 20% slip. If 1.0, perfect grip.
+            -- variance = abs(1.0 - 1.2) = 0.2
+            currentSlip = math.abs(1.0 - ratio)
+        end
+    end
+    
+    -- Smooth the variance so the debug light doesn't flicker
+    -- 20% new data, 80% history
+    self.tcsVariance = (self.tcsVariance * 0.8) + (currentSlip * 0.2)
+    
+    -- 4. Visualize
     local ppError = self.driver.Decision.dbg_PP_Y or 0
     local instability = math.abs(ppError)
-    
-    -- [[ NEW: VISUALIZE ]]
     self:updateDebugVisuals(instability, self.tcsVariance)
 
     self.tickCount = self.tickCount + 1
@@ -250,7 +276,8 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
         improved = true
     elseif oscillationRate > 1.5 or rmsError > STABILITY_THRESHOLD then
         self.dampingFactor = math.min(0.5, self.dampingFactor + LEARNING_RATE)
-        self.lookaheadMult = math.min(1.5, self.lookaheadMult + (LEARNING_RATE * 2))
+        self.lookaheadMult = math.min(1.1, self.lookaheadMult + (LEARNING_RATE * 2))
+        
         debugMsg = debugMsg .. " Stabilizing"
         improved = true
     else
@@ -267,7 +294,7 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
     
     table.insert(self.history, { sid = sectorID, time = sectorTime })
     if #self.history > 50 then table.remove(self.history, 1) end
-    
+    print(debugMsg)
     self:reset()
 end
 
@@ -297,29 +324,48 @@ function TuningOptimizer:updateTractionConstant(val)
     -- [[ LOCK CHECK ]]
     if self.learningLocked then return end
 
-    -- If the new value is very close to the old value, we are converged
+    -- [[ NEW: SLIP REJECTION (THE CLAMP) ]]
+    -- Once converged, we treat the calculated constant as the "True Gear Ratio".
+    -- If 'val' drops lower, it means Wheel RPM > Speed, which is SLIP. We ignore it.
+    if self.tcsConverged then
+        -- 1. Reject drops (Slip)
+        if val < self.tractionConstant then 
+            return 
+        end
+        
+        -- 2. Slowly accept higher values (Refinement)
+        -- If we found a value slightly higher, it means we had better grip than we thought.
+        if val > self.tractionConstant and (val - self.tractionConstant) < 0.5 then
+             -- Weighted average: 90% old, 10% new
+             local blended = (self.tractionConstant * 0.9) + (val * 0.1)
+             self.tractionConstant = blended
+             return -- Don't print spam, just silently refine
+        end
+    end
+
+    -- [[ CONVERGENCE CHECK ]]
     local diff = math.abs(self.tractionConstant - val)
     
     if diff < 0.05 then
         if not self.tcsConverged then
             self.tcsConverged = true
-            print("Optimizer: TCS Profile CONVERGED. Enabling High-Performance Mode.")
+            print("Optimizer: TCS Profile CONVERGED. Locking Physics Profile.")
+            self:saveProfile()
         end
-    else
-        self.tcsConverged = false
-    end
-
-    if diff > 0.1 then
-        self.tractionConstant = val
-        self:saveProfile()
-        print(string.format("Optimizer: Learned NEW Traction Constant: %.2f", val))
+    elseif diff > 0.1 then
+        -- Only allow large jumps if we aren't converged yet
+        if not self.tcsConverged then
+            self.tractionConstant = val
+            self:saveProfile()
+            print(string.format("Optimizer: Learned NEW Traction Constant: %.2f", val))
+        end
     end
 end
 
 function TuningOptimizer:generatePhysicsFingerprint(driver)
     if not driver.perceptionData or 
        not driver.perceptionData.Telemetry or 
-       not driver.perceptionData.Telemetry.dimensions or
+       not driver.perceptionData.Telemetry.bbDimensions or
        driver.perceptionData.Telemetry.isOnLift then 
         return "INIT_WAIT" 
     end
@@ -337,7 +383,7 @@ function TuningOptimizer:generatePhysicsFingerprint(driver)
     local massBucket = math.floor((rawMass / 250) + 0.5) * 250
     
     -- 2. Dimensions
-    local dims = tel.dimensions
+    local dims = tel.bbDimensions
     local length = math.max(dims.x, dims.y)
     local width = math.min(dims.x, dims.y)
     local lengthBucket = math.floor((length / 0.5) + 0.5) * 0.5 
@@ -373,28 +419,21 @@ end
 
 
 function TuningOptimizer:updateDebugVisuals(instability, tcsVariance)
-    -- Requires DecisionModule to have initialized the effect
     if not self.driver or not self.driver.Decision or not self.driver.Decision.latestDebugData then return end
     
-    local color = sm.color.new(0, 1, 0, 1) -- DEFAULT: GREEN (Good)
+    local color = sm.color.new(0, 1, 0, 1) -- GREEN
     
     -- PRIORITY 1: SLIDING (Yellow)
     if tcsVariance > 0.05 then
         color = sm.color.new(1, 1, 0, 1) -- YELLOW
     end
     
-    -- PRIORITY 2: PATH ERROR (Red)
-    -- If we are more than 1.0m off the racing line
-    if math.abs(instability) > 1.0 then
+    -- PRIORITY 2: OFF TRACK (Red)
+    -- [[ FIX: CHECK LATERAL ERROR INSTEAD OF STEERING ERROR ]]
+    local latErr = self.driver.Decision.latestDebugData.latErr or 0
+    if math.abs(latErr) > 2.5 then
         color = sm.color.new(1, 0, 0, 1) -- RED
     end
     
-    -- Send to Decision Module to render
-    -- (You need to update DecisionModule to accept a color override, or just print it)
-    if self.driver.id % 10 == 0 then -- Don't spam print
-       -- print(self.driver.id, "Stability:", instability, "TCS Var:", tcsVariance)
-    end
-    
-    -- Direct Injection into the Decision Module's Debug Data for rendering
     self.driver.Decision.latestDebugData.statusColor = color
 end

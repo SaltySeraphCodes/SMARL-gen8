@@ -1,33 +1,53 @@
 
 {
-	"GENERIC" : 
+	"M1000_L6.0_W3.0_SML" : 
 	{
-		"brakingFactor" : 15.0,
-		"cornerLimit" : 1.0,
-		"dampingFactor" : 0.60,
-		"learnedGrip" : 1.0,
-		"lookaheadMult" : 1.0,
-		"tractionConstant" : 1.972303344255209,
-		"updated" : 1767171198.0
+		"brakingFactor" : 15.150,
+		"cornerLimit" : 1.8750,
+		"dampingFactor" : 0.150,
+		"learnedGrip" : 1.050,
+		"lookaheadMult" : 1.10,
+		"tractionConstant" : 2.266487896816360,
+		"updated" : 1767211223.0
 	},
-	"M6750_L6.0_W3.0_NIL" : 
+	"M1000_L6.0_W3.5_SML" : 
 	{
 		"brakingFactor" : 15.150,
 		"cornerLimit" : 1.6750,
-		"dampingFactor" : 0.3750,
-		"learnedGrip" : 1.150,
-		"lookaheadMult" : 1.0,
-		"tractionConstant" : 2.340855632531353,
-		"updated" : 1766778286.0
+		"dampingFactor" : 0.150,
+		"learnedGrip" : 1.10,
+		"lookaheadMult" : 1.30,
+		"tractionConstant" : 2.266487896816360,
+		"updated" : 1767204236.0
 	},
-	"M6750_L6.5_W4.5_NIL" : 
+	"M1000_L6.5_W4.5_SML" : 
 	{
-		"brakingFactor" : 15.0,
-		"cornerLimit" : 1.60,
-		"dampingFactor" : 0.3750,
-		"learnedGrip" : 1.0,
-		"lookaheadMult" : 1.0,
-		"tractionConstant" : 2.567120128119515,
-		"updated" : 1766776728.0
+		"brakingFactor" : 15.150,
+		"cornerLimit" : 1.9250,
+		"dampingFactor" : 0.150,
+		"learnedGrip" : 1.10,
+		"lookaheadMult" : 1.050,
+		"tractionConstant" : 2.266487896816360,
+		"updated" : 1767211176.0
+	},
+	"M1000_L6.5_W5.0_SML" : 
+	{
+		"brakingFactor" : 15.150,
+		"cornerLimit" : 2.0250,
+		"dampingFactor" : 0.150,
+		"learnedGrip" : 1.150,
+		"lookaheadMult" : 0.9500000000000001,
+		"tractionConstant" : 2.266487896816360,
+		"updated" : 1767202936.0
+	},
+	"M1000_L6.5_W5.5_SML" : 
+	{
+		"brakingFactor" : 15.150,
+		"cornerLimit" : 2.0250,
+		"dampingFactor" : 0.150,
+		"learnedGrip" : 1.150,
+		"lookaheadMult" : 0.9500000000000001,
+		"tractionConstant" : 2.266487896816360,
+		"updated" : 1767202866.0
 	}
 }
