@@ -1,164 +1,222 @@
 ﻿<?xml version="1.0" encoding="UTF-8" ?>
 <MyGUI type="Layout" version="3.2.0">
-    <Widget type="Widget" skin="PanelEmpty" name="MainPanel" position_real="0.15 0.1 0.7 0.8">
+    <Widget type="Widget" skin="PanelEmpty" name="MainPanel" position_real="0.1 0.1 0.8 0.8">
         
-        <Widget type="Widget" skin="BackgroundDarkRoundedUpperRight" position_real="0 0 1 0.15">
+        <!-- HEADER -->
+        <Widget type="Widget" skin="NonBlurryBackgroundDarkRoundedUpperRight" position_real="0 0 1 0.15">
             <Widget type="TextBox" skin="TextBox" name="StatusHeader" position_real="0.05 0 0.5 1">
-                <Property key="Caption" value="RACE CONTROL: STOPPED" />
+                <Property key="Caption" value="RACE CONTROL" />
                 <Property key="FontName" value="SM_HeaderLarge" />
                 <Property key="TextAlign" value="Left VCenter" />
-                <Property key="TextColour" value="1 0.2 0.2" />
+                <Property key="TextColour" value="1 1 1" />
             </Widget>
-            <Widget type="TextBox" skin="TextBox" name="LapCounter" position_real="0.6 0 0.35 1">
-                <Property key="Caption" value="Lap: 0 / 10" />
+            <Widget type="TextBox" skin="TextBox" name="LapCounter" position_real="0.55 0 0.4 1">
+                <Property key="Caption" value="Lap: - / -" />
                 <Property key="FontName" value="SM_HeaderLarge" />
                 <Property key="TextAlign" value="Right VCenter" />
-                <Property key="TextColour" value="0.9 0.9 0.9" />
+                <Property key="TextColour" value="0.7 0.7 0.7" />
             </Widget>
         </Widget>
 
-        <Widget type="Widget" skin="BackgroundLightRoundedLowerLeft" position_real="0 0.15 1 0.85">
-            <Widget type="TextBox" skin="TextBox" name="InfoTicker" position_real="0 0.01 1 0.05">
-                <Property key="Caption" value="Waiting for director input..." />
-                <Property key="FontName" value="SM_TextLabel" />
-                <Property key="TextAlign" value="Center VCenter" />
-                <Property key="TextColour" value="0.8 0.8 0.8" />
-            </Widget>
-
-            <Widget type="Widget" skin="PanelEmpty" position_real="0.02 0.08 0.47 0.9">
-                <Widget type="TextBox" skin="TextBox" position_real="0 0 1 0.08">
-                    <Property key="Caption" value="Race Director" />
-                    <Property key="FontName" value="SM_HeaderSmall_Medium" />
-                    <Property key="TextAlign" value="Center" />
-                    <Property key="TextColour" value="0.8 0.8 0.8" />
-                </Widget>
-
-                <Widget type="Button" skin="PrimaryButton" name="BtnStart" position_real="0.05 0.1 0.425 0.12">
-                    <Property key="Caption" value="START" />
-                    <Property key="FontName" value="SM_Button" />
-                    <Property key="Colour" value="#33cc33" /> 
-                    <Property key="TextColour" value="1 1 1" />
-                </Widget>
-                <Widget type="Button" skin="PrimaryButton" name="BtnStop" position_real="0.525 0.1 0.425 0.12">
-                    <Property key="Caption" value="STOP" />
-                    <Property key="FontName" value="SM_Button" />
-                    <Property key="Colour" value="#cc3333" />
-                    <Property key="TextColour" value="1 1 1" />
-                </Widget>
-
-                <Widget type="Button" skin="SecondaryButton" name="BtnCaution" position_real="0.05 0.25 0.425 0.12">
-                    <Property key="Caption" value="CAUTION" />
-                    <Property key="FontName" value="SM_Button" />
-                    <Property key="Colour" value="#dddd22" />
-                </Widget>
-                <Widget type="Button" skin="SecondaryButton" name="BtnFormation" position_real="0.525 0.25 0.425 0.12">
-                    <Property key="Caption" value="FORMATION" />
-                    <Property key="FontName" value="SM_Button" />
-                </Widget>
-
-                <Widget type="TextBox" skin="TextBox" position_real="0 0.45 1 0.08">
-                    <Property key="Caption" value="Session Management" />
+        <!-- BODY -->
+        <Widget type="Widget" skin="NonBlurryBackgroundLightSquared" position_real="0 0.15 1 0.75">
+            
+            <!-- LEFT COLUMN: RACE DIRECTOR -->
+            <Widget type="Widget" skin="PanelEmpty" position_real="0.02 0.05 0.38 0.9">
+                <Widget type="TextBox" skin="TextBox" position_real="0 0 1 0.1">
+                    <Property key="Caption" value="DIRECTOR" />
                     <Property key="FontName" value="SM_HeaderSmall_Medium" />
                     <Property key="TextAlign" value="Center" />
                     <Property key="TextColour" value="0.2 0.2 0.2" />
                 </Widget>
 
-                <Widget type="Button" skin="SecondaryButton" name="BtnEntries" position_real="0.05 0.55 0.9 0.1">
-                    <Property key="Caption" value="Toggle Entries (Open)" />
+                <!-- Status Buttons -->
+                <Widget type="Button" skin="PrimaryButton" name="BtnStart" position_real="0 0.12 0.48 0.15">
+                    <Property key="Caption" value="START" />
+                    <Property key="FontName" value="SM_Button" />
+                    <Property key="Colour" value="#33cc33" /> 
+                </Widget>
+                <Widget type="Button" skin="PrimaryButton" name="BtnStop" position_real="0.52 0.12 0.48 0.15">
+                    <Property key="Caption" value="STOP" />
+                    <Property key="FontName" value="SM_Button" />
+                    <Property key="Colour" value="#cc3333" />
+                </Widget>
+                <Widget type="Button" skin="SecondaryButton" name="BtnCaution" position_real="0 0.3 0.48 0.15">
+                    <Property key="Caption" value="YELLOW" />
+                    <Property key="FontName" value="SM_Button" />
+                    <Property key="Colour" value="#dddd22" />
+                </Widget>
+                <Widget type="Button" skin="SecondaryButton" name="BtnFormation" position_real="0.52 0.3 0.48 0.15">
+                    <Property key="Caption" value="FORMATION" />
+                    <Property key="FontName" value="SM_Button" />
+                </Widget>
+
+                <!-- Management Buttons -->
+                <Widget type="Button" skin="SecondaryButton" name="BtnEntries" position_real="0 0.6 1 0.12">
+                    <Property key="Caption" value="ENTRIES: OPEN" />
                     <Property key="FontName" value="SM_ButtonSmall" />
                 </Widget>
-                <Widget type="Button" skin="SecondaryButton" name="BtnReset" position_real="0.05 0.7 0.9 0.1">
-                    <Property key="Caption" value="RESET RACE" />
-                    <Property key="FontName" value="SM_ButtonSmall" />
+
+                <Widget type="Button" skin="SecondaryButton" name="BtnReset" position_real="0 0.85 1 0.15">
+                    <Property key="Caption" value="RESET MATCH" />
+                    <Property key="FontName" value="SM_Button" />
+                    <Property key="Colour" value="#ffaaaa" />
                 </Widget>
             </Widget>
-
-            <Widget type="Widget" skin="BackgroundDarkRounded" position_real="0.495 0.1 0.01 0.8">
-                 <Property key="Alpha" value="0.3" />
+            
+            <!-- VERTICAL DIVIDER -->
+             <Widget type="Widget" skin="BackgroundDarkRounded" position_real="0.41 0.05 0.002 0.9">
+                 <Property key="Alpha" value="0.2" />
             </Widget>
 
-            <Widget type="Widget" skin="PanelEmpty" position_real="0.51 0.08 0.47 0.9">
-                <Widget type="TextBox" skin="TextBox" position_real="0 0 1 0.08">
-                    <Property key="Caption" value="Race Settings" />
+            <!-- RIGHT COLUMN: SETTINGS -->
+            <Widget type="Widget" skin="PanelEmpty" position_real="0.43 0.05 0.55 0.9">
+                
+                <!-- MATCH FLAGS -->
+                <Widget type="TextBox" skin="TextBox" position_real="0 0 1 0.1">
+                    <Property key="Caption" value="MATCH RULES" />
                     <Property key="FontName" value="SM_HeaderSmall_Medium" />
                     <Property key="TextAlign" value="Center" />
-                    <Property key="TextColour" value="1 1 1" />
+                    <Property key="TextColour" value="0.2 0.2 0.2" />
                 </Widget>
-
-                <Widget type="Widget" skin="PanelEmpty" position_real="0.05 0.12 0.9 0.12">
+                
+                <!-- Row 1: Laps -->
+                <Widget type="Widget" skin="PanelEmpty" position_real="0 0.12 1 0.1">
                     <Widget type="TextBox" skin="TextBox" position_real="0 0 0.4 1">
                         <Property key="Caption" value="Laps:" />
                         <Property key="FontName" value="SM_TextLabel" />
                         <Property key="TextAlign" value="Left VCenter" />
-                        <Property key="TextColour" value="1 1 1" />
+                        <Property key="TextColour" value="0.2 0.2 0.2" />
                     </Widget>
-                    <Widget type="Button" skin="SecondaryButton" name="BtnLapsSub" position_real="0.4 0.1 0.15 0.8">
-                        <Property key="Caption" value="-" />
-                    </Widget>
-                    <Widget type="TextBox" skin="TextBox" name="ValLaps" position_real="0.55 0 0.2 1">
+                    <Widget type="Button" skin="SecondaryButton" name="BtnLapsSub" position_real="0.5 0 0.1 1"><Property key="Caption" value="-" /></Widget>
+                    <Widget type="TextBox" skin="TextBox" name="ValLaps" position_real="0.6 0 0.2 1">
                         <Property key="Caption" value="10" />
-                        <Property key="FontName" value="SM_TextLabel" />
                         <Property key="TextAlign" value="Center VCenter" />
-                        <Property key="TextColour" value="1 1 1" />
+                        <Property key="TextColour" value="0.1 0.1 0.1" />
                     </Widget>
-                    <Widget type="Button" skin="SecondaryButton" name="BtnLapsAdd" position_real="0.75 0.1 0.15 0.8">
-                        <Property key="Caption" value="+" />
-                    </Widget>
+                    <Widget type="Button" skin="SecondaryButton" name="BtnLapsAdd" position_real="0.8 0 0.1 1"><Property key="Caption" value="+" /></Widget>
                 </Widget>
 
-                <Widget type="Widget" skin="PanelEmpty" position_real="0.05 0.28 0.9 0.12">
-                    <Widget type="TextBox" skin="TextBox" position_real="0 0 0.4 1">
+                <!-- Row 2: Handicap -->
+                <Widget type="Widget" skin="PanelEmpty" position_real="0 0.22 1 0.1">
+                     <Widget type="TextBox" skin="TextBox" position_real="0 0 0.4 1">
                         <Property key="Caption" value="Handicap:" />
                         <Property key="FontName" value="SM_TextLabel" />
                         <Property key="TextAlign" value="Left VCenter" />
-                        <Property key="TextColour" value="1 1 1" />
+                        <Property key="TextColour" value="0.2 0.2 0.2" />
                     </Widget>
-                    <Widget type="Button" skin="SecondaryButton" name="BtnHandiSub" position_real="0.4 0.1 0.15 0.8">
-                        <Property key="Caption" value="-" />
-                    </Widget>
-                    <Widget type="TextBox" skin="TextBox" name="ValHandi" position_real="0.55 0 0.2 1">
-                        <Property key="Caption" value="0.8" />
-                        <Property key="FontName" value="SM_TextLabel" />
+                    <Widget type="Button" skin="SecondaryButton" name="BtnHandiSub" position_real="0.5 0 0.1 1"><Property key="Caption" value="-" /></Widget>
+                    <Widget type="TextBox" skin="TextBox" name="ValHandi" position_real="0.6 0 0.2 1">
+                        <Property key="Caption" value="1.0" />
                         <Property key="TextAlign" value="Center VCenter" />
-                        <Property key="TextColour" value="1 1 1" />
+                        <Property key="TextColour" value="0.1 0.1 0.1" />
                     </Widget>
-                    <Widget type="Button" skin="SecondaryButton" name="BtnHandiAdd" position_real="0.75 0.1 0.15 0.8">
-                        <Property key="Caption" value="+" />
-                    </Widget>
+                    <Widget type="Button" skin="SecondaryButton" name="BtnHandiAdd" position_real="0.8 0 0.1 1"><Property key="Caption" value="+" /></Widget>
                 </Widget>
 
-                <Widget type="Widget" skin="PanelEmpty" position_real="0.05 0.44 0.9 0.12">
-                    <Widget type="TextBox" skin="TextBox" position_real="0 0 0.4 1">
-                        <Property key="Caption" value="Draft:" />
+                <!-- Row 3: Draft -->
+                <Widget type="Widget" skin="PanelEmpty" position_real="0 0.32 1 0.1">
+                     <Widget type="TextBox" skin="TextBox" position_real="0 0 0.4 1">
+                        <Property key="Caption" value="Draft Str:" />
                         <Property key="FontName" value="SM_TextLabel" />
                         <Property key="TextAlign" value="Left VCenter" />
-                        <Property key="TextColour" value="1 1 1" />
+                        <Property key="TextColour" value="0.2 0.2 0.2" />
                     </Widget>
-                    <Widget type="Button" skin="SecondaryButton" name="BtnDraftSub" position_real="0.4 0.1 0.15 0.8">
-                        <Property key="Caption" value="-" />
-                    </Widget>
-                    <Widget type="TextBox" skin="TextBox" name="ValDraft" position_real="0.55 0 0.2 1">
-                        <Property key="Caption" value="1.7" />
-                        <Property key="FontName" value="SM_TextLabel" />
+                    <Widget type="Button" skin="SecondaryButton" name="BtnDraftSub" position_real="0.5 0 0.1 1"><Property key="Caption" value="-" /></Widget>
+                    <Widget type="TextBox" skin="TextBox" name="ValDraft" position_real="0.6 0 0.2 1">
+                        <Property key="Caption" value="1.0" />
                         <Property key="TextAlign" value="Center VCenter" />
-                        <Property key="TextColour" value="1 1 1" />
+                        <Property key="TextColour" value="0.1 0.1 0.1" />
                     </Widget>
-                    <Widget type="Button" skin="SecondaryButton" name="BtnDraftAdd" position_real="0.75 0.1 0.15 0.8">
-                        <Property key="Caption" value="+" />
+                    <Widget type="Button" skin="SecondaryButton" name="BtnDraftAdd" position_real="0.8 0 0.1 1"><Property key="Caption" value="+" /></Widget>
+                </Widget>
+
+                 <!-- Row 4: Qualifying -->
+                <Widget type="Widget" skin="PanelEmpty" position_real="0 0.42 1 0.12">
+                      <Widget type="Button" skin="SecondaryButton" name="BtnQualifying" position_real="0 0 1 0.8">
+                        <Property key="Caption" value="QUALIFYING: OFF" />
+                        <Property key="FontName" value="SM_ButtonSmall" />
                     </Widget>
                 </Widget>
 
-                <Widget type="Button" skin="SecondaryButton" name="BtnTireWear" position_real="0.05 0.7 0.425 0.12">
-                    <Property key="Caption" value="tires: OFF" />
-                    <Property key="FontName" value="SM_Button" />
+                <!-- HORIZONTAL DIVIDER -->
+                <Widget type="Widget" skin="BackgroundDarkRounded" position_real="0 0.55 1 0.005">
+                     <Property key="Alpha" value="0.2" />
                 </Widget>
-                <Widget type="Button" skin="SecondaryButton" name="BtnQualifying" position_real="0.525 0.7 0.425 0.12">
-                    <Property key="Caption" value="Quali: OFF" />
-                    <Property key="FontName" value="SM_Button" />
+
+
+                <!-- SIMULATION SETTINGS -->
+                <Widget type="TextBox" skin="TextBox" position_real="0 0.57 1 0.1">
+                    <Property key="Caption" value="SIMULATION" />
+                    <Property key="FontName" value="SM_HeaderSmall_Medium" />
+                    <Property key="TextAlign" value="Center" />
+                    <Property key="TextColour" value="0.2 0.2 0.2" />
                 </Widget>
+
+                <!-- TIRE SETTINGS -->
+                <Widget type="Widget" skin="PanelEmpty" position_real="0 0.68 1 0.14">
+                    <Widget type="Button" skin="SecondaryButton" name="BtnTireWear" position_real="0 0 0.3 0.8">
+                        <Property key="Caption" value="Wear: ON" />
+                        <Property key="FontName" value="SM_ButtonTiny" />
+                    </Widget>
+                    
+                    <Widget type="Button" skin="SecondaryButton" name="BtnTireHeat" position_real="0.32 0 0.25 0.8">
+                        <Property key="Caption" value="Heat: ON" />
+                        <Property key="FontName" value="SM_ButtonTiny" />
+                    </Widget>
+
+                    <!-- Multiplier -->
+                    <Widget type="Button" skin="SecondaryButton" name="BtnWearMultSub" position_real="0.6 0 0.1 0.8"><Property key="Caption" value="-" /></Widget>
+                    <Widget type="TextBox" skin="TextBox" name="ValWearMult" position_real="0.7 0 0.2 0.8">
+                        <Property key="Caption" value="1.0x" />
+                        <Property key="TextAlign" value="Center VCenter" />
+                        <Property key="TextColour" value="0.1 0.1 0.1" />
+                         <Property key="FontName" value="SM_LabelTiny" />
+                    </Widget>
+                    <Widget type="Button" skin="SecondaryButton" name="BtnWearMultAdd" position_real="0.9 0 0.1 0.8"><Property key="Caption" value="+" /></Widget>
+                </Widget>
+                
+                 <!-- FUEL SETTINGS -->
+                <Widget type="Widget" skin="PanelEmpty" position_real="0 0.83 1 0.14">
+                    <Widget type="Button" skin="SecondaryButton" name="BtnFuelUsage" position_real="0 0 0.3 0.8">
+                        <Property key="Caption" value="Fuel: ON" />
+                        <Property key="FontName" value="SM_ButtonTiny" />
+                    </Widget>
+                    
+                    <Widget type="TextBox" skin="TextBox" position_real="0.32 0 0.25 0.8">
+                        <Property key="Caption" value="(Burn)" />
+                        <Property key="TextAlign" value="Center VCenter" />
+                        <Property key="TextColour" value="0.5 0.5 0.5" />
+                        <Property key="FontName" value="SM_LabelTiny" />
+                    </Widget>
+
+                    <!-- Multiplier -->
+                    <Widget type="Button" skin="SecondaryButton" name="BtnFuelMultSub" position_real="0.6 0 0.1 0.8"><Property key="Caption" value="-" /></Widget>
+                    <Widget type="TextBox" skin="TextBox" name="ValFuelMult" position_real="0.7 0 0.2 0.8">
+                        <Property key="Caption" value="1.0x" />
+                        <Property key="TextAlign" value="Center VCenter" />
+                        <Property key="TextColour" value="0.1 0.1 0.1" />
+                        <Property key="FontName" value="SM_LabelTiny" />
+                    </Widget>
+                    <Widget type="Button" skin="SecondaryButton" name="BtnFuelMultAdd" position_real="0.9 0 0.1 0.8"><Property key="Caption" value="+" /></Widget>
+                </Widget>
+
+            </Widget>
+
+        </Widget>
+        
+        <!-- FOOTER -->
+        <Widget type="Widget" skin="NonBlurryBackgroundDarkRoundedLowerLeft" position_real="0 0.9 1 0.1">
+             <Widget type="TextBox" skin="TextBox" name="InfoTicker" position_real="0.05 0 0.9 1">
+                <Property key="Caption" value="SMARL Gen 8 System Ready." />
+                <Property key="FontName" value="SM_LabelTiny" />
+                <Property key="TextAlign" value="Left VCenter" />
+                <Property key="TextColour" value="0.6 0.6 0.6" />
             </Widget>
         </Widget>
 
+
+        <!-- POPUP PANEL (Overlay) -->
         <Widget type="Widget" skin="WhiteSkin" name="PopUpPanel" position_real="0 0 1 1">
             <Property key="Alpha" value="0.9" />
             <Property key="Colour" value="0 0 0" />

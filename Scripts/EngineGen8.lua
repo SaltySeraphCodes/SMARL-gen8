@@ -361,8 +361,16 @@ function Engine.updatePhysicsState(self, dt)
         self.Tire_Temp = 90.0
     end
     
-    -- SYNC TO DRIVER
+    -- SYNC TO/FROM DRIVER
     if self.driver then
+        -- Check for external refuel/repair (e.g. pit stop set by PitManager)
+        if self.driver.Fuel_Level and self.driver.Fuel_Level > self.Fuel_Level + 0.05 then
+            self.Fuel_Level = self.driver.Fuel_Level
+        end
+        if self.driver.Tire_Health and self.driver.Tire_Health > self.Tire_Health + 0.05 then
+            self.Tire_Health = self.driver.Tire_Health
+        end
+
         self.driver.Fuel_Level = self.Fuel_Level
         self.driver.Tire_Health = self.Tire_Health
         self.driver.Tire_Temp = self.Tire_Temp
