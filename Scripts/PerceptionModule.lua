@@ -488,6 +488,7 @@ function PerceptionModule.build_navigation_data(self)
             break -- Stop scanning, we found the next event
         end
     end
+    end
 
     local inputs = self:calculateNavigationInputs(nav)
     nav.nodeGoalDirection = inputs.nodeGoalDirection
