@@ -257,15 +257,21 @@ function TuningOptimizer:recordFrame(perceptionData, dt)
     
     -- [[ REFINEMENT 1: SUSTAINED GRIP CHECK ]]
     -- Filter out collision spikes. Grip must be held for 0.25s (10 ticks) to count.
-    if latAccel > 3.0 then -- Only care about high-G events
+    -- [FIX] Ignore spikes > 2.2G (Collision/Banking) to prevent over-confidence.
+    if latAccel > 0.8 and latAccel < 2.2 then 
         self.highG_Timer = (self.highG_Timer or 0) + 1
     else
         self.highG_Timer = 0
     end
 
-    -- Only record peak if we have held it for 10+ ticks AND we aren't oscillating
+    -- Only record peak if we have held it for 10+ ticks
     if self.highG_Timer > 10 and latAccel > self.peakLatAccel and self.oscillations < 2 then
         self.peakLatAccel = latAccel
+        -- [FIX] Immediate Learning Cap
+        -- If we see 1.8G, learn it, but cap at 1.5G unless verified by Spoiler
+        if self.peakLatAccel > 1.5 and (self.setup and self.setup.aeroAngle < 20) then
+             self.peakLatAccel = 1.5
+        end
     end
     
    -- [[ FIX: CALCULATE REAL-TIME TCS VARIANCE (SLIP) ]]
@@ -454,22 +460,27 @@ function TuningOptimizer:runMicroBrakeTest(tel, dt)
         local accel = (tel.speed - self.lastSpeed) / dt
         if accel < self.peakDecel then self.peakDecel = accel end -- decel is negative
         
-        if self.testTimer > 0.3 then
+        if self.testTimer > 0.3 then -- Pulse complete
             self.testState = 2
-            -- Calculate Mu
-            -- a = mu * g  ->  mu = a / g
-            local g = 10 -- constant
-            local observedMu = math.abs(self.peakDecel) / g
+            self.testTimer = 0
+            self.driver.Decision.overrideBrake = 0.0
             
-            print(string.format("Optimizer: Micro-Brake Test Complete. Peak Decel: %.2f, Est Mu: %.2f", self.peakDecel, observedMu))
+            -- Calculate Decel
+            local dv = (self.startSpeed or 0) - (tel.speed or 0) -- Delta V
+            local dt_test = 0.3 -- Duration
+            local decel = dv / dt_test -- m/s^2
             
-            -- Apply to Learned Grip (Conservative 80%)
-            self.learnedGrip = math.max(0.5, observedMu * 0.9)
-            self:saveProfile()
+            -- Gs = Decel / 9.81
+            -- [FIX] SAFETY MARGIN: Multiply by 0.65 (Significant Padding)
+            local mu = (math.abs(decel) / 10.0) * 0.65
+            
+            print(string.format("Optimizer: Micro-Brake Test Complete. Peak Decel: %.2f, Est Mu: %.2f (SAFE MODE ACTIVE)", decel, mu))
+            
+            self.learnedGrip = math.max(0.6, math.min(mu, 1.3)) -- HARD CAP AT 1.3
+            print("Optimizer: Grip Capped at:", self.learnedGrip)
             
             self.microBrakeDone = true
-            self.driver.Decision.overrideBrake = nil
-            self.driver.Decision.overrideThrottle = nil
+            self:saveProfile()
         end
     end
 end

@@ -908,35 +908,31 @@ function DriverGen8.client_onUpdate(self, dt)
     local dbg = self.clientDebugRays 
 
     if dbg then
-        -- 1. MAGENTA: The Final Target
+        -- 1. TARGET POINT (Green/Magenta)
         if dbg.targetPoint then
             if not self.effTarget then 
-                self.effTarget = sm.effect.createEffect("Loot - GlowItem")
-                self.effTarget:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-                self.effTarget:setScale(sm.vec3.new(0, 0, 0))
-                self.effTarget:start()
+                -- "construct_marker" is a reliable looping particle for debug
+                self.effTarget = sm.particle.createParticle("construct_marker", dbg.targetPoint, sm.quat.identity(), sm.color.new(0,1,0,1))
+                print("CL: Spawning Target Particle")
             end
             self.effTarget:setPosition(dbg.targetPoint)
             
-            -- Use Optimizer Status Color
-            local statusColor = dbg.statusColor or sm.color.new(1, 0, 1, 1) -- Default Magenta
-            self.effTarget:setParameter("Color", statusColor)
+            -- Markers hardcode color usually, so we might ignore statusColor for now
+            -- unless we use a specialized effect. But seeing *anything* is priority.
         elseif self.effTarget then
-            self.effTarget:stop() -- Hide if data is missing but dbg exists
+            self.effTarget:stop()
+            self.effTarget = nil
         end
 
-        -- 2. CYAN: The "Future Center" (The Anchor)
+        -- 2. ANCHOR POINT (Cyan)
         if dbg.futureCenter then
             if not self.effCenter then 
-                self.effCenter = sm.effect.createEffect("Loot - GlowItem")
-                self.effCenter:setParameter("uuid", sm.uuid.new("4a1b886b-913e-4aad-b5b6-6e41b0db23a6"))
-                self.effCenter:setParameter("Color", sm.color.new(0, 1, 1, 1)) -- Cyan
-                self.effCenter:setScale(sm.vec3.new(0, 0, 0))
-                self.effCenter:start()
+                self.effCenter = sm.particle.createParticle("construct_marker", dbg.futureCenter, sm.quat.identity(), sm.color.new(0,1,1,1))
             end
             self.effCenter:setPosition(dbg.futureCenter)
         elseif self.effCenter then
             self.effCenter:stop()
+            self.effCenter = nil
         end
         
         ---- 3. YELLOW LINE: The "Perp" Vector

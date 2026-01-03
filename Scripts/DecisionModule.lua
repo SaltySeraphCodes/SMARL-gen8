@@ -271,8 +271,8 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
         -- Scale the optimizer's cornerLimit (usually 1.0-3.5) to G-force units
         -- [[ FIX: USE LEARNED GRIP WITH MARGIN ]]
         -- Use the lesser of our Safety Limit (cornerLimit) or our Actual Grip (learnedGrip)
-        -- Apply 0.90 factor to leave 10% traction for steering/bumps.
-        local effectiveGrip = math.min(self.Driver.Optimizer.cornerLimit, self.Driver.Optimizer.learnedGrip * 0.90)
+        -- Apply 0.80 factor (Was 0.90) for significant margin.
+        local effectiveGrip = math.min(self.Driver.Optimizer.cornerLimit, self.Driver.Optimizer.learnedGrip * 0.80)
         lateralGrip = effectiveGrip * 10.0 
     end
     -- note: friction is redundant if we assume learnedGrip accounts for surface, but we keep it for now.
