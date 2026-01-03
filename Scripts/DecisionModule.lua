@@ -523,8 +523,7 @@ function DecisionModule:handleCorneringStrategy(perceptionData, dt)
         self.cornerSetupWeight = smoothUrgency
     end
 end
-    end
-end
+
 
 
 function DecisionModule.getFinalTargetBias(self, perceptionData)
