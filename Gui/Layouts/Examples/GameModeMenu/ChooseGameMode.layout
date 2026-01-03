@@ -1,0 +1,72 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="TextBox" skin="TextBox" name="Title" position_real="0.353906 0.0736111 0.291406 0.0305556">
+        <Property key="FontName" value="SM_HeaderLarge_Narrow" />
+        <Property key="Caption" value="#{GAME_MODE_MENU_TITLE}" />
+        <Property key="TextAlign" value="HTop VCenter" />
+        <Property key="TextColour" value="1 1 1" />
+        <Property key="NeedKey" value="false" />
+        <Property key="NeedMouse" value="false" />
+        <Property key="Alpha" value="0.5" />
+    </Widget>
+    <Widget type="Widget" skin="PanelEmpty" name="Survival" position_real="0.292187 0.0833333 0.359375 0.872222">
+        <Widget type="ImageBox" skin="ImageBox" name="ButtonBackgroundHover" position_real="0 0 1 1">
+            <Property key="ImageTexture" value="MainMenu/BGGameModeSurvivalHover.png" />
+            <Property key="NeedKey" value="false" />
+            <Property key="NeedMouse" value="false" />
+        </Widget>
+        <Widget type="ImageBox" skin="ImageBox" name="ButtonBackground" position_real="0 0 1 1">
+            <Property key="ImageTexture" value="MainMenu/BGGameModeSurvivalDefault.png" />
+            <Property key="NeedKey" value="false" />
+            <Property key="NeedMouse" value="false" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" name="Title" position_real="0.252174 0.808917 0.652174 0.0732484">
+            <Property key="FontName" value="X_MenuGamemodeMenu_GameMode" />
+            <Property key="Caption" value="#{GAME_MODE_MENU_SURVIVAL}" />
+            <Property key="TextAlign" value="HTop VCenter" />
+            <Property key="TextColour" value="0.27058 0.33333 0.09803" />
+            <Property key="NeedKey" value="false" />
+            <Property key="NeedMouse" value="false" />
+        </Widget>
+        <Widget type="Widget" skin="PanelEmpty" name="ClickArea" position_real="0 0 1.1 1.06051" />
+    </Widget>
+    <Widget type="Widget" skin="PanelEmpty" name="Challenge" position_real="0.0765625 0.141667 0.271875 0.788889">
+        <Widget type="ImageBox" skin="ImageBox" name="ButtonBackgroundHover" position_real="0 0 1 1">
+            <Property key="ImageTexture" value="MainMenu/BGGameModeChallengeHover.png" />
+            <Property key="NeedKey" value="false" />
+            <Property key="NeedMouse" value="false" />
+        </Widget>
+        <Widget type="ImageBox" skin="ImageBox" name="ButtonBackground" position_real="0 0 1 1">
+            <Property key="ImageTexture" value="MainMenu/BGGameModeChallengeDefault.png" />
+            <Property key="NeedKey" value="false" />
+            <Property key="NeedMouse" value="false" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" name="Title" position_real="0.12069 0.822183 0.764368 0.0809859">
+            <Property key="FontName" value="X_MenuGamemodeMenu_GameMode" />
+            <Property key="Caption" value="#{GAME_MODE_MENU_CHALLENGE}" />
+            <Property key="TextAlign" value="HTop VCenter" />
+            <Property key="TextColour" value="0.4 0.24313726 0.04313726" />
+        </Widget>
+        <Widget type="Widget" skin="PanelEmpty" name="ClickArea" position_real="0 0 1.07184 1.05634" />
+    </Widget>
+    <Widget type="Widget" skin="PanelEmpty" name="Creative" position_real="0.657813 0.0986111 0.3125 0.822222">
+        <Widget type="ImageBox" skin="ImageBox" name="ButtonBackgroundHover" position_real="0 0 1 1">
+            <Property key="ImageTexture" value="MainMenu/BGGameModeCreativeHover.png" />
+            <Property key="NeedKey" value="false" />
+            <Property key="NeedMouse" value="false" />
+        </Widget>
+        <Widget type="ImageBox" skin="ImageBox" name="ButtonBackground" position_real="0 0 1 1">
+            <Property key="ImageTexture" value="MainMenu/BGGameModeCreativeDefault.png" />
+            <Property key="NeedKey" value="false" />
+            <Property key="NeedMouse" value="false" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" name="Title" position_real="0.075 0.841216 0.665 0.0777027">
+            <Property key="FontName" value="X_MenuGamemodeMenu_GameMode" />
+            <Property key="Caption" value="#{GAME_MODE_MENU_CREATIVE}" />
+            <Property key="TextAlign" value="HTop VCenter" />
+            <Property key="TextColour" value="0.07058824 0.2745098 0.4" />
+        </Widget>
+        <Widget type="Widget" skin="PanelEmpty" name="ClickArea" position_real="0 0 1.1 1.06926" />
+    </Widget>
+    <CodeGeneratorSettings />
+</MyGUI>

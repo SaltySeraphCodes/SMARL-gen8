@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="Widget" skin="PanelEmpty" name="CrossHair" position_real="0.408854 0.337963 0.182292 0.324074">
+        <Property key="NeedKey" value="false" />
+        <Property key="NeedMouse" value="false" />
+    </Widget>
+    <Widget type="ImageBox" skin="ImageBox" name="Progress" position_real="0.473958 0.453704 0.0520833 0.0925926">
+        <Property key="ImageGroup" value="remove" />
+        <Property key="ImageResource" value="Rotation" />
+        <Property key="NeedKey" value="false" />
+        <Property key="NeedMouse" value="false" />
+    </Widget>
+    <Widget type="Widget" skin="PanelEmpty" name="AlertPanel" position_real="0.229167 0.14537 0.541667 0.0925926">
+        <Widget type="TextBox" skin="TextBox" name="Alert" position_real="0 0.5 1 0.5">
+            <Property key="FontName" value="X_Hud_Alert" />
+            <Property key="Caption" value="" />
+            <Property key="TextAlign" value="Center" />
+            <Property key="TextShadow" value="true" />
+            <Property key="TextShadowColour" value="0 0 0 0.4" />
+        </Widget>
+        <Widget type="ImageBox" skin="ImageBox" position_real="0.477885 0.02 0.0442308 0.46">
+            <Property key="ImageTexture" value="gui_icon_alert.png" />
+        </Widget>
+    </Widget>
+</MyGUI>

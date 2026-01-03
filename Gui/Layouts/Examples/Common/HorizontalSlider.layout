@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="Widget" skin="PanelEmpty" name="Panel" position_real="0 0 1 1">
+        <Property key="NeedKey" value="false" />
+        <Property key="NeedMouse" value="true" />
+        <Property key="InheritsAlpha" value="false" />
+        <Widget type="Widget" skin="PanelEmpty" name="RightSpeed" position_real="0 0 1 1">
+            <Widget type="Widget" skin="LargeHorizontalSliderBackground" name="Background" position_real="0.0298507 0.56 0.940299 0.26" />
+            <Widget type="Widget" skin="LargeHorizontalSliderProgress" name="Progress" position_real="0.0298507 0.56 0.432836 0.24">
+                <Property key="NeedKey" value="false" />
+                <Property key="NeedMouse" value="false" />
+            </Widget>
+            <Widget type="Widget" skin="LargeHorizontalSliderInnerShadow" position_real="0.0149254 0.52 0.970149 0.32">
+                <Property key="NeedKey" value="false" />
+                <Property key="NeedMouse" value="false" />
+            </Widget>
+            <Widget type="Button" skin="LargeHorizontalSliderHandle" name="Handle" position_real="0.402985 0.36 0.0970149 0.62" />
+            <Widget type="Widget" skin="PanelEmpty" name="LineContainer" position_real="0 0.18 1 0.2" />
+            <Widget type="Widget" skin="PanelEmpty" name="IndexContainer" position_real="0 0 1 0.18">
+                <UserString key="Font" value="SM_SliderLabel" />
+            </Widget>
+        </Widget>
+    </Widget>
+    <CodeGeneratorSettings />
+</MyGUI>

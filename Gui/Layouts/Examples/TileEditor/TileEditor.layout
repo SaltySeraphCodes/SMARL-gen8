@@ -1,0 +1,127 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MyGUI type="Layout" version="3.2.0">
+
+    <Widget type="Widget" skin="PanelEmpty" position="0 0 1920 38" layer="Main" align="HStretch Top" name="MenuBarContainer" >
+        <Widget type="EditorMenu" skin="WhiteSkin" position="0 0 1920 38" align="HStretch Top" name="LeftMenuBar"/>
+        <Widget type="EditorMenu" skin="WhiteSkin" position="100 0 300 38" align="HCenter Top" name="CenterMenuBar"/>
+        <Widget type="EditorMenu" skin="WhiteSkin" position="1620 0 300 38" align="Right Top" name="RightMenuBar"/>
+    </Widget>
+
+    <Widget type="EditorWindow" skin="EditorWindow" position="0 36 262 450" layer="Overlapped" name="PropertiesWindow">
+        <Property key="Caption" value="Properties"/>
+        <Property key="MinSize" value="210 32"/>
+        <Property key="Visible" value="false"/>
+        <Property key="NeedKey" value="false"/>
+        <Widget type="ScrollView" skin="SMEmptyScrollView" position="0 0 262 428" align="Stretch" name="PropertiesView">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+    </Widget>
+
+    <Widget type="EditorWindow" skin="EditorWindow" position="800 300 390 300" layer="Overlapped" name="TileSettingsWindow">
+        <Property key="Caption" value="Tile Settings"/>
+        <Property key="MinSize" value="390 300"/>
+        <Property key="Visible" value="false"/>
+        <Property key="NeedKey" value="false"/>
+        <Widget type="ScrollView" skin="SMEmptyScrollView" position="0 5 385 260" align="Stretch" name="TileSettingsView">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+    </Widget>
+
+    <Widget type="EditorWindow" skin="EditorWindow" position="0 580 800 300" layer="Overlapped" name="AssetLibraryWindow">
+        <Property key="NeedKey" value="false"/>
+        <Property key="Caption" value="Asset Library"/>
+        <Property key="MinSize" value="600 64"/>
+        <Widget type="ItemBox" skin="EditorListBox" position="0 28 780 240" align="Stretch" name="AssetList">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+    </Widget>
+
+    <Widget type="EditorWindow" skin="EditorWindowNoResize" position="0 38 262 100" layer="Overlapped" name="BrushWindow">
+        <Property key="NeedKey" value="false"/>
+        <Property key="Caption" value="Ground Brush Settings"/>
+        <Property key="Visible" value="false"/>
+        <Widget type="ScrollView" skin="SMEmptyScrollView" position="0 0 262 100" align="Stretch" name="BrushView">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+    </Widget>
+
+    <Widget type="EditorWindow" skin="EditorWindow" position="0 138 262 470" layer="Overlapped" name="GroundMaterialWindow">
+        <Property key="NeedKey" value="false"/>
+        <Property key="Caption" value="Ground Material"/>
+        <Property key="MinSize" value="108 32"/>
+        <Widget type="AdvanceEditBox" skin="EditorEditBox" position="4 4 254 24" align="HStretch Top" name="GroundMaterialSet">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+        <Widget type="ItemBox" skin="SMEditorListBox" position="2 30 258 430" align="Stretch" name="GroundMaterialList">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+    </Widget>
+    <Widget type="EditorWindow" skin="EditorWindow" position="0 138 262 320" layer="Overlapped" name="ClutterLibraryWindow">
+        <Property key="NeedKey" value="false"/>
+        <Property key="Caption" value="Clutter Library"/>
+        <Property key="MinSize" value="180 280"/>
+        <Property key="Visible" value="false"/>
+        <Widget type="ScrollView" skin="SMEditorListBox" position="0 0 262 300" align="Stretch" name="ClutterLibraryView">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+    </Widget>
+    <Widget type="EditorWindow" skin="EditorWindowNoResize" position="0 138 262 152" layer="Overlapped" name="TerrainBrushWindow">
+        <Property key="NeedKey" value="false"/>
+        <Property key="Visible" value="false"/>
+        <Property key="Caption" value="Ground Height"/>
+        <Widget type="ScrollView" skin="SMEmptyScrollView" position="0 0 262 132" align="Stretch" name="TerrainBrushView">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+    </Widget>
+    
+    <Widget type="EditorWindow" skin="EditorWindowNoResize" position="0 336 262 525" layer="Overlapped" name="ColorEditor">
+        <Property key="Caption" value="Color"/>
+        <Property key="Visible" value="false"/>
+        <Property key="NeedKey" value="false"/>
+        <Widget type="ImageBox" skin="ImageBox" position="3 5 256 256" name="ColorMatrixImage">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+        <Widget type="ImageBox" skin="ImageBox" position="3 266 256 24" name="HueGradientImage">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+        <Widget type="ScrollView" skin="SMEmptyScrollView" position="130 325 130 125" name="HSVList">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+        <Widget type="ImageBox" skin="ImageBox" position="3 295 256 24" name="AlphaGradientImage">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+        <Widget type="ScrollView" skin="SMEmptyScrollView" position="5 325 120 125" name="RGBList">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+        <Widget type="ScrollView" skin="SMEmptyScrollView" position="5 450 255 40" name="ButtonArea">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+    </Widget>
+    <Widget type="EditorWindow" skin="EditorWindow" position="800 38 484 304" layer="Overlapped" name="CameraWindow">
+        <Property key="Caption" value="Camera"/>
+        <Property key="Visible" value="false"/>
+        <Property key="NeedKey" value="false"/>
+        <Property key="MinSize" value="484 304"/>
+        <Widget type="TextureBox" skin="TextureBox" position="2 0 480 270" align="Stretch" name="CameraView">
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+    </Widget>
+
+    <Widget type="EditorWindow" skin="EditorWindow" position="0 0 262 500" layer="Overlapped" name="OutlinerWindow">
+        <Property key="Caption" value="Outliner"/>
+        <Property key="NeedKey" value="true"/>
+        <Property key="NeedMouse" value="true"/>
+        <Property key="MinSize" value="262 64"/>
+        <Widget type="ImageBox" skin="WhiteSkin" align="Top | Left" position="4 5 18 18" name="SearchIcon">
+            <Property key="ImageTexture" value="$GAME_DATA/Gui/Editor/ed_icon_search.png"/>
+        </Widget>
+        <Widget type="AdvanceEditBox" skin="EditorEditBox" align="Top | HStretch" position="26 2 232 24" name="SearchText"/>
+        <Widget type="DynamicDataView" skin="WhiteSkin" align="Stretch" position="0 30 262 474" name="EntityList"/>
+    </Widget>    
+
+    <Widget type="TextBox" skin="TextBox" position_real="-0.0078125 0.0234375 1 0.975586" align="Right Top" layer="Statistic" name="InfoBox">
+        <Property key="TextAlign" value="Right Top"/>
+    </Widget>
+    
+    <CodeGeneratorSettings/>
+</MyGUI>

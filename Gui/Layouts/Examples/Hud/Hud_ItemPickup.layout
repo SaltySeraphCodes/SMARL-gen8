@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="Widget" skin="PanelEmpty" name="PickupPanel" position_real="0 0 1 0.166667">
+        <Property key="NeedKey" value="false" />
+        <Property key="NeedMouse" value="false" />
+        <Widget type="ImageBox" skin="ImageBox" name="Icon" position_real="0.913333 0.04 0.08 0.92" />
+        <Widget type="TextBox" skin="TextBox" name="Text" position_real="0.05 0.24 0.806667 0.48">
+            <Property key="Caption" value="item text x123" />
+            <Property key="FontName" value="SM_ItemTitle" />
+            <Property key="NeedToolTip" value="false" />
+            <Property key="NeedMouse" value="false" />
+            <Property key="TextColour" value="1 1 1" />
+            <Property key="TextShadow" value="true" />
+            <Property key="TextShadowColour" value="0.19883 0.19883 0.19883" />
+            <Property key="TextAlign" value="Right VCenter" />
+        </Widget>
+        <Widget type="ImageBox" skin="PickupBgParts" name="Background" position_real="0.00333333 0.12 0.0333333 0.68" />
+        <Widget type="TextBox" skin="TextBox" name="Number" position_real="0.856667 0.24 0.0566667 0.48">
+            <Property key="FontName" value="SM_ItemTitle" />
+            <Property key="TextColour" value="1 1 0.752941" />
+            <Property key="Caption" value="+ 1" />
+            <Property key="TextAlign" value="HCenter VCenter" />
+        </Widget>
+    </Widget>
+    <CodeGeneratorSettings />
+</MyGUI>

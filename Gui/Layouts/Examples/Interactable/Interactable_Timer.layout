@@ -1,0 +1,121 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="Widget" skin="BackgroundEngineNoUpgrade" name="MainPanel" position_real="0 0 0.260156 0.461111">
+        <Property key="NeedKey" value="false" />
+        <Property key="NeedMouse" value="true" />
+        <Property key="InheritsAlpha" value="false" />
+        <Widget type="TextBox" skin="TextBox" name="Name" position_real="0.0990991 0.10241 0.798799 0.0783133">
+            <Property key="Caption" value="#{CONTROLLER_TIMER_TITLE}" />
+            <Property key="FontName" value="SM_HeaderLarge_Wide" />
+            <Property key="TextAlign" value="Center" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" name="SubTitle" position_real="0.0990991 0.183735 0.798799 0.060241">
+            <Property key="TextAlign" value="Center" />
+            <Property key="TextColour" value="1 0.803922 0.247059" />
+            <Property key="FontName" value="SM_SubHeader" />
+            <Property key="Caption" value="#{CONTROLLER_TIMER_DELAY}" />
+        </Widget>
+        <Widget type="Widget" skin="PanelEmpty" name="Ticks" position_real="0.6997 0.271084 0.279279 0.572289">
+            <Property key="NeedKey" value="false" />
+            <Widget type="Widget" skin="LargeVerticalSliderBackground" name="Background" position_real="0.0645161 0.0210526 0.27957 0.947368">
+                <Property key="NeedKey" value="false" />
+                <Property key="NeedMouse" value="true" />
+            </Widget>
+            <Widget type="Widget" skin="LargeVerticalSliderProgress" name="Progress" position_real="0.0645161 0.684211 0.268817 0.284211">
+                <Property key="NeedMouse" value="false" />
+                <Property key="NeedKey" value="false" />
+            </Widget>
+            <Widget type="Widget" skin="LargeVerticalSliderInnerShadow" position_real="0.0430108 0.0157895 0.311828 0.963158">
+                <Property key="NeedKey" value="false" />
+                <Property key="NeedMouse" value="false" />
+            </Widget>
+            <Widget type="Button" skin="LargeVerticalSliderHandle" name="Handle" position_real="0 0.736842 0.451613 0.147368">
+                <Property key="FontName" value="Default" />
+                <Property key="TextAlign" value="Center" />
+                <Property key="NeedKey" value="false" />
+            </Widget>
+            <Widget type="Widget" skin="PanelEmpty" name="LineContainer" position_real="0.44086 0 0.0967742 1">
+                <Property key="NeedKey" value="false" />
+                <Property key="NeedMouse" value="false" />
+            </Widget>
+            <Widget type="Widget" skin="PanelEmpty" name="IndexContainer" position_real="0.580645 0 0.419355 1">
+                <UserString key="Font" value="SM_LabelMini" />
+            </Widget>
+        </Widget>
+        <Widget type="Widget" skin="PanelEmpty" name="Seconds" position_real="0.021021 0.271084 0.279279 0.572289">
+            <Property key="NeedKey" value="false" />
+            <Widget type="Widget" skin="LargeVerticalSliderBackground" name="Background" position_real="0.645161 0.0210526 0.27957 0.947368">
+                <Property key="NeedKey" value="false" />
+                <Property key="NeedMouse" value="true" />
+            </Widget>
+            <Widget type="Widget" skin="LargeVerticalSliderProgress" name="Progress" position_real="0.655914 0.684211 0.268817 0.284211">
+                <Property key="NeedMouse" value="false" />
+                <Property key="NeedKey" value="false" />
+            </Widget>
+            <Widget type="Widget" skin="LargeVerticalSliderInnerShadow" position_real="0.634409 0.0157895 0.311828 0.963158">
+                <Property key="NeedKey" value="false" />
+                <Property key="NeedMouse" value="false" />
+            </Widget>
+            <Widget type="Button" skin="LargeVerticalSliderHandleLeft" name="Handle" position_real="0.548387 0.736842 0.451613 0.147368">
+                <Property key="FontName" value="Default" />
+                <Property key="TextAlign" value="Center" />
+                <Property key="NeedKey" value="false" />
+            </Widget>
+            <Widget type="Widget" skin="PanelEmpty" name="LineContainer" position_real="0.451613 0 0.0967742 1">
+                <Property key="NeedKey" value="false" />
+                <Property key="NeedMouse" value="false" />
+            </Widget>
+            <Widget type="Widget" skin="PanelEmpty" name="IndexContainer" position_real="0 0 0.419355 1">
+                <UserString key="Font" value="SM_LabelMini" />
+            </Widget>
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" name="SecondsText" position_real="0.318318 0.466867 0.102102 0.0873494">
+            <Property key="FontName" value="SM_NumberHuge" />
+            <Property key="Caption" value="60" />
+            <Property key="TextAlign" value="Right Bottom" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" position_real="0.42042 0.481928 0.048048 0.0662651">
+            <Property key="Caption" value="S" />
+            <Property key="FontName" value="X_Interactable_Timer_TimeUnit" />
+            <Property key="TextColour" value="0.592157 0.592157 0.592157" />
+            <Property key="TextAlign" value="Left Bottom" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" position_real="0.612613 0.481928 0.0840841 0.0662651">
+            <Property key="Caption" value="MS" />
+            <Property key="FontName" value="X_Interactable_Timer_TimeUnit" />
+            <Property key="TextColour" value="0.592157 0.592157 0.592157" />
+            <Property key="TextAlign" value="Right Bottom" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" name="MillisecondsText" position_real="0.462462 0.466867 0.15015 0.0873494">
+            <Property key="Caption" value="000" />
+            <Property key="FontName" value="SM_NumberHuge" />
+            <Property key="TextAlign" value="Right Bottom" />
+        </Widget>
+        <Widget type="Widget" skin="WhiteSkin" position_real="0.318318 0.575301 0.36036 0.00301205">
+            <Property key="Colour" value="0.592157 0.592157 0.592157" />
+            <Property key="Alpha" value="0.2" />
+        </Widget>
+        <Widget type="Widget" skin="WhiteSkin" position_real="0.318318 0.644578 0.36036 0.00301205">
+            <Property key="Colour" value="0.592157 0.592157 0.592157" />
+            <Property key="Alpha" value="0.2" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" name="TicksText" position_real="0.318318 0.584337 0.36036 0.0481928">
+            <Property key="Caption" value="0123456789 #{CONTROLLER_TIMER_TICKS}" />
+            <Property key="FontName" value="X_Interactable_Timer_TickCount" />
+            <Property key="TextAlign" value="Center" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" position_real="0.177177 0.849398 0.132132 0.0421687">
+            <Property key="TextColour" value="0.592157 0.592157 0.592157" />
+            <Property key="Caption" value="#{CONTROLLER_TIMER_SECONDS}" />
+            <Property key="FontName" value="SM_LabelTiny" />
+            <Property key="TextAlign" value="HCenter Top" />
+        </Widget>
+        <Widget type="TextBox" skin="TextBox" position_real="0.657658 0.849398 0.216216 0.0421687">
+            <Property key="TextColour" value="0.592157 0.592157 0.592157" />
+            <Property key="Caption" value="#{CONTROLLER_TIMER_TICKS}" />
+            <Property key="FontName" value="SM_LabelTiny" />
+            <Property key="TextAlign" value="HCenter Top" />
+        </Widget>
+    </Widget>
+    <CodeGeneratorSettings />
+</MyGUI>
