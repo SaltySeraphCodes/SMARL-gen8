@@ -356,11 +356,27 @@ function TuningOptimizer:runSteeringTest(tel, dt, perceptionData)
         if yawRate < 0.05 and isStraight and isSafeWidth then 
             self.steerState = 1 
             self.steerTimer = 0
+            
+            -- [[ FIX: SMART TEST DIRECTION ]]
+            -- Choose the direction with MORE SPACE to avoid "Inverted" feel or wall hits.
+            self.testDir = 1.0 -- Default Left
+            if perceptionData and perceptionData.WallAvoidance then
+                local wa = perceptionData.WallAvoidance
+                if wa.marginRight > wa.marginLeft then
+                    self.testDir = -1.0 -- Steer Right
+                end
+            end
+            print(string.format("Optimizer: Starting Steering Test. Dir: %s (Margins L:%.1f R:%.1f)", 
+                (self.testDir > 0 and "LEFT" or "RIGHT"),
+                (perceptionData.WallAvoidance and perceptionData.WallAvoidance.marginLeft or 0),
+                (perceptionData.WallAvoidance and perceptionData.WallAvoidance.marginRight or 0)
+            ))
         end
         
-    -- STATE 1: IMPULSE LEFT (+0.3 for 0.15s)
+    -- STATE 1: IMPULSE (Adaptive)
     elseif self.steerState == 1 then
-        self.driver.Decision.overrideSteer = 0.3
+        local dir = self.testDir or 1.0
+        self.driver.Decision.overrideSteer = 0.3 * dir
         self.steerTimer = self.steerTimer + dt
         if self.steerTimer > 0.15 then
             self.steerState = 2
