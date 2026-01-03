@@ -18,10 +18,10 @@ function TuningOptimizer:init(driver)
     self.initWaitTicks = 0 -- [FIX] Timer to allow Engine connection
     
     -- [[ TUNABLE PHYSICS PARAMETERS ]]
-    self.cornerLimit = 2.0      
+    self.cornerLimit = 1.8      
     self.brakingFactor = 15.0   
-    self.dampingFactor = 0.15   
-    self.lookaheadMult = 0.9    
+    self.dampingFactor = 0.30   
+    self.lookaheadMult = 0.8    
     self.tractionConstant = 2.6
     
     -- [[ NEW: LEARNED PHYSICS PROFILE ]]
@@ -141,24 +141,40 @@ function TuningOptimizer:reportCrash()
     -- [[ LOCK CHECK ]]
     if self.learningLocked then return end
 
+    -- 1. DATA GATHERING (Context)
+    -- Was this a traction loss (spin) or just a bad line (clip)?
+    local isSpin = (self.peakY and self.peakY > 2.0) or (self.oscillations > 2)
+    
     self.crashDetected = true
     
-    -- [[ FIX: RESET TO SAFE DEFAULTS ]]
-    -- OLD: Multiplied values (Dangerous loop)
-    -- NEW: Reset to known safe "Stiff" values.
-    
-    self.cornerLimit = 1.2      -- Slow down cornering target
-    self.dampingFactor = 0.35   -- Reset to stable damping (Don't let it stay at 0.60!)
-    self.lookaheadMult = 1.1    -- Look a bit further ahead
-    
-    -- Also punish the grip slightly in case we overestimated it
-    self.learnedGrip = math.max(0.8, self.learnedGrip - 0.1)
+    -- 2. SMART PENALTY
+    if isSpin then
+        -- IT WAS A SLIDE: We are too stiff or trusting grip too much.
+        self.learnedGrip = math.max(0.8, self.learnedGrip - 0.05) -- Small grip reduction
+        self.dampingFactor = math.min(0.5, self.dampingFactor + 0.05) -- Add damping
+        print(self.driver.id, "CRASH (Spin): Increasing Damping, Reducing Grip confidence.")
+    else
+        -- IT WAS A CLIP: We just took a bad line. Don't ruin the physics!
+        -- Just back off the corner speed slightly to be safe.
+        self.cornerLimit = math.max(1.0, self.cornerLimit * 0.90) -- Reduce limit by 10% only
+        print(self.driver.id, "CRASH (Clip): Softening Corner Limit by 10%.")
+    end
 
-    print(self.driver.id, "CRASH DETECTED! Resetting Tuning to Safe Defaults.")
-    self:saveProfile() -- Save the reset so we don't load the broken 0.60 profile again
+    -- 3. COOLDOWN (The Fix for "Overcorrecting")
+    -- Instead of resetting everything, we just PAUSE learning for 5 seconds.
+    -- This stops the car from trying to "fix" the tuning while it's tumbling through the air.
+    self.learningCoolDown = 200 -- 5 seconds (40 ticks/sec)
+    
+    -- Save this minor adjustment (not a full reset)
+    self:saveProfile() 
 end
 
 function TuningOptimizer:recordFrame(perceptionData)
+    if self.learningCoolDown and self.learningCoolDown > 0 then
+        self.learningCoolDown = self.learningCoolDown - 1
+        return -- IGNORE ALL DATA while recovering
+    end
+
     if self.fingerprint == "CALCULATING" then 
         self.initWaitTicks = self.initWaitTicks + 1 -- [FIX] Increment wait timer
         self:checkFingerprint()
@@ -237,14 +253,7 @@ function TuningOptimizer:recordFrame(perceptionData)
 end
 
 function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
-    -- [[ LOCK CHECK ]]
-    -- If locked, we simply reset the buffers so they don't overflow,
-    -- but we DO NOT update any parameters or save data.
-    if self.learningLocked then
-        self:reset()
-        return
-    end
-    
+    if self.learningLocked then self:reset(); return end
     if self.tickCount < MIN_DATA_SAMPLES then self:reset(); return end
 
     local rmsError = math.sqrt(self.yVarianceSum / self.tickCount)
@@ -253,46 +262,55 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
     local debugMsg = ""
     local improved = false
 
-    -- [[ UPDATED: GRIP PROFILE LOGIC ]]
-    -- CRITICAL: Only learn Physical Grip Limits when tires are fresh (> 90%).
-    -- This prevents the AI from mistaking "Simulated Wear" for "Permanent Physics".
-    local tireHealth = self.driver.Tire_Health or 1.0
-    
-    if tireHealth > 0.90 and self.peakLatAccel > 5.0 then
-        -- We are on fresh rubber, so any grip we see is the "True Potential" of the car
-        local observedGrip = self.peakLatAccel / 15.0
+    -- 1. GRIP LEARNING (Make it more aggressive)
+    -- If we sustained high Gs, trust the car more.
+    if self.peakLatAccel > 5.0 then
+        local observedGrip = self.peakLatAccel / 10.0 -- Lower divisor = higher calculated grip
         
         if observedGrip > self.learnedGrip then
-            -- Car is grippier than we thought!
-            self.learnedGrip = math.min(2.5, self.learnedGrip + 0.05)
+            -- Learn grip FAST (Confidence)
+            self.learnedGrip = math.min(3.0, self.learnedGrip + 0.1)
             improved = true
-        elseif self.peakY > 2.0 and observedGrip < self.learnedGrip then
-            -- We are sliding on FRESH tires -> True grip loss
-            self.learnedGrip = math.max(0.5, self.learnedGrip - 0.05)
+        elseif self.peakY > 2.0 and observedGrip < (self.learnedGrip - 0.2) then
+            -- Forget grip SLOW (Forgiveness)
+            self.learnedGrip = math.max(0.8, self.learnedGrip - 0.02)
             improved = true
         end
     end
     
-    -- [[ EXISTING TUNING LOGIC ]]
+    -- 2. STABILITY TUNING (The Fix)
     if self.crashDetected then
         debugMsg = "Recovering from Crash"
+        -- Don't reset completely, just back off slightly
+        self.cornerLimit = math.max(1.0, self.cornerLimit - 0.1)
         improved = true
-    elseif self.peakY > 2.5 then
-        self.cornerLimit = math.max(1.2, self.cornerLimit - LEARNING_RATE)
-        self.lookaheadMult = math.min(1.5, self.lookaheadMult + LEARNING_RATE)
+    elseif self.peakY > 2.0 then
+        -- UNDERSTEER: We missed the line. Slow down entry, don't change steering.
+        self.cornerLimit = math.max(1.0, self.cornerLimit - LEARNING_RATE)
         debugMsg = debugMsg .. " Understeer Fix"
         improved = true
-    elseif oscillationRate > 1.5 or rmsError > STABILITY_THRESHOLD then
-        self.dampingFactor = math.min(0.5, self.dampingFactor + LEARNING_RATE)
-        self.lookaheadMult = math.min(1.1, self.lookaheadMult + (LEARNING_RATE * 2))
-        
-        debugMsg = debugMsg .. " Stabilizing"
+    elseif oscillationRate > 1.0 or rmsError > STABILITY_THRESHOLD then
+        -- OSCILLATION: Increase Damping FIRST. Only increase Lookahead if Damping is maxed.
+        if self.dampingFactor < 0.40 then
+            self.dampingFactor = self.dampingFactor + (LEARNING_RATE * 2)
+            debugMsg = debugMsg .. " +Damping"
+        else
+            self.lookaheadMult = math.min(1.2, self.lookaheadMult + LEARNING_RATE)
+            debugMsg = debugMsg .. " +Lookahead"
+        end
         improved = true
     else
+        -- STABLE: Speed it up!
+        -- If we are stable, tighten the steering (lower lookahead) and brake later.
         local avgTime = self:getRollingAverage(sectorID, 5)
-        if avgTime == 0 or sectorTime < avgTime then
-            self.cornerLimit = math.min(3.5, self.cornerLimit + (LEARNING_RATE * 0.5))
-            self.brakingFactor = math.min(40.0, self.brakingFactor + LEARNING_RATE)
+        
+        if avgTime == 0 or sectorTime <= avgTime then
+            self.cornerLimit = math.min(4.0, self.cornerLimit + (LEARNING_RATE * 0.5))
+            self.brakingFactor = math.min(50.0, self.brakingFactor + (LEARNING_RATE * 2))
+            
+            -- Tighten steering for better apexing
+            self.lookaheadMult = math.max(0.7, self.lookaheadMult - LEARNING_RATE)
+            
             debugMsg = debugMsg .. " Pushing Limits"
             improved = true
         end
@@ -302,7 +320,7 @@ function TuningOptimizer:onSectorComplete(sectorID, sectorTime)
     
     table.insert(self.history, { sid = sectorID, time = sectorTime })
     if #self.history > 50 then table.remove(self.history, 1) end
-    print(debugMsg)
+    print(debugMsg .. string.format(" [Grip: %.2f | Damp: %.2f]", self.learnedGrip, self.dampingFactor))
     self:reset()
 end
 

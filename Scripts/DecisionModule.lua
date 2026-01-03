@@ -5,15 +5,15 @@ DecisionModule = class(nil)
 local MAX_TILT_RAD = 1.047 
 local STUCK_SPEED_THRESHOLD = 0.5 
 local STUCK_TIME_LIMIT = 6.0
-local BASE_MAX_SPEED = 1000 
-local MIN_CORNER_SPEED = 12
-local GRIP_FACTOR = 0.8            
-local MIN_RADIUS_FOR_MAX_SPEED = 130.0 
+local BASE_MAX_SPEED = 1200 
+local MIN_CORNER_SPEED = 20
+local GRIP_FACTOR = 1.2            
+local MIN_RADIUS_FOR_MAX_SPEED = 100 
 
 -- [[ TUNING - STEERING PID ]]
-local MAX_WHEEL_ANGLE_RAD = 0.8 
-local DEFAULT_STEERING_Kp = 0.12  
-local DEFAULT_STEERING_Kd = 0.45 -- Increase damping. Resist the swing  
+local MAX_WHEEL_ANGLE_RAD = 0.65 
+local DEFAULT_STEERING_Kp = 0.10 
+local DEFAULT_STEERING_Kd = 0.40 -- Increase damping. Resist the swing  
 local LATERAL_Kp = 1.0            
 local Kp_MIN_FACTOR = 0.35     
 local Kd_BOOST_FACTOR = 1.2    
@@ -50,9 +50,9 @@ local CORNER_PHASE_DURATION = 0.3
 local NUM_RAYS = 17            
 local VIEW_ANGLE = 120         
 local LOOKAHEAD_RANGE = 45.0   
-local SAFETY_WEIGHT = 3      -- WAS 10.0. Set to 0.0 to disable Wall Avoidance override.
+local SAFETY_WEIGHT = 6      -- WAS 10.0. Set to 0.0 to disable Wall Avoidance override.
 local INTEREST_WEIGHT = 2.0    
-local WALL_AVOID_DIST = 1.5    
+local WALL_AVOID_DIST = 2.5    
 local VISUALIZE_RAYS = true    
 
 -- [[ BRAKING PHYSICS ]]
@@ -257,7 +257,7 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     -- [CRITICAL FIX] Reaction Time Buffer
     -- Subtract the distance we will cover while the brakes are physically engaging (approx 0.2s)
     -- If we are moving 40 m/s, we lose 8 meters here. This prevents overshoot.
-    local latencyMeters = currentSpeed * 0.2
+    local latencyMeters = currentSpeed * 0.1 -- increasing increases braking distance
     local effectiveBrakingDist = math.max(0.0, distToApex - latencyMeters)
     
     -- Formula: v_entry = sqrt( v_corner^2 + 2 * a * d )
@@ -336,15 +336,17 @@ function DecisionModule:calculateContextBias(perceptionData, preferredBias)
          -- (Keep your existing Wall Logic here)
          local avoidanceMargin = WALL_AVOID_DIST 
          if wall.marginLeft < avoidanceMargin then
-             -- Left Wall Danger -> Block Left Rays (Negative Angles)
-             local urgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
+            -- Left Wall Danger -> Block Left Rays (Negative Angles)
+            local rawUrgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
+            local urgency = rawUrgency * rawUrgency
              for i = 1, NUM_RAYS do
                  if rayAngles[i] < 0 then dangerMap[i] = math.max(dangerMap[i], urgency) end
              end
          end
          if wall.marginRight < avoidanceMargin then
-             -- Right Wall Danger -> Block Right Rays (Positive Angles)
-             local urgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin)
+            -- 50% distance = 25% urgency. 10% distance = 81% urgency.
+            local rawUrgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
+            local urgency = rawUrgency * rawUrgency
              for i = 1, NUM_RAYS do
                  if rayAngles[i] > 0 then dangerMap[i] = math.max(dangerMap[i], urgency) end
              end
@@ -649,7 +651,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local targetBias = self:getFinalTargetBias(perceptionData)
     
     -- 2. GET FUTURE GEOMETRY
-    local mult = (optim and optim.lookaheadMult) or 0.9
+    local mult = (optim and optim.lookaheadMult) or 0.8
     -- [[ FIX: DYNAMIC LOOKAHEAD SCALING ]]
     -- If the turn is tight (Radius < 60m), shrink the lookahead.
     -- This pulls the green ball closer to the car, allowing it to "hug" the apex.
@@ -665,7 +667,11 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
         mult = mult * 2.0 -- Look TWICE as far if sliding (e.g. 18m -> 36m)
     end
     
-    local lookaheadDist = math.max(12.0, speed * mult)
+    -- Boost lookahead on straights (Radius > 500m) to smooth out steering
+    local straightBoost = 1.0
+    if nav.roadCurvatureRadius > 500.0 then straightBoost = 1.5 end
+    
+    local lookaheadDist = math.max(12.0, speed * mult * straightBoost)
     
     local centerPoint, futureNode = self:getFutureCenterPoint(
         nav.closestPointData.baseNode, 
@@ -734,7 +740,8 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local rawDamping = yawRate * currentKd
     -- Logic: If we are steering LEFT (-), and Damping is RIGHT (+), clamp the damping.
     if (steerOutput < 0 and rawDamping > 0) or (steerOutput > 0 and rawDamping < 0) then
-        local maxDamp = math.abs(steerOutput) * 0.8
+        -- Allow at least 0.20 damping force even if steering is 0 (Fixes straight line wobble)
+        local maxDamp = math.max(0.10, math.abs(steerOutput) * 1.0)        
         if rawDamping > maxDamp then rawDamping = maxDamp end
         if rawDamping < -maxDamp then rawDamping = -maxDamp end
     end
@@ -748,14 +755,17 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     self.latestDebugData.latErr = nav.lateralMeters or 0
     -- [[ END CHANGE ]]
 
-    -- Slew Rate
-    --if self.lastSteerOut then
-    --    local maxChange = 4.0 * dt 
-    --    local delta = clampedOutput - self.lastSteerOut
-    --    if delta > maxChange then clampedOutput = self.lastSteerOut + maxChange
-    --    elseif delta < -maxChange then clampedOutput = self.lastSteerOut - maxChange end
-    --end
-    self.lastSteerOut = clampedOutput
+    --[[Slew Rate
+    if self.lastSteerOut then
+        -- 6.0 allows full lock in ~0.3 seconds. 
+        -- Too low (< 3.0) makes it sluggish in chicanes. Too high (> 10.0) allows jitters.
+        local maxChange = 6.0 * dt 
+        
+        local delta = clampedOutput - self.lastSteerOut
+        if delta > maxChange then clampedOutput = self.lastSteerOut + maxChange
+        elseif delta < -maxChange then clampedOutput = self.lastSteerOut - maxChange end
+    end
+    self.lastSteerOut = clampedOutput]]
 
     return clampedOutput
 end

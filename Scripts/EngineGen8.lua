@@ -87,6 +87,9 @@ function Engine.server_init(self)
     self.longTimer = 0 -- Simple tick counter
 
     self.wheelTypeTag = "NONE"
+
+    -- learning
+    self.learnSum = 0
     
     -- Initial Setup
     self:updateType() 
@@ -201,7 +204,7 @@ function Engine.calculateRPM(self)
         -- TCS SENSITIVITY
         -- If converged (Profile Learned), we use a tight 1.3x limit (high performance).
         -- If not converged, we use a loose 2.0x limit (safety only).
-        local slipLimit = tcsConverged and 1.3 or 2.0
+        local slipLimit = tcsConverged and 1.2 or 1.5
         
         local avgActualRPM = 0
         local wheelCount = 0
@@ -250,9 +253,8 @@ function Engine.calculateRPM(self)
             end
         end
 
+
         -- [PERFORM CALIBRATION]
-        -- [PERFORM CALIBRATION]
-        -- [[ CHANGED: CHECK CONVERGENCE ]]
         -- If we have already converged (locked), DO NOT update unless we are absolutely sure.
         -- This stops the "fluctuation after corners" because we stop calculating during minor instability.
         if isLearning and wheelCount > 0 and not tcsConverged then
@@ -290,10 +292,10 @@ function Engine.calculateRPM(self)
     end
 
     if slipDetected then
-         -- Tighter cut if converged for faster recovery
-         local cutSeverity = tcsConverged and 0.5 or 0.2
-         self.accelInput = self.accelInput * cutSeverity 
-         self.curRPM = self.curRPM * 0.9 
+       -- Only reduce throttle by 20% (0.8) or 50% (0.5) if not converged
+        local cutSeverity = tcsConverged and 0.5 or 0.4 
+        self.accelInput = self.accelInput * cutSeverity 
+        -- Don't cut RPM directly, let physics handle it
     end
 
     if not self.driver.isRacing and not self.driver.active then self.curVRPM = 0; return 0 end
