@@ -316,9 +316,15 @@ function TuningOptimizer:recordFrame(perceptionData, dt)
     -- [[ TELEMETRY LOGGING ]]
     if self.tickCount % 8 == 0 then -- Approx every 0.2s
          local mode = (self.driver.Decision and self.driver.Decision.currentMode) or "UNK"
-         print(string.format("TELEMETRY: [%s] Spd:%.1f, Thr:%.2f, Brk:%.2f, Steer:%.2f, LatG:%.2f, Grip:%.2f", 
+         local latPos = 0.0
+         if perceptionData and perceptionData.Navigation then 
+             latPos = perceptionData.Navigation.lateralMeters or 0.0 
+         end
+         
+         print(string.format("TELEMETRY: [%s] Spd:%.1f, LatPos:%.1f, Thr:%.2f, Brk:%.2f, Steer:%.2f, LatG:%.2f, Grip:%.2f", 
             mode,
             currentSpeed, 
+            latPos,
             self.driver.Decision.throttle or 0, 
             self.driver.Decision.brake or 0, 
             self.driver.Decision.steer or 0, 

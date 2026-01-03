@@ -246,6 +246,13 @@ function DriverGen8.server_onFixedUpdate(self, dt)
             if guidanceData.brake then decisionData.brake = guidanceData.brake end
         end
     end
+    
+    -- [[ FIX: SYNC DECISION STATE FOR TELEMETRY ]]
+    if self.Decision and decisionData then
+        self.Decision.throttle = decisionData.throttle
+        self.Decision.brake = decisionData.brake
+        self.Decision.steer = decisionData.steer
+    end
 
     -- 4. ACTION
     if self.Action and decisionData then
@@ -254,6 +261,10 @@ function DriverGen8.server_onFixedUpdate(self, dt)
             decisionData.throttle = 0
             decisionData.brake = 1.0
             decisionData.steer = 0
+            -- Sync override to telemetry
+            if self.Decision then 
+                self.Decision.throttle = 0; self.Decision.brake = 1.0 
+            end
         end
         self.Action:server_onFixedUpdate(decisionData,dt)
         if decisionData.resetCar then self:resetCar() end
