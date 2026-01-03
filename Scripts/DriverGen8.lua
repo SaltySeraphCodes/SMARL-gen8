@@ -65,11 +65,14 @@ function DriverGen8.server_init(self)
     self.resetPosTimeout = 0.0
     self.trackLoaded = false
 
- 
-    -- Car Attributes
-    self.Tire_Type = 2
+    -- [Moved for safety]
+    self.metaData = self.storage:load() or {}
+    self.pitState = 0 -- 0:Race, 1:Req, 2:InLane, 3:ApprBox, 4:Stopped, 5:ExitBox, 6:ExitLane
     self.Tire_Health = 1.0
     self.Fuel_Level = 1.0
+    self.Tire_Type = 2
+
+    -- Car Attributes (Initialized at top)
     self.Gear_Length = 0.5
     self.Spoiler_Angle = 0.5
     self.formationSide = 1 
@@ -106,8 +109,7 @@ function DriverGen8.server_init(self)
     self.lastSectorTimestamp = 0.0 -- [NEW] To calculate duration
     
     
-    -- Pit State
-    self.pitState = 0 -- 0:Race, 1:Req, 2:InLane, 3:ApprBox, 4:Stopped, 5:ExitBox, 6:ExitLane
+    -- (Moved to top)
     self.assignedBox = nil
     self.pitTotalTime = 0
     self.pitTimer = 0
@@ -117,7 +119,7 @@ function DriverGen8.server_init(self)
     self.tireLimp = false
     self.fuelLimp = false
 
-    self.metaData = self.storage:load() or {}
+    -- (Loaded at top)
     self.twitchData = {}
     self.twitchCar = false 
     self.carDimensions = nil 
