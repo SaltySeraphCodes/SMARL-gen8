@@ -266,12 +266,20 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     local safetyRadius = math.max(effectiveRadius * 0.9, 10.0)
 
     -- 2. CALCULATE MAX CORNERING SPEED (v^2/r = u*g)
-    local lateralGrip = 20.0 -- Was 15.0. 20.0 allows for 2.0g turns.
+    local lateralGrip = 18.0 
     if self.Driver.Optimizer then
         -- Scale the optimizer's cornerLimit (usually 1.0-3.5) to G-force units
-        lateralGrip = self.Driver.Optimizer.cornerLimit * 10.0 
+        -- [[ FIX: USE LEARNED GRIP WITH MARGIN ]]
+        -- Use the lesser of our Safety Limit (cornerLimit) or our Actual Grip (learnedGrip)
+        -- Apply 0.90 factor to leave 10% traction for steering/bumps.
+        local effectiveGrip = math.min(self.Driver.Optimizer.cornerLimit, self.Driver.Optimizer.learnedGrip * 0.90)
+        lateralGrip = effectiveGrip * 10.0 
     end
-    local friction = self.dynamicGripFactor or 0.8
+    -- note: friction is redundant if we assume learnedGrip accounts for surface, but we keep it for now.
+    -- If using learnedGrip, friction should be 1.0 since learning includes surface.
+    -- Let's dampen the impact of dynamicGripFactor if we trust learnedGrip.
+    local friction = self.dynamicGripFactor or 1.0 
+    
     local maxCornerSpeed = math.sqrt(safetyRadius * friction * lateralGrip)
     
     -- Clamp limits
