@@ -22,7 +22,7 @@ function GuidanceModule:calculatePurePursuit(driver, targetPoint)
     local carPos = tm.location
     local vecToTarget = targetPoint - carPos
     
-    local localY = vecToTarget:dot(tm.rotations.right)
+    local localY = vecToTarget:dot(tm.rotations.right) * -1.0 -- [FIX] Invert Left-pointing Right vector
     local distSq = vecToTarget:length2()
     
     -- Curvature = 2y / L^2
@@ -46,7 +46,7 @@ function GuidanceModule:calculateStanley(driver, targetPoint, pathHeading)
     -- Distance from center/target line
     -- We can approximate this using the vector to target projected on right vector
     local vecToTarget = targetPoint - tm.location
-    local cte = -vecToTarget:dot(tm.rotations.right) -- Negative because if target is right, error is negative? 
+    local cte = vecToTarget:dot(tm.rotations.right) * -1.0 -- [FIX] Inverted Vector, and CTE should be Positive for Right Target (Steer into it) 
     -- Standard Stanley: steer = Psi + atan(k*e / (v + soft))
     
     local stanleyTerm = math.atan( (self.k_stanley * cte) / (speed + self.k_soft) )

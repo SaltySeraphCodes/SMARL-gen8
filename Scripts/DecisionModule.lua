@@ -349,7 +349,7 @@ function DecisionModule:calculateContextBias(perceptionData, preferredBias)
             if racer.isAhead and racer.distance < LOOKAHEAD_RANGE then
                 local toOp = racer.location - telemetry.location
                 local fwd = telemetry.rotations.at
-                local right = telemetry.rotations.right
+                local right = telemetry.rotations.right * -1.0 -- [FIX] Right Vector points Left physically
                 
                 local dx = toOp:dot(right)
                 local dy = toOp:dot(fwd)
@@ -835,7 +835,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local carPos = telemetry.location
     local vecToTarget = targetPoint - carPos
     
-    local localY = vecToTarget:dot(telemetry.rotations.right)
+    local localY = vecToTarget:dot(telemetry.rotations.right) * -1.0 -- [FIX] Right Vector points Left physically? Invert to fix Reference Frame.
     self.dbg_PP_Y = localY
     local distSq = vecToTarget:length2()
     local curvature = (2.0 * localY) / distSq
