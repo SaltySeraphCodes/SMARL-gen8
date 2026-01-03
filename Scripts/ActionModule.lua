@@ -74,9 +74,15 @@ end
 
 function ActionModule.setSteering(self, steerFactor, currentSpeed)
     -- [[ FIX: STEERING INVERSION SUPPORT ]]
+    local rawSteer = steerFactor
     if STEERING_INVERTED then steerFactor = -steerFactor end
     
     local targetAngle = steerFactor * MAX_WHEEL_ANGLE_RAD
+    
+    -- [DEBUG] Verify Final Command
+    if math.abs(steerFactor) > 0.05 then
+        print(string.format("ACTION: SteerIn:%.2f -> Out:%.2f (Inv:%s)", rawSteer, steerFactor, tostring(STEERING_INVERTED)))
+    end
     
     local bearings = sm.interactable.getBearings(self.Driver.interactable)
     if #bearings > 0 then
