@@ -224,12 +224,9 @@ function DriverGen8.server_onFixedUpdate(self, dt)
         decisionData = self.Decision:server_onFixedUpdate(perceptionData, dt)
         self.decisionData = decisionData
 
-        -- [[ MISSING VISUALIZATION NETWORKING RESTORED HERE ]]
-        if self.Decision.latestDebugData then
-             -- Throttle: Send only every 3 ticks to save bandwidth
-             local tick = sm.game.getServerTick()
-             end
-        end
+    if self.Decision.latestDebugData then
+             -- Debug data syncing logic can go here
+    end
     end
 
     -- 3.5 GUIDANCE (TRAJECTORY LAYER) [[ NEW ]]

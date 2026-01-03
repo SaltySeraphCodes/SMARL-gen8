@@ -667,6 +667,14 @@ function Engine.setRPM(self, value)
     -- We can use the chassisData if available, or calculate on the fly (less efficient).
     -- Let's use chassisData since we built it.
     
+    if not self.driver then 
+        -- Fallback if no driver present
+        for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
+            sm.joint.setMotorVelocity(bearing, value, strength)
+        end
+        return 
+    end
+
     local chassis = self.driver.chassisData
     local tvBias = 0.0 -- Positive = Bias to Right (Left Turn), Negative = Bias to Left (Right Turn)
     
