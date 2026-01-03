@@ -913,7 +913,7 @@ function DriverGen8.client_onUpdate(self, dt)
         if dbg.targetPoint then
             if not self.effTarget then 
                 -- [FIX] Reverted to sm.effect (sm.particle was invalid API)
-                self.effTarget = sm.effect.createEffect("ShapeRenderable")
+                self.effTarget = sm.effect.createEffect("Loot - GlowItem")
                 self.effTarget:setParameter("uuid", sm.uuid.new("628b2d61-5ceb-43e9-8334-a4135566df7a")) -- Standard Sphere
                 self.effTarget:setParameter("Color", sm.color.new(0,1,0,1))
                 self.effTarget:setScale(sm.vec3.new(0.25, 0.25, 0.25))
@@ -929,7 +929,7 @@ function DriverGen8.client_onUpdate(self, dt)
         -- 2. ANCHOR POINT (Cyan)
         if dbg.futureCenter then
             if not self.effCenter then 
-                self.effCenter = sm.effect.createEffect("ShapeRenderable")
+                self.effCenter = sm.effect.createEffect("Loot - GlowItem")
                 self.effCenter:setParameter("uuid", sm.uuid.new("628b2d61-5ceb-43e9-8334-a4135566df7a")) -- Sphere
                 self.effCenter:setParameter("Color", sm.color.new(0,1,1,1))
                 self.effCenter:setScale(sm.vec3.new(0.25, 0.25, 0.25))
