@@ -246,9 +246,17 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
         local pE = self:getPointInDistance(currentNode, currentT, currentDist + 15.0, self.chain)
         local radiusAhead = self:calculateCurvatureRadius(pC, pD, pE)
 
-        local effectiveRadius = math.max(radiusCurrent, radiusAhead)
-
-        if effectiveRadius < minSustainedRadius then
+        -- [[ FIX: CRITICAL POINT SEARCH ]]
+        -- Instead of finding the absolute tightest radius (which might be 100m away),
+        -- find the point that restricts speed the MOST (Considering we can brake).
+        -- Metric: Minimize (Radius + 2.0 * Distance)
+        -- Physics: R * LatG + 2 * BrkG * Dist = SpeedSquared. 
+        -- Assuming BrkG approx equal to LatG, factor is ~2.0.
+        
+        local currentScore = effectiveRadius + (currentDist * 2.0)
+        local minScore = minSustainedRadius + (distToApex * 2.0)
+        
+        if currentScore < minScore then
             minSustainedRadius = effectiveRadius
             distToApex = currentDist
             apexLocation = pB
