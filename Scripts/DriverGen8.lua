@@ -236,6 +236,7 @@ function DriverGen8.server_onFixedUpdate(self, dt)
              self.visTimer = 0
         end
     end
+    end -- [FIX] Closing 'if self.Decision' block
 
     -- 3.5 GUIDANCE (TRAJECTORY LAYER) [[ NEW ]]
     -- Replaces raw output from Decision with refined trajectory
@@ -911,14 +912,15 @@ function DriverGen8.client_onUpdate(self, dt)
         -- 1. TARGET POINT (Green/Magenta)
         if dbg.targetPoint then
             if not self.effTarget then 
-                -- "construct_marker" is a reliable looping particle for debug
-                self.effTarget = sm.particle.createParticle("construct_marker", dbg.targetPoint, sm.quat.identity(), sm.color.new(0,1,0,1))
-                print("CL: Spawning Target Particle")
+                -- [FIX] Reverted to sm.effect (sm.particle was invalid API)
+                self.effTarget = sm.effect.createEffect("ShapeRenderable")
+                self.effTarget:setParameter("uuid", sm.uuid.new("628b2d61-5ceb-43e9-8334-a4135566df7a")) -- Standard Sphere
+                self.effTarget:setParameter("Color", sm.color.new(0,1,0,1))
+                self.effTarget:setScale(sm.vec3.new(0.25, 0.25, 0.25))
+                self.effTarget:start()
+                print("CL: Spawning Debug Effect")
             end
             self.effTarget:setPosition(dbg.targetPoint)
-            
-            -- Markers hardcode color usually, so we might ignore statusColor for now
-            -- unless we use a specialized effect. But seeing *anything* is priority.
         elseif self.effTarget then
             self.effTarget:stop()
             self.effTarget = nil
@@ -927,7 +929,11 @@ function DriverGen8.client_onUpdate(self, dt)
         -- 2. ANCHOR POINT (Cyan)
         if dbg.futureCenter then
             if not self.effCenter then 
-                self.effCenter = sm.particle.createParticle("construct_marker", dbg.futureCenter, sm.quat.identity(), sm.color.new(0,1,1,1))
+                self.effCenter = sm.effect.createEffect("ShapeRenderable")
+                self.effCenter:setParameter("uuid", sm.uuid.new("628b2d61-5ceb-43e9-8334-a4135566df7a")) -- Sphere
+                self.effCenter:setParameter("Color", sm.color.new(0,1,1,1))
+                self.effCenter:setScale(sm.vec3.new(0.25, 0.25, 0.25))
+                self.effCenter:start()
             end
             self.effCenter:setPosition(dbg.futureCenter)
         elseif self.effCenter then
