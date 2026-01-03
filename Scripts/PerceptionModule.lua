@@ -444,11 +444,13 @@ function PerceptionModule.build_navigation_data(self)
     
     -- [[ NEW: SCAN FOR NEXT CORNER (Distance Based) ]]
     -- Look up to 200m ahead to find the first "Real" turn (Radius < 150m)
-    local scanDist = 0.0
-    local scanNode = nav.closestPointData.baseNode
     nav.distToNextCorner = 999.0
     nav.nextCornerDir = 0 -- 0=None, 1=Right, -1=Left
     nav.nextCornerRadius = 999.0
+
+    if nav.closestPointData then
+        local scanDist = 0.0
+        local scanNode = nav.closestPointData.baseNode
     
     local MAX_SCAN_DIST = 250.0
     local TURN_THRESH = 150.0 -- Radius below this counts as a "Corner"

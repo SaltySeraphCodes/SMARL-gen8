@@ -110,9 +110,6 @@ function ActionModule.outputThrotttle(self, throttleValue, brakeValue)
     self.Driver.interactable:setPower(engineOutput)
 end
 
-    self.Driver.interactable:setPower(engineOutput)
-end
-
 function ActionModule:applyTorqueVectoring(steer, speed)
     if not ENABLE_TORQUE_VECTORING then return end
     if math.abs(steer) < 0.1 or speed < 5.0 then return end

@@ -56,8 +56,6 @@ function TuningOptimizer:init(driver)
 
     self.lastSaveTime = 0
 
-    self.lastSaveTime = 0
-
     print("TuningOptimizer: Initialized with Physics Profiling")
 end
 
