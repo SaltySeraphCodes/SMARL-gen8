@@ -835,7 +835,21 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local distSq = vecToTarget:length2()
     local curvature = (2.0 * localY) / distSq
     
-    local steerOutput = curvature * 3.2 -- [FIX] Reduced Gain (Was 3.8) to stop oscillation
+    -- [[ FIX: ADD INTEGRAL TERM ]]
+    -- Helps close small steady-state gaps ("Barely following")
+    if not self.steerIntegral then self.steerIntegral = 0.0 end
+    
+    -- Accumulate error (localY is lateral error in meters)
+    -- Only integrate if error is small (< 2m) to avoid windup during lane changes
+    if math.abs(localY) < 2.0 then
+        self.steerIntegral = self.steerIntegral + (localY * 0.05 * 0.025) -- Ki * dt (Assuming 40hz)
+    else
+        self.steerIntegral = self.steerIntegral * 0.95 -- Decay if error is large
+    end
+    -- Clamp I-term
+    self.steerIntegral = math.max(math.min(self.steerIntegral, 0.15), -0.15)
+
+    local steerOutput = (curvature * 3.5) + self.steerIntegral -- [FIX] Increased P-Gain (3.2->3.5) + I-term
     
     -- CLAMP DAMPING: 
     -- Prevent Damping from ever exceeding 80% of the Steering Input.
@@ -845,7 +859,6 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
 
     local currentKd = (optim and optim.dampingFactor or 0.15)
     local rawDamping = yawRate * currentKd
-    -- Logic: If we are steering LEFT (-), and Damping is RIGHT (+), clamp the damping.
     -- Logic: If we are steering LEFT (-), and Damping is RIGHT (+), clamp the damping.
     if (steerOutput < 0 and rawDamping > 0) or (steerOutput > 0 and rawDamping < 0) then
         -- Allow STRONGER damping (1.2x) to catch fishtails
