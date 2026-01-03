@@ -23,7 +23,14 @@ function TuningOptimizer:init(driver)
     self.dampingFactor = 0.30   
     self.lookaheadMult = 0.8    
     self.tractionConstant = 2.6
-    
+
+    -- [[ NEW: USER SETUP ]]
+    self.setup = {
+        gearRatio = 5,       -- 1 (Accel) to 10 (Speed)
+        aeroAngle = 45,      -- degrees
+        tireType = "Medium"  -- Soft, Medium, Hard
+    }
+
     -- [[ NEW: LEARNED PHYSICS PROFILE ]]
     self.learnedGrip = 1.0      -- 1.0 = Standard Grip (approx 1g). Will learn 0.5 - 2.0
     self.tcsConverged = false   -- Becomes true when tractionConstant stops fluctuating
@@ -41,6 +48,13 @@ function TuningOptimizer:init(driver)
     -- Grip Learning Buffers
     self.peakLatAccel = 0.0
     self.slipEvents = 0
+    
+    -- Calibration State
+    self.microBrakeDone = false
+    self.peakDecel = 0.0
+    self.steeringTestDone = false 
+
+    self.lastSaveTime = 0
 
     self.lastSaveTime = 0
 
@@ -87,6 +101,33 @@ function TuningOptimizer:loadProfile()
 end
 
 function TuningOptimizer:applyProfile(profile)
+    -- 1. Check for Setup Mismatch
+    -- If the profile has a setup, and it differs from ours, we must INVALIDATE/SCALE the learned physics.
+    local setupChanged = false
+    
+    if profile.setup then
+        if profile.setup.gearRatio ~= self.setup.gearRatio then setupChanged = true end
+        if profile.setup.aeroAngle ~= self.setup.aeroAngle then setupChanged = true end
+        if profile.setup.tireType ~= self.setup.tireType then setupChanged = true end
+    end
+
+    if setupChanged then
+        print("Optimizer: SETUP CHANGED! Resetting Learned Grip and TC.")
+        -- Reset Learned Physics, but keep generic Tuning params
+        self.learnedGrip = 1.0 
+        self.tcsConverged = false
+        -- We do NOT load 'tractionConstant' or 'learnedGrip' from the profile
+    else
+        -- Exact Match: Load everything
+        if profile.tractionConstant then 
+            self.tractionConstant = profile.tractionConstant 
+            self.tcsConverged = true 
+        end
+        if profile.learnedGrip then 
+            self.learnedGrip = profile.learnedGrip 
+        end
+    end
+
     if profile.cornerLimit then self.cornerLimit = profile.cornerLimit end
     if profile.brakingFactor then self.brakingFactor = profile.brakingFactor end
     if profile.dampingFactor then self.dampingFactor = profile.dampingFactor end
@@ -128,6 +169,7 @@ function TuningOptimizer:saveProfile(force)
         lookaheadMult = self.lookaheadMult,
         tractionConstant = self.tractionConstant,
         learnedGrip = self.learnedGrip, 
+        setup = self.setup, -- [[ NEW ]]
         updated = now
     }
     sm.json.save(data, TUNING_FILE)
@@ -250,6 +292,120 @@ function TuningOptimizer:recordFrame(perceptionData)
     self:updateDebugVisuals(instability, self.tcsVariance)
 
     self.tickCount = self.tickCount + 1
+    
+    -- [[ PHASE 2: MICRO-BRAKE TEST ]]
+    -- Startup calibration to find base friction.
+    if not self.microBrakeDone and currentSpeed > 8.0 and currentSpeed < 20.0 then
+        self:runMicroBrakeTest(tel, dt)
+    elseif self.microBrakeDone and not self.steeringTestDone and currentSpeed > 10.0 then
+        self:runSteeringTest(tel, dt)
+    end
+end
+
+function TuningOptimizer:runSteeringTest(tel, dt)
+    if self.steerState == nil then self.steerState = 0 end
+    
+    -- STATE 0: WAIT FOR STABLE STRAIGHT
+    if self.steerState == 0 then
+        local yawRate = 0
+        if tel.angularVelocity then yawRate = math.abs(tel.angularVelocity.z) end
+        if yawRate < 0.05 then 
+            self.steerState = 1 
+            self.steerTimer = 0
+        end
+        
+    -- STATE 1: IMPULSE LEFT (+0.3 for 0.15s)
+    elseif self.steerState == 1 then
+        self.driver.Decision.overrideSteer = 0.3
+        self.steerTimer = self.steerTimer + dt
+        if self.steerTimer > 0.15 then
+            self.steerState = 2
+            self.steerTimer = 0
+            self.impulseTime = sm.game.getServerTick()
+        end
+        
+    -- STATE 2: CENTER AND MEASURE RESPONSE
+    elseif self.steerState == 2 then
+        self.driver.Decision.overrideSteer = 0.0
+        self.steerTimer = self.steerTimer + dt
+        
+        -- Detect Peak Yaw
+        local yawRate = 0
+        if tel.angularVelocity then yawRate = math.abs(tel.angularVelocity.z) end
+        
+        if yawRate > (self.peakYawTest or 0) then
+            self.peakYawTest = yawRate
+            self.peakYawTime = sm.game.getServerTick()
+        end
+        
+        if self.steerTimer > 1.0 then -- Wait 1s for settling
+             -- Calculate Lag
+             local lagTicks = (self.peakYawTime or 0) - (self.impulseTime or 0)
+             -- Ticks to seconds
+             local lagSeconds = lagTicks / 40.0
+             
+             print(string.format("Optimizer: Steering Test Complete. Lag: %.3fs, Peak Yaw: %.2f", lagSeconds, self.peakYawTest or 0))
+             
+             -- Tuning Logic
+             if lagSeconds < 0.15 then
+                 self.lookaheadMult = 0.7 -- Agile
+             elseif lagSeconds > 0.3 then
+                 self.lookaheadMult = 1.0 -- Sluggish
+             else
+                 self.lookaheadMult = 0.8 -- Normal
+             end
+             
+             self:saveProfile()
+             self.steeringTestDone = true
+             self.driver.Decision.overrideSteer = nil
+        end
+    end
+end
+
+function TuningOptimizer:runMicroBrakeTest(tel, dt)
+    if self.testState == nil then self.testState = 0 end
+    
+    -- STATE 0: WAIT FOR STABLE SPEED
+    if self.testState == 0 then
+        -- Ensure we are accelerating (proving engine power) then coasting? 
+        -- Actually just wait for a straight line.
+        local yawRate = 0
+        if tel.angularVelocity then yawRate = math.abs(tel.angularVelocity.z) end
+        
+        if yawRate < 0.1 then 
+            self.testState = 1 
+            self.testTimer = 0
+        end
+        
+    -- STATE 1: APPLY BRAKE PULSE (0.3s)
+    elseif self.testState == 1 then
+        self.driver.Decision.overrideBrake = 1.0
+        self.driver.Decision.overrideThrottle = 0.0
+        
+        self.testTimer = self.testTimer + dt
+        
+        -- Measure Decel
+        local accel = (tel.speed - self.lastSpeed) / dt
+        if accel < self.peakDecel then self.peakDecel = accel end -- decel is negative
+        
+        if self.testTimer > 0.3 then
+            self.testState = 2
+            -- Calculate Mu
+            -- a = mu * g  ->  mu = a / g
+            local g = 10 -- constant
+            local observedMu = math.abs(self.peakDecel) / g
+            
+            print(string.format("Optimizer: Micro-Brake Test Complete. Peak Decel: %.2f, Est Mu: %.2f", self.peakDecel, observedMu))
+            
+            -- Apply to Learned Grip (Conservative 80%)
+            self.learnedGrip = math.max(0.5, observedMu * 0.9)
+            self:saveProfile()
+            
+            self.microBrakeDone = true
+            self.driver.Decision.overrideBrake = nil
+            self.driver.Decision.overrideThrottle = nil
+        end
+    end
 end
 
 function TuningOptimizer:onSectorComplete(sectorID, sectorTime)

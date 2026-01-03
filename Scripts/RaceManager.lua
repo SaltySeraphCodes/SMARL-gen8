@@ -20,7 +20,8 @@ function RaceManager.server_init(self, raceControl)
     
     -- Tire Settings
     self.tireWearEnabled = true
-    self.tireWearMultiplier = 1.0 -- Added missing multiplier
+    self.tireWearMultiplier = 1.0 
+    self.tireHeatEnabled = true
     
     -- Fuel Settings
     self.fuelUsageEnabled = true

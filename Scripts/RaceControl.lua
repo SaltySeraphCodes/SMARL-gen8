@@ -144,6 +144,10 @@ function RaceControl.sv_syncRaceData(self)
         handicap = self.handiCapMultiplier or 1.0,
         draft = self.draftStrength or 1.0,
         tires = self.RaceManager and self.RaceManager.tireWearEnabled or false,
+        tireWearMult = self.RaceManager and self.RaceManager.tireWearMultiplier or 1.0,
+        tireHeat = self.RaceManager and self.RaceManager.tireHeatEnabled or false,
+        fuelEnabled = self.RaceManager and self.RaceManager.fuelUsageEnabled or false,
+        fuelMult = self.RaceManager and self.RaceManager.fuelUsageMultiplier or 1.0,
         qualifying = self.RaceManager and self.RaceManager.qualifying or false,
         entries = self.entriesOpen or false
     }
@@ -197,6 +201,34 @@ end
 function RaceControl.sv_toggleTireWear(self)
     if self.RaceManager then
         self.RaceManager.tireWearEnabled = not self.RaceManager.tireWearEnabled
+    end
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_toggleTireHeat(self)
+    if self.RaceManager then
+        self.RaceManager.tireHeatEnabled = not self.RaceManager.tireHeatEnabled
+    end
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_editTireWearMultiplier(self, delta)
+    if self.RaceManager then
+        self.RaceManager.tireWearMultiplier = math.max(0.1, self.RaceManager.tireWearMultiplier + delta)
+    end
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_toggleFuelUsage(self)
+    if self.RaceManager then
+        self.RaceManager.fuelUsageEnabled = not self.RaceManager.fuelUsageEnabled
+    end
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_editFuelUsageMultiplier(self, delta)
+    if self.RaceManager then
+        self.RaceManager.fuelUsageMultiplier = math.max(0.1, self.RaceManager.fuelUsageMultiplier + delta)
     end
     self:sv_syncRaceData()
 end
@@ -388,6 +420,10 @@ function RaceControl.sv_output_data(self)
             th = math.floor((driver.Tire_Health or 1.0) * 100), -- Send as % (0-100)
             fl = math.floor((driver.Fuel_Level or 1.0) * 100),  -- Send as % (0-100)
             tt = driver.Tire_Type or 2,     
+            
+            -- AI State (HUD)
+            ml = math.floor((driver.mentalLoad or 0.0) * 100), -- Send as %
+            gu = math.floor((driver.gripUsage or 0.0) * 100),  -- Send as %
         }
 
         table.insert(realtimeData, data)

@@ -110,10 +110,74 @@ function ActionModule.outputThrotttle(self, throttleValue, brakeValue)
     self.Driver.interactable:setPower(engineOutput)
 end
 
+    self.Driver.interactable:setPower(engineOutput)
+end
+
+function ActionModule:applyTorqueVectoring(steer, speed)
+    if not ENABLE_TORQUE_VECTORING then return end
+    if math.abs(steer) < 0.1 or speed < 5.0 then return end
+    
+    local body = self.Driver.body
+    if not body then return end
+    
+    -- Virtual Torque Vectoring: Enhance Rotation
+    -- Apply a torque around the Up axis
+    -- Torque = Steer * Speed * Intensity
+    -- To be physically stable, we apply Force pairs (Couples) at Fwd/Rear of CoM?
+    -- Actually, sm.physics.applyTorque is safest if available (World space).
+    -- If not, we use Impulses.
+    
+    local torqueStrength = steer * speed * TV_INTENSITY * 25.0 -- Tuning Constant
+    
+    -- Apply Torque (Yaw Moment)
+    -- Vector is UP (Z-axis local to car? No, World Up is usually Z, but we want Car Up)
+    local carUp = self.Driver.shape:getUp()
+    local torqueVec = carUp * torqueStrength
+    
+    sm.physics.applyTorque(body, torqueVec, true) -- true = local space? No API implies World usually. 
+    -- If API implies World, we need World Up? 
+    -- Wait, verify API args. sm.physics.applyTorque(body, torqueVector, pureTorque?)
+    -- Assuming usage: applyTorque(body, vector). Vector direction is axis, length is magnitude.
+    
+    -- Let's stick to safe Impulse Couples to be sure of mechanics
+    -- Front moves Right, Rear moves Left (for Right Turn)
+    local fwd = self.Driver.shape:getAt()
+    local right = self.Driver.shape:getRight()
+    local com = body:getCenterOfMassPosition()
+    
+    local frontPos = com + (fwd * 2.0)
+    local rearPos = com - (fwd * 2.0)
+    
+    local forceMag = torqueStrength * 0.5 -- Split torque into force couple
+    local forceDir = right -- Push side-to-side
+    
+    -- Steer > 0 (Left? No usually positive steer is Left in SM logic? Check Guidance.)
+    -- Guidance clamps -1 to 1. Usually Left is Negative in Angle, Positive in Turn?
+    -- Let's assume standard: Positive = Left.
+    -- If Steer Left (+), we want Yaw Left (CCW).
+    -- Front pushes Left (+Right * -1), Rear pushes Right (+Right * 1).
+    
+    -- Check sign:
+    -- If steer is positive (Left), torqueStrength is positive.
+    -- We want CCW rotation around Up.
+    -- Front should move Left (-Right). Rear should move Right (+Right).
+    
+    -- Force = Right * -1 * Magnitude (for Front)
+    -- Force = Right * 1 * Magnitude (for Rear)
+    -- This creates CCW torque.
+    
+    local frontForce = right * (-forceMag * 0.1) -- Scale down for Impulse vs Force
+    local rearForce = right * (forceMag * 0.1)
+    
+    sm.physics.applyImpulse(body, frontForce, true, (fwd * 2.0)) -- Offset from center
+    sm.physics.applyImpulse(body, rearForce, true, (fwd * -2.0))
+end
+
 function ActionModule.applyControls(self, controls) 
     local currentSpeed = self.Driver.perceptionData.Telemetry.speed or 0.0
     self:setSteering(controls.steer, currentSpeed) 
     self:outputThrotttle(controls.throttle, controls.brake)
+    
     if controls.resetCar then 
         self.Driver:resetCar() 
     end 

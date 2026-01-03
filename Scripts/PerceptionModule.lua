@@ -545,7 +545,11 @@ function PerceptionModule.get_other_racers(self)
             if dist < 100.0 and dist > 0.01 then 
                 local dirTo = (opLoc - myLoc):normalize()
                 local dot = dirTo:dot(myForward)
-                local closingSpeed = (driver.perceptionData.Telemetry.velocity - self.perceptionData.Telemetry.velocity):dot(dirTo)
+                
+                -- Closing Speed: Positive = Closing (They are slower/coming at us). Negative = Opening.
+                -- Vector subtraction: (MyVel - OpVel) dot DirToTarget
+                local relVel = self.perceptionData.Telemetry.velocity - driver.perceptionData.Telemetry.velocity
+                local closingSpeed = relVel:dot(dirTo)
                 
                 table.insert(list, {
                     driver = driver,
@@ -553,7 +557,8 @@ function PerceptionModule.get_other_racers(self)
                     distance = dist,
                     isAhead = dot > 0.1,
                     closingSpeed = closingSpeed,
-                    timeToCollision = (closingSpeed < -0.1) and (dist / math.abs(closingSpeed)) or math.huge,
+                    -- TTC: Only relevant if we are closing (speed > 0)
+                    timeToCollision = (closingSpeed > 0.1) and (dist / closingSpeed) or math.huge,
                     opponentBias = driver.perceptionData.Navigation and driver.perceptionData.Navigation.trackPositionBias or 0.0
                 })
             end
@@ -607,19 +612,85 @@ function PerceptionModule.server_onFixedUpdate(self, dt)
     return self.perceptionData 
 end
 
+function PerceptionModule.performRaycasts(self)
+    -- Need physical car body for this
+    if not self.Driver.body then return nil end
+    
+    local startPos = self.Driver.shape:getWorldPosition() + (self.Driver.shape:getUp() * 0.5) -- Lift scan up slightly
+    local fwd = self.Driver.shape:getAt()
+    local right = self.Driver.shape:getRight()
+    
+    local results = { left = 999.0, right = 999.0, center = 999.0 }
+    
+    -- RAY 1: LEFT ANGLE (15 deg)
+    -- Direction: Fwd * cos(15) - Right * sin(15)
+    local lDir = (fwd * 0.96) - (right * 0.25)
+    local lEnd = startPos + (lDir * 15.0) -- 15m Scan Left
+    local lValid, lRes = sm.physics.raycast(startPos, lEnd)
+    if lValid and lRes.type ~= "Body" then -- Ignore specific bodies? No, walls are static usually.
+         results.left = (lRes.pointWorld - startPos):length()
+    end
+    
+    -- RAY 2: RIGHT ANGLE (15 deg)
+    local rDir = (fwd * 0.96) + (right * 0.25)
+    local rEnd = startPos + (rDir * 15.0)
+    local rValid, rRes = sm.physics.raycast(startPos, rEnd)
+    if rValid and rRes.type ~= "Body" then
+         results.right = (rRes.pointWorld - startPos):length()
+    end
+    
+    -- RAY 3: CENTER (Look further)
+    local cEnd = startPos + (fwd * 30.0)
+    local cValid, cRes = sm.physics.raycast(startPos, cEnd)
+    if cValid and cRes.type ~= "Body" then
+         results.center = (cRes.pointWorld - startPos):length()
+    end
+    
+    return results
+end
+
 function PerceptionModule.calculateWallAvoidance(self)
     local nav = self.perceptionData.Navigation
     local bias = nav.trackPositionBias or 0
     local hw = (nav.closestPointData and nav.closestPointData.baseNode.width / 2) or 10
     
+    -- 1. THEORETICAL MARGINS (Spline)
     local marginL = (1.0 + bias) * hw - self.carHalfWidth
     local marginR = (1.0 - bias) * hw - self.carHalfWidth
     
+    -- 2. PHYSICAL MARGINS (Raycast)
+    -- We only run raycasts periodically or every frame? Every frame is fine for 3 rays.
+    local rays = self:performRaycasts()
+    local rayL = 999.0
+    local rayR = 999.0
+    
+    if rays then
+        -- Map "Left Ray" distance roughly to "Left Margin"
+        -- Ray distance is Hypotenuse. Perpendicular distance is less.
+        -- cos(15) ~ 0.96.
+        if rays.left < 999 then rayL = rays.left * 0.96 - self.carHalfWidth end
+        if rays.right < 999 then rayR = rays.right * 0.96 - self.carHalfWidth end
+        
+        -- Center Ray: If blocked, it means a wall is dead ahead (T-Junction?)
+        -- Treat as symmetric danger?
+        if rays.center < 5.0 then
+            rayL = math.min(rayL, rays.center * 0.5)
+            rayR = math.min(rayR, rays.center * 0.5)
+        end
+    end
+    
+    -- 3. SENSOR FUSION (Take Minimum safe distance)
+    -- We only trust Raycast if it's seeing something CLOSE (e.g. < 5m wider than spline margin)
+    -- Actually, simple min() is safest. If Spline says 10m but Wall says 2m, we have 2m.
+    -- If Spline says 2m but Wall says 10m (missing wall?), we assume 2m (track limits).
+    local fusedL = math.min(marginL, rayL)
+    local fusedR = math.min(marginR, rayR)
+    
     return {
-        marginLeft = marginL,
-        marginRight = marginR,
-        isForwardLeftCritical = marginL <= CRITICAL_WALL_MARGIN,
-        isForwardRightCritical = marginR <= CRITICAL_WALL_MARGIN
-
+        marginLeft = fusedL,
+        marginRight = fusedR,
+        isForwardLeftCritical = fusedL <= CRITICAL_WALL_MARGIN,
+        isForwardRightCritical = fusedR <= CRITICAL_WALL_MARGIN,
+        raycastData = rays -- Debug info
     }
 end

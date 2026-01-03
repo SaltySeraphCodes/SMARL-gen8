@@ -26,6 +26,12 @@ function UIManager:create()
     self.gui:setButtonCallback("BtnDraftAdd", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnDraftSub", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnTireWear", "cl_onToggleSetting")
+    self.gui:setButtonCallback("BtnTireHeat", "cl_onToggleSetting")
+    self.gui:setButtonCallback("BtnFuelUsage", "cl_onToggleSetting")
+    self.gui:setButtonCallback("BtnWearMultAdd", "cl_onSettingsChange")
+    self.gui:setButtonCallback("BtnWearMultSub", "cl_onSettingsChange")
+    self.gui:setButtonCallback("BtnFuelMultAdd", "cl_onSettingsChange")
+    self.gui:setButtonCallback("BtnFuelMultSub", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnQualifying", "cl_onToggleSetting")
     self.gui:setButtonCallback("PopUpYes", "cl_onPopUpResponse")
     self.gui:setButtonCallback("PopUpNo", "cl_onPopUpResponse")
@@ -93,13 +99,22 @@ function UIManager:onFixedUpdate()
     self.gui:setText("ValDraft", string.format("%.1f", draft))
     
     -- 4. Update Toggles
-    local tires = self.RC.tireWearEnabled
-    local quali = self.RC.qualifying -- Assuming this is synced
+    local tires = meta.tires or false
+    local heat = meta.tireHeat or false
+    local fuel = meta.fuelEnabled or false
+    local quali = self.RC.qualifying 
+    
+    local wearMult = meta.tireWearMult or 1.0
+    local fuelMult = meta.fuelMult or 1.0
     
     -- If qualifying is in metadata string "true"/"false"
     if meta.qualifying == "true" then quali = true end
     
     self.gui:setText("BtnTireWear", "Tires: " .. (tires and "ON" or "OFF"))
+    self.gui:setText("BtnTireHeat", "Heat: " .. (heat and "ON" or "OFF"))
+    self.gui:setText("BtnFuelUsage", "Fuel: " .. (fuel and "ON" or "OFF"))
+    self.gui:setText("ValWearMult", string.format("%.1fx", wearMult))
+    self.gui:setText("ValFuelMult", string.format("%.1fx", fuelMult))
     self.gui:setText("BtnQualifying", "Quali: " .. (quali and "ON" or "OFF"))
     
     -- 5. Update Entries Button
@@ -134,10 +149,16 @@ function UIManager:cl_onSettingsChange(btnName)
     if btnName == "BtnHandiSub" then self.RC.network:sendToServer("sv_editHandicap", -0.1) end
     if btnName == "BtnDraftAdd" then self.RC.network:sendToServer("sv_editDraft", 0.1) end
     if btnName == "BtnDraftSub" then self.RC.network:sendToServer("sv_editDraft", -0.1) end
+    if btnName == "BtnWearMultAdd" then self.RC.network:sendToServer("sv_editTireWearMultiplier", 0.1) end
+    if btnName == "BtnWearMultSub" then self.RC.network:sendToServer("sv_editTireWearMultiplier", -0.1) end
+    if btnName == "BtnFuelMultAdd" then self.RC.network:sendToServer("sv_editFuelUsageMultiplier", 0.1) end
+    if btnName == "BtnFuelMultSub" then self.RC.network:sendToServer("sv_editFuelUsageMultiplier", -0.1) end
 end
 
 function UIManager:cl_onToggleSetting(btnName)
     if btnName == "BtnTireWear" then self.RC.network:sendToServer("sv_toggleTireWear") end
+    if btnName == "BtnTireHeat" then self.RC.network:sendToServer("sv_toggleTireHeat") end
+    if btnName == "BtnFuelUsage" then self.RC.network:sendToServer("sv_toggleFuelUsage") end
     if btnName == "BtnQualifying" then self.RC.network:sendToServer("sv_toggleQualifying") end
 end
 

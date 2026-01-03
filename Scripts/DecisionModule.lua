@@ -152,6 +152,17 @@ function DecisionModule.calculateCarPerformance(self)
     local baseGrip = GRIP_FACTOR
     local spoilerAngle = car.spoiler_angle or 0.0 
     local downforceBoost = math.min(spoilerAngle / 80.0, 1.0) * 0.1 
+    
+    -- [[ NEW: ARTIFICIAL DOWNFORCE ]]
+    -- Read from Telemetry (from Perception blocks)
+    local telem = self.Driver.perceptionData and self.Driver.perceptionData.Telemetry
+    if telem and telem.downforce then
+        -- Assume 1 Power Level = 1% Grip Boost? Or more?
+        -- Thrusters usually give Impulse. 
+        -- Let's say max thruster power (1000?) gives +0.5 Grip.
+        downforceBoost = downforceBoost + (telem.downforce / 2000.0)
+    end
+    
     baseGrip = baseGrip + downforceBoost
 
     -- 2. APPLY LEARNED PHYSICS
@@ -162,8 +173,7 @@ function DecisionModule.calculateCarPerformance(self)
         baseGrip = (baseGrip * 0.4) + (learned * 0.6)
     end
 
-    -- 3. APPLY SIMULATED TIRE FACTORS (Type & Wear)
-    -- Now we apply the penalty to the Baseline
+    -- 3. APPLY SIMULATED TIRE FACTORS (Type & Wear & Temp)
     local tireTypeData = TIRE_TYPES[car.Tire_Type] or { GRIP = 0.5 }
     local typeMultiplier = tireTypeData.GRIP
     
@@ -171,13 +181,30 @@ function DecisionModule.calculateCarPerformance(self)
     local currentHealth = car.Tire_Health or 1.0
     local wearPenalty = (1.0 - currentHealth) * 0.2 
     
-    -- Final Grip = Baseline * (TireType - Wear)
-    -- Example: 1.0 * (1.0 - 0.2) = 0.8 effective grip on dead tires
-    self.dynamicGripFactor = baseGrip * (typeMultiplier - wearPenalty)
+    -- [[ NEW: TEMP PENALTY ]]
+    local temp = car.Tire_Temp or 20.0
+    local tempPenalty = 0.0
+    if temp < 50.0 then 
+        -- Cold Tires: up to 10% loss
+        tempPenalty = (50.0 - temp) * 0.002 
+    elseif temp > 120.0 then
+        -- Overheated: up to 20% loss
+        tempPenalty = (temp - 120.0) * 0.004
+    end
     
-    -- 4. SPEED LIMITS (Limp Modes)
+    -- Final Grip = Baseline * (Type - Wear - Temp)
+    self.dynamicGripFactor = baseGrip * (typeMultiplier - wearPenalty - tempPenalty)
+    
+    -- 4. SPEED LIMITS & MASS
     local gearRatio = car.gear_length or 1.0 
-    self.dynamicMaxSpeed = BASE_MAX_SPEED * gearRatio * 0.5 
+    
+    -- Fuel Mass Penalty (Acceleration is handled by Torque in Engine, but Max Speed might suffer due to drag/friction)
+    local fuel = car.Fuel_Level or 1.0
+    -- Heavier car = slightly lower top speed due to tire friction? 
+    -- Let's apply a 5% speed penalty for full tank.
+    local massPenalty = fuel * 0.05
+    
+    self.dynamicMaxSpeed = BASE_MAX_SPEED * gearRatio * 0.5 * (1.0 - massPenalty)
     
     if car.tireLimp then
         self.dynamicMaxSpeed = math.min(self.dynamicMaxSpeed, 40.0) 
@@ -369,7 +396,8 @@ function DecisionModule:calculateContextBias(perceptionData, preferredBias)
 
     -- Return Bias (-1 to 1) and Debug Data
     local debugData = nil
-    if VISUALIZE_RAYS then
+    -- [[ CHANGED: Added TELEMETRY_DEBUG check ]]
+    if VISUALIZE_RAYS or TELEMETRY_DEBUG then
         debugData = self:getDebugLines(rayAngles, interestMap, dangerMap, bestIndex, NUM_RAYS)
     end
 
@@ -390,14 +418,29 @@ function DecisionModule:getDebugLines(angles, interest, danger, bestIdx, count)
     local up = tm.rotations.up
     local startPos = centerPos + (fwd * 2.5) + (up * -0.15)
     local lines = {}
-    for i=1, count do
-        local isBest = (i == bestIdx)
-        if isBest or danger[i] > 0.1 or (i == 1) or (i == count) or (i == math.ceil(count/2)) then
-            local rad = math.rad(angles[i])
-            local dir = (fwd * math.cos(rad)) + (right * math.sin(rad))
-            local colorCode = 1 
-            if isBest then colorCode = 4 elseif danger[i] > 0.5 then colorCode = 3 elseif danger[i] > 0.0 then colorCode = 2 end
-            table.insert(lines, { s = startPos, e = startPos + (dir * 15), c = colorCode })
+    
+    -- [[ NEW: TELEMETRY DEBUG MODE ]]
+    -- Show Velocity Vector (Green) vs Facing Vector (Blue) to visualize Slip Angle
+    if TELEMETRY_DEBUG then
+         local velocity = tm.velocity or sm.vec3.new(0,0,0)
+         local speed = velocity:length()
+         if speed > 1.0 then
+             local velDir = velocity:normalize()
+             table.insert(lines, { s = centerPos + (up * 2), e = centerPos + (up * 2) + (velDir * 5), c = 3 }) -- Green Arrow (Velocity)
+             table.insert(lines, { s = centerPos + (up * 2), e = centerPos + (up * 2) + (fwd * 5), c = 1 }) -- Blue Arrow (Heading)
+         end
+    end
+
+    if VISUALIZE_RAYS then
+         for i=1, count do
+            local isBest = (i == bestIdx)
+            if isBest or danger[i] > 0.1 or (i == 1) or (i == count) or (i == math.ceil(count/2)) then
+                local rad = math.rad(angles[i])
+                local dir = (fwd * math.cos(rad)) + (right * math.sin(rad))
+                local colorCode = 1 
+                if isBest then colorCode = 4 elseif danger[i] > 0.5 then colorCode = 3 elseif danger[i] > 0.0 then colorCode = 2 end
+                table.insert(lines, { s = startPos, e = startPos + (dir * 15), c = colorCode })
+            end
         end
     end
     return lines
@@ -553,16 +596,37 @@ function DecisionModule.checkUtility(self,perceptionData, dt)
     local maxDot = math.cos(MAX_TILT_RAD) 
     if upDot < maxDot then self.isFlipped = true else self.isFlipped = false end
     
-    if telemetry.speed < STUCK_SPEED_THRESHOLD and telemetry.isOnLift == false and self.Driver.isRacing then 
+    -- Stuck Logic
+    local spd = telemetry.speed or 0
+    -- Stuck if slow AND Throttle is high (trying to move)
+    if spd < 1.0 and self.controls and math.abs(self.controls.throttle) > 0.5 and not self.onLift then 
+        self.stuckTimer = self.stuckTimer + dt
+    elseif self.isStuck and spd < 5.0 then -- Remain "Stuck" until we get some speed back (reversing)
+        -- Keep timer high
+        self.stuckTimer = math.max(self.stuckTimer, 2.5)
+        
+        -- If we have been reversing for 2 seconds (timer > 4.5), give up and reset
         self.stuckTimer = self.stuckTimer + dt
     else
         self.stuckTimer = 0.0 
     end
+    
     if self.isStuck then self.Driver.resetPosTimeout = 11.0 end 
-    if self.stuckTimer >= STUCK_TIME_LIMIT then 
-        print("stuck")
-        self.isStuck = true else self.isStuck = false end
-    if self.isFlipped or self.isStuck then 
+    
+    if self.stuckTimer >= 2.5 then -- 2.5s threshold
+        if not self.isStuck then print("stuck mode active") end
+        self.isStuck = true 
+    else 
+        self.isStuck = false 
+    end
+    
+    -- Hard Reset if stuck for too long (5s)
+    if self.stuckTimer >= 6.0 then 
+         print("hard reset")
+         resetFlag = true 
+    end
+
+    if self.isFlipped then 
         print("flipped")
         resetFlag = true end
     return resetFlag
@@ -581,6 +645,12 @@ function DecisionModule.determineStrategy(self, perceptionData, dt)
     if self.Driver.formation then self.currentMode = "Formation"; return
     elseif self.Driver.caution then self.currentMode = "Caution"; return
     elseif self.pitState > 0 then self.currentMode = "Pit"; return end
+    
+    -- [[ NEW: RECOVERY ]]
+    if self.isStuck then
+        self.currentMode = "Recovery"
+        return
+    end
     
     -- [[ FIX: RUN SETUP LOGIC ]]
     -- Calculate the corner setup bias every frame.
@@ -606,32 +676,50 @@ function DecisionModule.determineStrategy(self, perceptionData, dt)
     if opp.count > 0 then
         local closestOpponent = opp.racers[1]
         
-        -- A. DEFENSE (Behind us and close)
-        if closestOpponent and not closestOpponent.isAhead and closestOpponent.distance < 15 then
-            if closestOpponent.closingSpeed < -1.0 or aggressionFactor > 0.6 then 
-                self.currentMode = "DefendLine"
-            end
-        end
+        -- [[ NEW: TTA vs TTC LOGIC ]]
+        -- TTA (Time To Avoid): Approx 0.8s to steer clear.
+        local TTA_THRESHOLD = 0.8 
         
-        -- B. OFFENSE (Ahead of us)
-        if closestOpponent and closestOpponent.isAhead then
-            -- DRAFTING (Fast, Straight, Aggressive)
+        if closestOpponent and closestOpponent.isAhead and closestOpponent.distance < 40 then
+            
+            -- 1. PANIC PREVENTION (TTC Check)
+            if closestOpponent.timeToCollision < TTA_THRESHOLD then
+                -- Impact is imminent and we can't steer fast enough.
+                -- Hard Brake required.
+                print(self.Driver.id, "PANIC BRAKE! TTC:", closestOpponent.timeToCollision)
+                self.overrideBrake = 1.0
+                self.overrideThrottle = 0.0
+                return -- ABORT STRATEGY
+            end
+        
+            -- 2. DRAFTING (Standard)
+            -- Only if safe (TTC is large)
             if closestOpponent.distance < PASSING_DISTANCE_LIMIT and closestOpponent.distance > 5.0 
-               and isStraight and aggressionFactor >= 0.3 and telemetry.speed > 30 then
+               and isStraight and aggressionFactor >= 0.3 and telemetry.speed > 30 
+               and closestOpponent.timeToCollision > 2.0 then
                 self.currentMode = "Drafting"
             
-            -- OVERTAKING
+            -- 3. OVERTAKING
             elseif closestOpponent.distance < PASSING_DISTANCE_LIMIT then
                  -- Stick with the gap if we found one
                  if self.currentMode == "OvertakeDynamic" and closestOpponent.distance < PASSING_EXIT_DISTANCE then
                      local bestBias = self:findBestOvertakeGap(perceptionData)
                      self.dynamicOvertakeBias = bestBias
                  -- Calculate new gap if closing in
-                 elseif closestOpponent.closingSpeed < MIN_CLOSING_SPEED then 
+                 elseif closestOpponent.closingSpeed > 1.0 then -- Modified for new ClosingSpeed sign (Positive = Closing)
                     local bestBias = self:findBestOvertakeGap(perceptionData)
                     self.currentMode = "OvertakeDynamic"
                     self.dynamicOvertakeBias = bestBias
                  end
+            end
+        end
+        
+        -- A. DEFENSE (Behind us)
+        if closestOpponent and not closestOpponent.isAhead and closestOpponent.distance < 15 then
+             -- Closing speed was inverted in Perception. Now: Positive = closing.
+             -- If they are closing on us (Positive Speed)
+             if closestOpponent.closingSpeed > 1.0 or aggressionFactor > 0.6 then 
+                self.currentMode = "DefendLine"
             end
         end
     end
@@ -801,9 +889,25 @@ function DecisionModule.calculateSpeedControl(self, perceptionData, steerInput, 
         brake = 0.0 
     end
     
+    -- [[ NEW: FRICTION BUDGETER (Kamm Circle) ]]
+    -- Share the tire's grip between Steering and Braking.
+    -- If steering is high, limit the maximum allowed braking force.
+    local steerUsage = math.abs(steerInput)
+    -- Allow 100% braking if steering is < 20%. 
+    -- At 100% steering, limit braking to 10% (trail braking only).
+    local brakeLimit = 1.0
+    if steerUsage > 0.2 then
+        brakeLimit = 1.1 - steerUsage
+        brakeLimit = math.max(0.1, math.min(1.0, brakeLimit))
+    end
+    
+    if brake > brakeLimit then brake = brakeLimit end
+
     -- Corner Entry Braking Assist
     if self.isCornering and self.cornerPhase == 1 and currentSpeed > targetSpeed * 1.05 then
          brake = math.max(brake, self.Driver.carAggression * 0.4)
+         -- Re-clamp in case Assist was too aggressive
+         if brake > brakeLimit then brake = brakeLimit end
     end
     
     -- RETURN TARGET SPEED FOR LOGGING
@@ -873,6 +977,11 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
                 self.latestDebugData.statusColor = sm.color.new(1, 0, 0, 1) -- RED
             end
         end
+
+        -- [[ 3.5 EXTERNAL OVERRIDES (Testing/Calibration) ]]
+        if self.overrideThrottle then controls.throttle = self.overrideThrottle end
+        if self.overrideBrake then controls.brake = self.overrideBrake end
+        if self.overrideSteer then controls.steer = self.overrideSteer end
     end
 
     -- [[ 4. LOGGING (Existing Code) ]]
@@ -883,9 +992,34 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         if delta < -8.0 then 
             print(self.Driver.id, "WALL IMPACT DETECTED! Delta:", delta)
             if self.Driver.Optimizer then self.Driver.Optimizer:reportCrash() end
+            
+            -- [[ NEW: COLLISION RESET ]]
+            -- Clear Integrals to prevent wind-up spin
+            self.integralSpeedError = 0.0
+            self.integralSteeringError = 0.0 -- (If you had one)
+            self.stuckTimer = 0.0 -- Reset stuck timer to give player a chance
         end
     end
     self.lastSpeed = spd
+    
+    -- [[ RECOVERY CONTROL OVERRIDE ]]
+    if self.currentMode == "Recovery" then
+        controls.throttle = -0.8 -- Reverse
+        controls.brake = 0.0
+        
+        -- Invert steering to back out
+        -- If we were steering Left, steer Right to back train-style? 
+        -- Or steer opposite to trailer-reverse?
+        -- Simple: Steer OPPOSITE to where we want to go.
+        -- If track is Left, steer Left means front goes Left. Reverse means rear goes Left.
+        -- To back OUT of a wall on the left, we want Rear to go Right. Steer Left?
+        -- Let's just try INVERTING the last known good steering.
+        local nav = perceptionData.Navigation
+        local bias = nav.trackPositionBias or 0
+        
+        -- If on Left side of track (Bias > 0), Steer Left to point tail to Center.
+        controls.steer = bias * 1.0 
+    end
 
     local tick = sm.game.getServerTick()
     if spd > 1.0 and tick % 4 == 0 then 
@@ -913,6 +1047,54 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     end
 
     self.controls = controls
+    
+    -- [[ NEW: EXPOSE INTENT FOR GUIDANCE LAYER ]]
+    controls.targetBias = self.smoothedBias or 0.0
+    controls.currentMode = self.currentMode or "RaceLine"
+    controls.targetSpeed = targetSpeedForLog
+    controls.slideSeverity = slideSeverity
+    
+    -- [[ NEW: HUD METRICS ]]
+    -- Mental Load: How "busy" the AI is. 0.0 to 1.0.
+    local mentalLoad = 0.1 -- Base load
+    
+    -- Speed Stress (High speed = higher focus)
+    local speedStress = math.min((perceptionData.Telemetry.speed or 0) / 100.0, 1.0) * 0.4
+    
+    -- Steering Stress (Cornering = higher focus)
+    local steerStress = math.abs(controls.steer) * 0.2
+    
+    -- Opponent Stress (Close battle = higher focus)
+    local opponentStress = 0.0
+    if perceptionData.Opponents and perceptionData.Opponents.count > 0 then
+        local nearest = perceptionData.Opponents.racers[1]
+        if nearest and nearest.distance < 15.0 then
+            opponentStress = 0.3 * (1.0 - (nearest.distance / 15.0))
+        end
+    end
+    
+    -- Slide Stress (Panic)
+    local slideStress = slideSeverity * 0.5
+    
+    mentalLoad = mentalLoad + speedStress + steerStress + opponentStress + slideStress
+    mentalLoad = math.min(mentalLoad, 1.0)
+    
+    -- Grip Usage: How much of the tire's potential is being used.
+    -- Estimated Lateral G = Speed * YawRate.
+    -- Max G is theoretically ~2.0 to 3.0 depending on tuning.
+    local yawRate = 0
+    if tm.angularVelocity then yawRate = math.abs(tm.angularVelocity:dot(tm.rotations.up)) end
+    local currentLatG = (perceptionData.Telemetry.speed or 0) * yawRate
+    local maxLatG = 25.0 -- Approximate limit (2.5G)
+    
+    local gripUsage = math.min(currentLatG / maxLatG, 1.0)
+    
+    -- Store on Driver for RaceControl
+    if self.Driver then
+        self.Driver.mentalLoad = mentalLoad
+        self.Driver.gripUsage = gripUsage
+    end
+
     return controls
 end
 

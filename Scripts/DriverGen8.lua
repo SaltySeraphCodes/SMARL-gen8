@@ -2,6 +2,7 @@
 dofile("PerceptionModule.lua")
 dofile("DecisionModule.lua")
 dofile("ActionModule.lua")
+dofile("GuidanceModule.lua")
 dofile("TuningOptimizer.lua")
 dofile("globals.lua")
 
@@ -71,10 +72,26 @@ function DriverGen8.server_init(self)
     self.Fuel_Level = 1.0
     self.Gear_Length = 0.5
     self.Spoiler_Angle = 0.5
-    self.carAggression = 0.75
     self.formationSide = 1 
     
-    -- Race State
+    -- [[ NEW: PERSONA SYSTEM ]]
+    -- Defines the driver's personality and limits.
+    -- Can be: "Aggressive", "Balanced", "Cautious"
+    local personas = {
+        ["Aggressive"] = { agg = 1.0,  mistake = 0.1,  patience = 0.5 },
+        ["Balanced"]   = { agg = 0.75, mistake = 0.05, patience = 1.0 },
+        ["Cautious"]   = { agg = 0.5,  mistake = 0.01, patience = 2.0 }
+    }
+    
+    -- Pick Random if not loaded
+    self.Persona = self.metaData.Persona or "Balanced" 
+    local pStats = personas[self.Persona] or personas["Balanced"]
+    
+    self.carAggression = pStats.agg
+    self.driverMistakeChance = pStats.mistake
+    self.driverPatience = pStats.patience -- How long to wait behind a car before dive bombing?
+    
+    print("Driver:", self.id, "Persona:", self.Persona, "Aggression:", self.carAggression)
     self.currentLap = 0
     self.bestLap = 0
     self.lastLap = 0
@@ -114,6 +131,8 @@ function DriverGen8.server_init(self)
     self.Action:server_init(self)
     self.Optimizer = TuningOptimizer()
     self.Optimizer:init(self)
+    self.Guidance = GuidanceModule()
+    self.Guidance:server_init(self)
     
     self:sv_loadTrackData()
     self.raceControlError = true
@@ -209,9 +228,23 @@ function DriverGen8.server_onFixedUpdate(self, dt)
         if self.Decision.latestDebugData then
              -- Throttle: Send only every 3 ticks to save bandwidth
              local tick = sm.game.getServerTick()
-             if tick % 4 == 0 then
-                 self.network:sendToClients("cl_updateDebugRays", self.Decision.latestDebugData)
              end
+        end
+    end
+
+    -- 3.5 GUIDANCE (TRAJECTORY LAYER) [[ NEW ]]
+    -- Replaces raw output from Decision with refined trajectory
+    local guidanceData = nil
+    if self.Guidance and decisionData then
+        guidanceData = self.Guidance:server_onFixedUpdate(dt, decisionData)
+        
+        -- Override decisionData with Guidance outputs
+        if guidanceData then
+            decisionData.steer = guidanceData.steer
+            decisionData.targetSpeed = guidanceData.speed -- Action might use this for PID
+            -- If Guidance returns explicit throttle/brake, use them. Otherwise let Action handle it.
+            if guidanceData.throttle then decisionData.throttle = guidanceData.throttle end
+            if guidanceData.brake then decisionData.brake = guidanceData.brake end
         end
     end
 
@@ -229,8 +262,6 @@ function DriverGen8.server_onFixedUpdate(self, dt)
 
     self:checkSectorCross()
     self:checkLapCross()
-    self:handleTireWear(dt)
-    self:handleFuelUsage(dt)
     self:handleReset() -- Handles after car has been reset (Should only run when reset called?)
 end
 
@@ -469,93 +500,6 @@ function DriverGen8.handleReset(self) -- CHecks if self.liftPlaced and isOnLift,
         sm.player.removeLift(self.player)
         self.liftPlaced = false
         self.resetPosTimeout = 0 
-    end
-end
-
-
-function DriverGen8.handleTireWear(self, dt)
-    local rc = getRaceControl()
-    if rc == nil or (rc.RaceManager and rc.RaceManager.tireWearEnabled == false) then return end
-    
-    local telemetry = self.perceptionData and self.perceptionData.Telemetry
-    local decision = self.decisionData
-    if not self.Tire_Type or not telemetry or not decision or telemetry.speed <= 15 then return end
-    
-    local profile = TIRE_TYPES[self.Tire_Type] or {DECAY=0.2, MAX_SLIP_FACTOR=1.0}
-    local tireDecayRate = profile.DECAY or 0.2
-    local slipFactor = profile.MAX_SLIP_FACTOR or 1.0
-    local speed = telemetry.speed
-    
-    local baseWear = tireDecayRate * dt * 0.0001
-    local longWear = (math.abs(decision.throttle) + math.abs(decision.brake)) * (speed / 100) * 0.00005 
-    
-    local yawRate = 0
-    if telemetry.angularVelocity and telemetry.rotations then
-        yawRate = telemetry.angularVelocity:dot(telemetry.rotations.up)
-    end
-    local lateralWear = (yawRate * yawRate) * (speed / 50) * slipFactor * 0.00008 
-    
-    local multiplier = (rc.RaceManager and rc.RaceManager.tireWearMultiplier) or 1.0
-    local totalDecreaseRate = (baseWear + longWear + lateralWear) * multiplier
-    
-    self.Tire_Health = self.Tire_Health - totalDecreaseRate
-    
-    if self.Tire_Health <= 0.05 then
-        if not self.tireLimp then 
-            print(self.id, "Tires DEAD - LIMP MODE ACTIVATED")
-            self.tireLimp = true
-            self.Decision:calculateCarPerformance() 
-        end
-        self.Tire_Health = 0.05 
-    else
-        if self.tireLimp then
-            self.tireLimp = false
-            self.Decision:calculateCarPerformance() 
-        end
-    end
-end
-
-function DriverGen8.handleFuelUsage(self, dt) 
-    local rc = getRaceControl()
-    if rc == nil or (rc.RaceManager and rc.RaceManager.fuelUsageEnabled == false) then return end
-    if self.engine == nil or self.perceptionData == nil then return end
-
-    local telemetry = self.perceptionData.Telemetry
-    if not telemetry or telemetry.speed < 5 then return end
-
-    local multiplier = (rc.RaceManager and rc.RaceManager.fuelUsageMultiplier) or 1.0
-    
-    -- 1. Base Consumption (RPM based)
-    local rpmFactor = math.abs(self.engine.curRPM) / 90000
-    local baseConsumption = rpmFactor * FUEL_CONSUMPTION_RATE * dt
-
-    -- 2. Drag Consumption (Speed & Spoiler based)
-    local dragFactor = (telemetry.speed / 100.0) * (self.Spoiler_Angle / 50.0) 
-    
-    -- 3. Drafting Bonus
-    if self.Decision and self.Decision.currentMode == "Drafting" then
-        dragFactor = dragFactor * 0.5 
-    end
-    
-    local dragConsumption = dragFactor * DRAG_CONSUMPTION_FACTOR * dt
-
-    -- 4. Apply Consumption
-    local totalConsumption = (baseConsumption + dragConsumption) * multiplier
-    self.Fuel_Level = self.Fuel_Level - totalConsumption
-
-    -- 5. Limp Mode Logic
-    if self.Fuel_Level <= 0.0 then
-        if not self.fuelLimp then
-            print(self.id, "OUT OF FUEL - LIMP MODE ACTIVATED")
-            self.fuelLimp = true
-            self.Decision:calculateCarPerformance()
-        end
-        self.Fuel_Level = 0.0
-    else
-        if self.fuelLimp then
-            self.fuelLimp = false
-            self.Decision:calculateCarPerformance()
-        end
     end
 end
 

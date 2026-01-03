@@ -94,8 +94,44 @@ function Engine.server_init(self)
     -- Initial Setup
     self:updateType() 
     self:parseParents()
-    self:scanWheelType()
+    self:discoverChassis() -- [[ CHANGED ]]
+    
+    -- [[ NEW: Apply User Setup (Default) ]]
+    self:applyUserSetup(5) -- Default Ratio 5
+    
+    -- [[ NEW: PHYSICS STATE ]]
+    self.Fuel_Level = 1.0     -- 0.0 to 1.0 (100 Liters?)
+    self.Tire_Health = 1.0    -- 0.0 to 1.0 (100%)
+    self.Tire_Temp = 20.0     -- Degrees C. Optimal is 80-100.
+    self.simulatedMass = 1000 -- Base Mass
+    
+    -- Sync these to Driver for Decision Module to see
+    if self.driver then 
+        self.driver.Fuel_Level = self.Fuel_Level
+        self.driver.Tire_Health = self.Tire_Health
+        self.driver.Tire_Temp = self.Tire_Temp
+    end
+end
 
+function Engine.applyUserSetup(self, gearRatio)
+    -- Map 1..10 to performance multipliers
+    -- Ratio 1: High Accel (Short Gears), Low Top Speed
+    -- Ratio 10: Low Accel (Tall Gears), High Top Speed
+    
+    local ratio = math.max(1, math.min(10, gearRatio))
+    
+    -- Speed Multiplier: 1 -> 0.6x, 5 -> 1.0x, 10 -> 1.8x
+    local speedMult = 0.5 + (ratio * 0.13)
+    
+    -- Accel Multiplier: 1 -> 1.5x, 5 -> 1.0x, 10 -> 0.6x
+    local accelMult = 1.6 - (ratio * 0.1)
+    
+    self.engineStats.REV_LIMIT = (self.engineStats.MAX_SPEED * speedMult) / #self.engineStats.GEARING
+    
+    -- We store this multiplier to apply it to torque calculation dynamically
+    self.gearRatioTorqueMult = accelMult 
+    
+    print(string.format("Engine: Applied Gear Ratio %d. Top Speed Scale: %.2f, Accel Scale: %.2f", ratio, speedMult, accelMult))
 end
 
 function Engine.client_init(self)
@@ -118,34 +154,124 @@ local function getWheelRPM(bearing)
     return (math.abs(val) * 60) / (2 * math.pi)
 end
 
+-- [[ NEW: CHASSIS DISCOVERY ]]
+function Engine.discoverChassis(self)
+    if not self.driver or not self.driver.shape then 
+        -- If no driver yet, just scan for wheel type vaguely
+        self:scanWheelType()
+        return 
+    end
+    
+    local driverShape = self.driver.shape
+    local driverPos = driverShape:getWorldPosition()
+    
+    -- Driver Orientation determines "Forward"
+    local driverFwd = driverShape:getAt()
+    local driverRight = driverShape:getRight()
+    
+    local bearings = sm.interactable.getBearings(self.interactable)
+    if #bearings == 0 then 
+        print("Engine: No Bearings Connected.")
+        self.wheelTypeTag = "NONE"
+        return 
+    end
+    
+    local minX, maxX = 0, 0
+    local minY, maxY = 0, 0
+    local wheelCount = 0
+    
+    for _, bearing in ipairs(bearings) do
+        local uuid = ""
+        local shape = sm.joint.getShapeB(bearing)
+        if shape then
+            uuid = tostring(shape:getShapeUuid())
+            
+            -- Wheel Type Detection (Legacy Support)
+            local code = getWheelCode(uuid)
+            if code ~= "UNK" and self.wheelTypeTag == "NONE" then
+                 self.wheelTypeTag = code
+            end
+        end
+        
+        -- Geometric Calculations
+        local bearingPos = bearing:getWorldPosition()
+        local relPos = bearingPos - driverPos
+        
+        -- Project onto Driver Axes
+        -- X = Right/Left (Dot with Right)
+        -- Y = Fwd/Back (Dot with Fwd)
+        local latDist = relPos:dot(driverRight)
+        local longDist = relPos:dot(driverFwd)
+        
+        if latDist < minX then minX = latDist end
+        if latDist > maxX then maxX = latDist end
+        if longDist < minY then minY = longDist end
+        if longDist > maxY then maxY = longDist end
+        
+        wheelCount = wheelCount + 1
+    end
+    
+    if self.wheelTypeTag == "NONE" and wheelCount > 0 then self.wheelTypeTag = "UNK" end
+    
+    -- Calculate Dimensions
+    local trackWidth = maxX - minX
+    local wheelbase = maxY - minY
+    
+    -- Check for "Bike" or "Trike" configs to avoid math errors
+    if trackWidth < 0.5 then trackWidth = 1.0 end
+    if wheelbase < 0.5 then wheelbase = 1.0 end
+    
+    -- Store Data in Driver for Guidance Module
+    if self.driver.chassisData == nil then self.driver.chassisData = {} end
+    self.driver.chassisData.wheelbase = wheelbase
+    self.driver.chassisData.trackWidth = trackWidth
+    
+    -- [[ NEW: Store Bearing References for Torque Vectoring ]]
+    self.driver.chassisData.wheels = { FL={}, FR={}, RL={}, RR={} }
+    
+    local centerLong = (minY + maxY) * 0.5
+    local centerLat = (minX + maxX) * 0.5
+    
+    for _, bearing in ipairs(bearings) do
+        local pos = bearing:getWorldPosition()
+        local rel = pos - driverPos
+        local lat = rel:dot(driverRight)
+        local long = rel:dot(driverFwd)
+        
+        -- Using Center offsets to classify (Robust against odd CoM)
+        local isFront = (long > centerLong)
+        local isRight = (lat > centerLat) -- Assuming Right Vec points Right
+        
+        local category = ""
+        if isFront then
+            if isRight then category = "FR" else category = "FL" end
+        else
+            if isRight then category = "RR" else category = "RL" end
+        end
+        
+        table.insert(self.driver.chassisData.wheels[category], bearing)
+    end
+    
+    print(string.format("Engine: Chassis Discovered. WB: %.2f, TW: %.2f, Type: %s", wheelbase, trackWidth, self.wheelTypeTag))
+end
+
+-- Fallback for no-driver init
 function Engine.scanWheelType(self)
     -- Iterate through all bearings connected to the engine
     local bearings = sm.interactable.getBearings(self.interactable)
     
     for _, bearing in ipairs(bearings) do
-        -- Get the shape attached to the bearing (Shape B is the wheel)
         local shape = sm.joint.getShapeB(bearing)
-        
         if shape then
             local uuid = tostring(shape:getShapeUuid())
             local code = getWheelCode(uuid)
-            
-            -- If we find a known wheel, lock it in and stop scanning
-            -- (Assumes the car doesn't have mixed wheel types)
             if code ~= "UNK" then
                 self.wheelTypeTag = code
-                print("Engine: Detected Wheel Type: " .. code)
                 return
-            else
-                -- If it's unknown, store the first 4 chars of the UUID as a fallback unique ID
-                self.wheelTypeTag = string.sub(uuid, 1, 4)
             end
         end
     end
-    
-    if self.wheelTypeTag == "NONE" then
-        print("Engine: No Wheels Detected (Hover/Thruster build?)")
-    end
+    if self.wheelTypeTag == "NONE" then self.wheelTypeTag = "UNK" end
 end
 
 -- --- MAIN UPDATE LOOP (40Hz) ---
@@ -165,12 +291,82 @@ function Engine.server_onFixedUpdate(self, dt)
     if not self.noDriverError and not self.noStatsError then
         self.curRPM = self:calculateRPM()
         self.curVRPM = self:calculateVRPM(self.curGear, self.curRPM)
+        
+        -- [[ NEW: SIMULATION LOOP ]]
+        self:updatePhysicsState(dt)
+        self:setRPM(self.curRPM)
     end
+end
 
-    -- 4. Safety Limiter  Removed
-
-    -- 5. Output to Wheels
-    self:setRPM(self.curRPM)
+function Engine.updatePhysicsState(self, dt)
+    local throttle = math.abs(self.accelInput or 0)
+    local speed = 0
+    local slip = 0
+    local downforce = 0
+    
+    if self.driver and self.driver.perceptionData and self.driver.perceptionData.Telemetry then
+        local tm = self.driver.perceptionData.Telemetry
+        speed = tm.speed or 0
+        -- Approx Slip: Angular Vel * Speed? Or just Lateral G?
+        -- Let's use GripUsage from Driver if available, else estimate.
+        if self.driver.gripUsage then
+             slip = self.driver.gripUsage
+        else
+             -- Estimate: Speed * Steer
+             local steer = math.abs(self.driver.perceptionData.steer or 0)
+             slip = math.min(1.0, (speed / 50.0) * steer)
+        end
+        downforce = tm.downforce or 0 -- Artificial Downforce Power
+    end
+    
+    -- 1. FUEL BURN
+    local rc = getRaceControl()
+    local rm = rc and rc.RaceManager
+    
+    if rm and rm.fuelUsageEnabled then
+        local burnRate = 0.00003 * (rm.fuelUsageMultiplier or 1.0)
+        local fuelConsumed = burnRate * dt * (0.2 + (throttle * 0.8)) -- Idle burn 20%
+        self.Fuel_Level = math.max(0, self.Fuel_Level - fuelConsumed)
+    end
+    
+    -- 2. TIRE WEAR
+    if rm and rm.tireWearEnabled then
+        local wearRate = 0.00001 * dt * (rm.tireWearMultiplier or 1.0)
+        -- Load Factor: 1.0 + Downforce/10 + Slip*5
+        local loadFactor = 1.0 + (downforce / 100.0) + (slip * 5.0)
+        local speedFactor = (speed / 50.0)
+        
+        local wear = wearRate * speedFactor * loadFactor
+        self.Tire_Health = math.max(0, self.Tire_Health - wear)
+    end
+    
+    -- 3. TIRE TEMP
+    if rm and rm.tireHeatEnabled then
+        -- Heating: Friction (Slip * Speed) + Braking
+        -- Cooling: Airflow (Speed)
+        local heating = (slip * speed * 2.0) * dt
+        -- Braking Heat
+        if self.accelInput and self.accelInput < 0 then heating = heating + (math.abs(self.accelInput) * 5.0 * dt) end
+        
+        local ambient = 20.0
+        local cooling = 0.5 * dt * (1.0 + (speed / 10.0)) -- Airflow cooling
+        
+        self.Tire_Temp = self.Tire_Temp + heating - cooling
+        -- Hysteresis towards ambient if stopped
+        if speed < 1.0 then 
+            self.Tire_Temp = self.Tire_Temp + (ambient - self.Tire_Temp) * 0.1 * dt
+        end
+    else
+        -- Force Optimal Temp if Heat is Disabled
+        self.Tire_Temp = 90.0
+    end
+    
+    -- SYNC TO DRIVER
+    if self.driver then
+        self.driver.Fuel_Level = self.Fuel_Level
+        self.driver.Tire_Health = self.Tire_Health
+        self.driver.Tire_Temp = self.Tire_Temp
+    end
 end
 
 function Engine.client_onUpdate(self, dt)
@@ -458,14 +654,107 @@ function Engine.setRPM(self, value)
     local count = 0
     local totalAngularVel = 0
     
-    for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
-        sm.joint.setMotorVelocity(bearing, value, 500)
-        if self.driver and self.driver.perceptionData and self.driver.perceptionData.Telemetry then
-            local av = bearing:getAngularVelocity()
-            totalAngularVel = totalAngularVel + math.abs(av)
-            count = count + 1
+    -- [[ NEW: TORQUE VECTORING (RPM Differential) ]]
+    -- We need to know which bearings are Left/Right.
+    -- We can use the chassisData if available, or calculate on the fly (less efficient).
+    -- Let's use chassisData since we built it.
+    
+    local chassis = self.driver.chassisData
+    local tvBias = 0.0 -- Positive = Bias to Right (Left Turn), Negative = Bias to Left (Right Turn)
+    
+    local escLeftCut = 0.0
+    local escRightCut = 0.0
+    
+    if self.driver.perceptionData then
+        local st = self.driver.perceptionData.steer or 0.0
+        local sp = self.driver.perceptionData.Telemetry.speed or 0.0
+        
+        -- 1. TORQUE VECTORING
+        if ENABLE_TORQUE_VECTORING and sp > 5.0 and math.abs(st) > 0.05 then
+             local intensity = TV_INTENSITY or 1.0
+             tvBias = st * (sp / 50.0) * intensity
+             tvBias = math.max(-0.4, math.min(0.4, tvBias))
         end
-    end 
+        
+        -- 2. STABILITY CONTROL (ESC)
+        -- Logic: If sliding, brake the "Corner" that stops the spin.
+        -- Oversteer Left (Spinning CCW): Brake Outer Front (Right Front).
+        -- Oversteer Right (Spinning CW): Brake Outer Front (Left Front).
+        if ENABLE_ESC and self.driver.Decision and self.driver.Decision.controls then
+            local slide = self.driver.Decision.controls.slideSeverity or 0.0
+            
+            if slide > 0.2 then
+                 -- Determine Direction of Slide vs Steer?
+                 -- Decision doesn't give direction of slide directly, but we can infer from Yaw.
+                 -- If Yaw is Left and Steer is Right -> Oversteer Left.
+                 
+                 -- Simply: Brake the side we are turning AWAY from? 
+                 -- Actually, simpler: Brake the OUTER Front wheel relative to the SPIN.
+                 -- If Yaw is Positive (Left), brake Right Front.
+                 -- If Yaw is Negative (Right), brake Left Front.
+                 
+                 local yaw = 0
+                 if self.driver.perceptionData.Telemetry.angularVelocity then
+                     yaw = self.driver.perceptionData.Telemetry.angularVelocity.z -- Local Z or World Z? 
+                     -- Telemetry.angularVelocity is World. Rotations.up is World Up.
+                     -- Dot them.
+                     yaw = self.driver.perceptionData.Telemetry.angularVelocity:dot(self.driver.perceptionData.Telemetry.rotations.up)
+                 end
+                 
+                 local escForce = slide * (ESC_INTENSITY or 0.5)
+                 if math.abs(yaw) > 0.2 then
+                     if yaw > 0 then -- Spinning Left
+                         escRightCut = escForce -- Brake Right
+                     else -- Spinning Right
+                         escLeftCut = escForce -- Brake Left
+                     end
+                 end
+            end
+        end
+    end
+    
+    -- Apply to Bearings
+    if chassis and chassis.wheels then
+        local function apply(list, multiplier)
+            for _, bearing in ipairs(list) do
+                sm.joint.setMotorVelocity(bearing, value * multiplier, strength)
+                local av = bearing:getAngularVelocity()
+                totalAngularVel = totalAngularVel + math.abs(av)
+                count = count + 1
+            end
+        end
+        
+        -- TV: Steer Left (st>0) -> tvBias > 0. Left Slower (-), Right Faster (+).
+        -- ESC: Cut is strictly subtractive (Braking).
+        
+        local flMult = 1.0 - tvBias - escLeftCut
+        local rlMult = 1.0 - tvBias -- ESC usually only brakes Front for stability? Or all? Let's keep Rear Grip pure for now.
+        
+        local frMult = 1.0 + tvBias - escRightCut
+        local rrMult = 1.0 + tvBias
+        
+        -- Clamp to prevent reverse rotation during forward driving
+        flMult = math.max(0.0, flMult)
+        frMult = math.max(0.0, frMult)
+        rlMult = math.max(0.0, rlMult)
+        rrMult = math.max(0.0, rrMult)
+
+        apply(chassis.wheels.FL, flMult)
+        apply(chassis.wheels.RL, rlMult)
+        apply(chassis.wheels.FR, frMult)
+        apply(chassis.wheels.RR, rrMult)
+        
+    else
+        -- Fallback (Legacy / No Chassis Data)
+        for _, bearing in pairs(sm.interactable.getBearings(self.interactable)) do
+            sm.joint.setMotorVelocity(bearing, value, strength)
+            if self.driver and self.driver.perceptionData and self.driver.perceptionData.Telemetry then
+                local av = bearing:getAngularVelocity()
+                totalAngularVel = totalAngularVel + math.abs(av)
+                count = count + 1
+            end
+        end 
+    end
     
     -- Move this OUTSIDE the loop so it runs once after summing all wheels
     if count > 0 then
