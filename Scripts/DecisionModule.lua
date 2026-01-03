@@ -801,6 +801,11 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local lerpRate = 0.10 -- [FIX] Slower smoothing to reduce target jitters (Was 0.15)
     self.smoothedBias = (self.smoothedBias or 0) * (1.0 - lerpRate) + targetBias * lerpRate
     local finalBias = self.smoothedBias
+    
+    -- [TELEMETRY] Store for Optimizer
+    self.dbg_TargetBias = finalBias
+    self.dbg_TrackHalfWidth = halfWidth
+    self.dbg_TargetLatMeters = finalBias * halfWidth * -1 -- Convert to meters (Right is positive? Check coordinate system)
 
     -- 4. CALCULATE TARGET POINT
     local perpDir = nil
@@ -1026,6 +1031,9 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
         
         -- PASS UNSTABLE FLAG TO SPEED
         controls.throttle, controls.brake, targetSpeedForLog = self:calculateSpeedControl(perceptionData, controls.steer, isUnstable)
+        
+        -- [TELEMETRY] Store for Optimizer
+        self.currentTargetSpeed = targetSpeedForLog
         
         -- [[ 3. STABILITY ASSIST OVERRIDES ]]
         if isUnstable then

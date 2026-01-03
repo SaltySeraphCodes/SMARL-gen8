@@ -327,10 +327,14 @@ function TuningOptimizer:recordFrame(perceptionData, dt)
              latPos = perceptionData.Navigation.lateralMeters or 0.0 
          end
          
-         print(string.format("TELEMETRY: [%s] Spd:%.1f, LatPos:%.1f, Thr:%.2f, Brk:%.2f, Steer:%.2f, LatG:%.2f, Grip:%.2f", 
+         -- Fetch Targets
+         local tgtLat = self.driver.Decision.dbg_TargetLatMeters or 0.0
+         local tgtSpd = self.driver.Decision.currentTargetSpeed or 0.0
+         
+         print(string.format("TELEMETRY: [%s] Spd:%.1f/%.1f, LatPos:%.1f->%.1f, Thr:%.2f, Brk:%.2f, Steer:%.2f, LatG:%.2f, Grip:%.2f", 
             mode,
-            currentSpeed, 
-            latPos,
+            currentSpeed, tgtSpd,
+            latPos, tgtLat,
             self.driver.Decision.throttle or 0, 
             self.driver.Decision.brake or 0, 
             self.driver.Decision.steer or 0, 
