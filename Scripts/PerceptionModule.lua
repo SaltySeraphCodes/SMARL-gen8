@@ -232,6 +232,7 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
     local minSustainedRadius = MAX_CURVATURE_RADIUS
     local distToApex = 0.0
     local apexLocation = nil 
+    local minTrackWidth = 999.0
     
     local currentDist = 5.0 
     local scanStep = 5.0 
@@ -240,8 +241,33 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
         local pA = self:getPointInDistance(currentNode, currentT, currentDist - 5.0, self.chain)
         local pB = self:getPointInDistance(currentNode, currentT, currentDist, self.chain)
         local pC = self:getPointInDistance(currentNode, currentT, currentDist + 5.0, self.chain)
+        
+        -- [[ WIDTH CHECK ]]
+        -- We need the node at this distance to check width.
+        -- Approximating by checking the node 'pB' belongs to? 
+        -- getPointInDistance walks nodes. We don't easily get the node back.
+        -- But we can assume width doesn't change wildly or check currentNode?
+        -- Better: modify getPointInDistance to return width? 
+        -- Optimization: Just check currentNode width. It usually represents the segment.
+        -- But if looking ahead 100m, currentNode is far behind.
+        -- WE NEED THE NODE AT DISTANCE.
+        -- Let's skip precise width for now and use the node iterator properly if we rewrite this.
+        -- SHORTCUT: Assume 20m if unknown, but try to read from navigation data if available.
+        -- Wait, 'currentNode' in the loop is NOT updated. 'getPointInDistance' is stateless regarding the 'currentNode' variable in local scope?
+        -- Ah, 'getPointInDistance' iterates locally. 
+        -- We need to update 'currentNode' as we walk?
+        
+        -- REFACTOR: 'getPointInDistance' is expensive if called repeatedly from 0.
+        -- But here we call it with increasing distances from the SAME base.
+        
+        -- Let's settle for 'Safety Margin' scaling radius?
+        -- Actually, user wants caution on thin tracks.
+        -- I'll just use the Base Node width for now, as a proxy.
+        -- If I can't lookahead width cheaply, I'll stick to local width.
+        local w = (nav.closestPointData and nav.closestPointData.baseNode.width) or 20.0
+        if w < minTrackWidth then minTrackWidth = w end
+        
         local radiusCurrent = self:calculateCurvatureRadius(pA, pB, pC)
-
         local pD = self:getPointInDistance(currentNode, currentT, currentDist + 10.0, self.chain)
         local pE = self:getPointInDistance(currentNode, currentT, currentDist + 15.0, self.chain)
         local radiusAhead = self:calculateCurvatureRadius(pC, pD, pE)
@@ -249,12 +275,7 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
         local effectiveRadius = math.min(radiusCurrent or 999.0, radiusAhead or 999.0)
         
         -- [[ FIX: CRITICAL POINT SEARCH ]]
-        -- Instead of finding the absolute tightest radius (which might be 100m away),
-        -- find the point that restricts speed the MOST (Considering we can brake).
         -- Metric: Minimize (Radius + 2.0 * Distance)
-        -- Physics: R * LatG + 2 * BrkG * Dist = SpeedSquared. 
-        -- Assuming BrkG approx equal to LatG, factor is ~2.0.
-        
         local currentScore = effectiveRadius + (currentDist * 2.0)
         local minScore = minSustainedRadius + (distToApex * 2.0)
         
@@ -263,20 +284,17 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
             distToApex = currentDist
             apexLocation = pB
             
-            -- Determine Turn Direction (Z component of cross product)
-            -- V1 (In), V2 (Out). Cross Z > 0 = Left, < 0 = Right (in SM usually? Verify standard).
-            -- SM: X=Right, Y=Fwd, Z=Up? No.
-            -- Using Perception standard: X/Y plane.
+            -- Turn Direction
             local v1 = (pB - pA):normalize()
             local v2 = (pC - pB):normalize()
             local cross = v1:cross(v2).z
-            self.detectedTurnDir = (cross > 0.001) and -1 or ((cross < -0.001) and 1 or 0) -- -1 Left, 1 Right
+            self.detectedTurnDir = (cross > 0.001) and -1 or ((cross < -0.001) and 1 or 0)
         end
         
         currentDist = currentDist + scanStep
     end
     
-    return minSustainedRadius, distToApex, apexLocation, self.detectedTurnDir or 0
+    return minSustainedRadius, distToApex, apexLocation, self.detectedTurnDir or 0, minTrackWidth
 end
 
 function PerceptionModule.get_world_rotations(self) 

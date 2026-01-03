@@ -221,7 +221,7 @@ function DecisionModule:updateTrackState(perceptionData)
     
     -- [UPDATED] Update the scan every 4 ticks (0.1 seconds) to save CPU
     if tick % 4 == 0 or not self.cachedMinRadius then
-         self.cachedMinRadius, self.cachedDist, self.cachedApex, self.cachedTurnDir = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
+         self.cachedMinRadius, self.cachedDist, self.cachedApex, self.cachedTurnDir, self.cachedMinWidth = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
     end
     
     local rawRadius = self.cachedMinRadius or 1000.0
@@ -275,6 +275,16 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
 
     -- 1. PHYSICS SETUP
     local friction = self.dynamicGripFactor or 0.8
+    
+    -- [[ FIX: THIN TRACK CAUTION ]]
+    -- If track narrows below 16m, reduce friction confidence to slow down.
+    -- Reasoning: Less room for error = drive slower.
+    local minW = self.cachedMinWidth or 20.0
+    if minW < 16.0 then
+        local thinFactor = math.max(0.75, minW / 16.0)
+        friction = friction * thinFactor
+    end
+
     -- Conservative Factor: Treat the corner as 10% tighter than it looks
     local safetyRadius = math.max(effectiveRadius * 0.9, 10.0)
 
@@ -475,39 +485,44 @@ function DecisionModule:handleCorneringStrategy(perceptionData, dt)
     self.cornerSetupBias = 0.0
     self.cornerSetupWeight = 0.0
     
-    -- 1. ACTIVE CORNERING (Already in the turn)
-    -- If we are in the turn, we shouldn't be "setting up". We should be hitting the apex.
-    if nav.roadCurvatureRadius < 150.0 then
-        -- We let the Pure Pursuit / Apex logic handle the turn itself.
-        -- Just return, resetting the setup bias.
-        return 
+    -- Use cached data from Perception Scan (More accurate than Nav nodes)
+    local distToCrit = self.cachedDist or 999.0
+    local turnDir = self.cachedTurnDir or 0
+    local radius = self.smoothedRadius or 999.0
+    
+    if turnDir == 0 then return end -- No turn detected
+    
+    -- 1. APEX PHASE (In the turn or very close)
+    -- If radius is tight (< 80m) OR we are within 20m of the critical point
+    if radius < 80.0 or distToCrit < 25.0 then
+        -- TARGET: INSIDE (Hit the Apex)
+        -- But don't hug the wall (0.85).
+        -- If track is super thin, maybe less?
+        self.cornerSetupBias = turnDir * 0.85 
+        self.cornerSetupWeight = 0.80 -- Strong influence, but let Context/Safety override if needed
+        return
     end
     
-    -- 2. SETUP PHASE (Approaching a turn)
-    -- We use Time-To-Corner instead of Distance. 
-    -- 4.0 seconds allows a smooth lane change at high speed.
-    local lookaheadTime = 4.0 
+    -- 2. ENTRY PHASE (Approaching a turn)
+    -- We want to open up the corner by moving OUTSIDE.
+    -- Trigger distance based on speed.
+    local lookaheadTime = 3.5 
     local triggerDist = math.max(40.0, speed * lookaheadTime)
     
-    if nav.distToNextCorner < triggerDist and nav.nextCornerDir ~= 0 then
+    if distToCrit < triggerDist then
+        -- TARGET: OUTSIDE (Opposite to Turn)
+        local setupSide = -turnDir 
         
-        -- A. DIRECTION LOGIC
-        -- If Turn is RIGHT (1), we want to be LEFT (-1).
-        local setupSide = -nav.nextCornerDir 
+        -- Urgency: 0.0 (Far) -> 1.0 (Close)
+        local rawUrgency = 1.0 - (distToCrit / triggerDist)
         
-        -- B. SMOOTH URGENCY
-        -- 0.0 = Just detected (Far away)
-        -- 1.0 = At the braking zone (Close)
-        local rawUrgency = 1.0 - (nav.distToNextCorner / triggerDist)
-        
-        -- Apply Ease-In Curve (Sine Wave) for smoothness
-        -- This makes the car start the lane change gently, then commit.
+        -- Smooth Sine Curve
         local smoothUrgency = math.sin(rawUrgency * (math.pi / 2))
         
-        -- C. OUTPUT
-        -- We don't want to hug the wall 100% (risk of clipping). Target 85% width.
-        self.cornerSetupBias = setupSide * 0.85
+        self.cornerSetupBias = setupSide * 0.90 -- Go wide!
         self.cornerSetupWeight = smoothUrgency
+    end
+end
     end
 end
 
