@@ -380,7 +380,7 @@ function DecisionModule:calculateContextBias(perceptionData, preferredBias)
          end
          if wall.marginRight < avoidanceMargin then
             -- 50% distance = 25% urgency. 10% distance = 81% urgency.
-            local rawUrgency = 1.0 - (math.max(wall.marginLeft, 0) / avoidanceMargin)
+            local rawUrgency = 1.0 - (math.max(wall.marginRight, 0) / avoidanceMargin) -- [FIX] Use RIGHT margin
             local urgency = rawUrgency * rawUrgency
              for i = 1, NUM_RAYS do
                  if rayAngles[i] > 0 then dangerMap[i] = math.max(dangerMap[i], urgency) end

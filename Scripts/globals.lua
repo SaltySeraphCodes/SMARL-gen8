@@ -33,7 +33,7 @@ ENABLE_TORQUE_VECTORING = false -- [FIX] Disabled for stability debugging
 TV_INTENSITY = 1.0 -- 0.0 to 2.0 (Strength of Virtual Torque Vectoring)
 ENABLE_ESC = true
 ESC_INTENSITY = 0.5 -- 0.0 to 1.0 (Strength of counter-steer/braking)
-STEERING_INVERTED = false -- [NEW] Toggle to flip steering direction if controls are reversed
+STEERING_INVERTED = true -- [FIX] Toggle to flip steering direction (Positive Input = Wheels Left)
 ENABLE_ESC = true
 ESC_INTENSITY = 0.5 -- 0.0 to 1.0 (Strength of counter-steer/braking)
 TELEMETRY_DEBUG = false -- Toggle to show "Ideal vs Actual" headings
