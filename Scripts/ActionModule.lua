@@ -73,6 +73,9 @@ function ActionModule.updateGearing(self, dt)
 end
 
 function ActionModule.setSteering(self, steerFactor, currentSpeed)
+    -- [[ FIX: STEERING INVERSION SUPPORT ]]
+    if STEERING_INVERTED then steerFactor = -steerFactor end
+    
     local targetAngle = steerFactor * MAX_WHEEL_ANGLE_RAD
     
     local bearings = sm.interactable.getBearings(self.Driver.interactable)

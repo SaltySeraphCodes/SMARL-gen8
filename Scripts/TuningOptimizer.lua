@@ -234,7 +234,7 @@ function TuningOptimizer:recordFrame(perceptionData, dt)
     -- 1. Crash Detection
     local deltaSpeed = currentSpeed - self.lastSpeed
     if deltaSpeed < -12.0 then self:reportCrash() end
-    self.lastSpeed = currentSpeed
+    -- self.lastSpeed = currentSpeed -- MOVED TO END of function for correct dt calc
 
     -- 2. Pure Pursuit Error & Oscillation
     local ppY = self.driver.Decision.dbg_PP_Y or 0
@@ -308,7 +308,23 @@ function TuningOptimizer:recordFrame(perceptionData, dt)
     end
     
     -- [[ PHASE 3: ADAPTIVE LEARNING (LOCKABLE) ]]
-    if self.learningLocked then return end
+    if self.learningLocked then 
+        self.lastSpeed = currentSpeed -- Update speed even if locked
+        return 
+    end
+    
+    -- [[ TELEMETRY LOGGING ]]
+    if self.tickCount % 8 == 0 then -- Approx every 0.2s
+         print(string.format("TELEMETRY: Speed:%.1f, Thr:%.2f, Brk:%.2f, Steer:%.2f, LatG:%.2f, Grip:%.2f", 
+            currentSpeed, 
+            self.driver.Decision.throttle or 0, 
+            self.driver.Decision.brake or 0, 
+            self.driver.Decision.steer or 0, 
+            latAccel / 10.0, 
+            self.learnedGrip))
+    end
+    
+    self.lastSpeed = currentSpeed -- Correct update point
 end
 
 function TuningOptimizer:runSteeringTest(tel, dt, perceptionData)

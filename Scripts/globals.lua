@@ -28,8 +28,12 @@ DECELERATION_RATE = -11.3
 FORCE_SENSITIVIY = 4
 
 -- [[ FEATURE FLAGS ]]
-ENABLE_TORQUE_VECTORING = true
+-- [[ FEATURE FLAGS ]]
+ENABLE_TORQUE_VECTORING = false -- [FIX] Disabled for stability debugging
 TV_INTENSITY = 1.0 -- 0.0 to 2.0 (Strength of Virtual Torque Vectoring)
+ENABLE_ESC = true
+ESC_INTENSITY = 0.5 -- 0.0 to 1.0 (Strength of counter-steer/braking)
+STEERING_INVERTED = false -- [NEW] Toggle to flip steering direction if controls are reversed
 ENABLE_ESC = true
 ESC_INTENSITY = 0.5 -- 0.0 to 1.0 (Strength of counter-steer/braking)
 TELEMETRY_DEBUG = false -- Toggle to show "Ideal vs Actual" headings
