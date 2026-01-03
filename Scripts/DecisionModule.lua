@@ -292,7 +292,7 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     -- [CRITICAL FIX] Reaction Time Buffer
     -- Subtract the distance we will cover while the brakes are physically engaging (approx 0.2s)
     -- If we are moving 40 m/s, we lose 8 meters here. This prevents overshoot.
-    local latencyMeters = currentSpeed * 0.1 -- increasing increases braking distance
+    local latencyMeters = currentSpeed * 0.25 -- [FIX] Increased buffer to 0.25s (Human reaction time)
     local effectiveBrakingDist = math.max(0.0, distToApex - latencyMeters)
     
     -- Formula: v_entry = sqrt( v_corner^2 + 2 * a * d )
