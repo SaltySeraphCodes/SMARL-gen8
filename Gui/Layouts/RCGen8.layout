@@ -135,7 +135,7 @@
                 <Widget type="Widget" skin="PanelEmpty" position_real="0 0.42 1 0.12">
                       <Widget type="Button" skin="SecondaryButton" name="BtnQualifying" position_real="0 0 0.55 0.8">
                         <Property key="Caption" value="QUALIFYING: OFF" />
-                        <Property key="FontName" value="SM_ButtonSmall" />
+                        <Property key="FontName" value="SM_Button" />
                         <Property key="TextColour" value="1 1 1" />
                     </Widget>
                     <Widget type="Button" skin="SecondaryButton" name="BtnLearning" position_real="0.58 0 0.42 0.8">

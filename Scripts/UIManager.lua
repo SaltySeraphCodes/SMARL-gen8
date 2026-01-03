@@ -8,6 +8,22 @@ function UIManager:init(raceControl)
     self.gui = nil
     self.isOpen = false
     self.confirmAction = nil 
+    
+    -- [[ FIX: INJECT CALLBACKS INTO ROUTER ]]
+    -- SM GUI expects callbacks on the main Script Class instance (RaceControl)
+    -- We forward them to self.UIManager methods here.
+    local rc = self.RC
+    rc.cl_onBtnStart = function(self) self.UIManager:cl_onBtnStart() end
+    rc.cl_onBtnStop = function(self) self.UIManager:cl_onBtnStop() end
+    rc.cl_onBtnCaution = function(self) self.UIManager:cl_onBtnCaution() end
+    rc.cl_onBtnFormation = function(self) self.UIManager:cl_onBtnFormation() end
+    rc.cl_onBtnEntries = function(self) self.UIManager:cl_onBtnEntries() end
+    rc.cl_onBtnReset = function(self) self.UIManager:cl_onBtnReset() end
+    rc.cl_onSettingsChange = function(self, btn) self.UIManager:cl_onSettingsChange(btn) end
+    rc.cl_onToggleSetting = function(self, btn) self.UIManager:cl_onToggleSetting(btn) end
+    rc.cl_onBtnLearning = function(self) self.UIManager:cl_onBtnLearning() end
+    rc.cl_onPopUpResponse = function(self, btn) self.UIManager:cl_onPopUpResponse(btn) end
+    rc.cl_onClose = function(self) self.UIManager:cl_onClose() end
 end
 
 function UIManager:create()
