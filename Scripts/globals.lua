@@ -371,6 +371,8 @@ function getEngineType(color)
     for _, v in ipairs(ENGINE_TYPES) do
         if color == v.COLOR then return v end
     end
+    return ENGINE_TYPES[1]
+end
 -- End of Globals
 EngineStats = class(nil)
 function EngineStats.init(self,stats)
