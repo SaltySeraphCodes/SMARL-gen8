@@ -20,8 +20,8 @@ function TuningOptimizer:init(driver)
     -- [[ TUNABLE PHYSICS PARAMETERS ]]
     self.cornerLimit = 1.8      
     self.brakingFactor = 15.0   
-    self.dampingFactor = 0.30   
-    self.lookaheadMult = 0.8    
+    self.dampingFactor = 0.35   -- [FIX] Increased for stability (Was 0.30)
+    self.lookaheadMult = 0.65   -- [FIX] Reduced for tighter lines (Was 0.8)
     self.tractionConstant = 2.6
 
     -- [[ NEW: USER SETUP ]]
@@ -315,7 +315,9 @@ function TuningOptimizer:recordFrame(perceptionData, dt)
     
     -- [[ TELEMETRY LOGGING ]]
     if self.tickCount % 8 == 0 then -- Approx every 0.2s
-         print(string.format("TELEMETRY: Speed:%.1f, Thr:%.2f, Brk:%.2f, Steer:%.2f, LatG:%.2f, Grip:%.2f", 
+         local mode = (self.driver.Decision and self.driver.Decision.currentMode) or "UNK"
+         print(string.format("TELEMETRY: [%s] Spd:%.1f, Thr:%.2f, Brk:%.2f, Steer:%.2f, LatG:%.2f, Grip:%.2f", 
+            mode,
             currentSpeed, 
             self.driver.Decision.throttle or 0, 
             self.driver.Decision.brake or 0, 

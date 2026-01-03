@@ -746,27 +746,30 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local targetBias = self:getFinalTargetBias(perceptionData)
     
     -- 2. GET FUTURE GEOMETRY
-    local mult = (optim and optim.lookaheadMult) or 0.8
+    -- 2. GET FUTURE GEOMETRY
+    local mult = (optim and optim.lookaheadMult) or 0.65 -- [FIX] Reduced Base (Was 0.8)
     -- [[ FIX: DYNAMIC LOOKAHEAD SCALING ]]
-    -- If the turn is tight (Radius < 60m), shrink the lookahead.
-    -- This pulls the green ball closer to the car, allowing it to "hug" the apex.
+    -- If the turn is tight, shrink the lookahead.
     local radius = nav.roadCurvatureRadius or 1000.0
     local curveFactor = 1.0
     
-    if radius < 60.0 then
-        -- Scale down: At 20m radius, use 50% lookahead. At 60m, use 100%.
-        curveFactor = math.max(0.5, radius / 60.0)
+    if radius < 90.0 then -- [FIX] Increased threshold (Was 60)
+        -- Scale down: At 20m radius, use 40% lookahead.
+        curveFactor = math.max(0.4, radius / 90.0) 
+        mult = mult * curveFactor
     end 
+    
     -- STABILITY OVERRIDE:
     if isUnstable then
-        mult = mult * 2.0 -- Look TWICE as far if sliding (e.g. 18m -> 36m)
+        mult = mult * 1.5 -- reduced from 2.0 to prevent oscillation
     end
     
-    -- Boost lookahead on straights (Radius > 500m) to smooth out steering
+    -- Boost lookahead on straights
     local straightBoost = 1.0
-    if nav.roadCurvatureRadius > 500.0 then straightBoost = 1.5 end
+    if nav.roadCurvatureRadius > 600.0 then straightBoost = 1.3 end -- Reduced boost
     
-    local lookaheadDist = math.max(12.0, speed * mult * straightBoost)
+    -- [FIX] Lower Min Lookahead to prevent cutting low-speed corners
+    local lookaheadDist = math.max(7.0, speed * mult * straightBoost)
     
     local centerPoint, futureNode = self:getFutureCenterPoint(
         nav.closestPointData.baseNode, 
@@ -834,9 +837,10 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local currentKd = (optim and optim.dampingFactor or 0.15)
     local rawDamping = yawRate * currentKd
     -- Logic: If we are steering LEFT (-), and Damping is RIGHT (+), clamp the damping.
+    -- Logic: If we are steering LEFT (-), and Damping is RIGHT (+), clamp the damping.
     if (steerOutput < 0 and rawDamping > 0) or (steerOutput > 0 and rawDamping < 0) then
-        -- Allow at least 0.20 damping force even if steering is 0 (Fixes straight line wobble)
-        local maxDamp = math.max(0.10, math.abs(steerOutput) * 1.0)        
+        -- Allow STRONGER damping (1.2x) to catch fishtails
+        local maxDamp = math.max(0.20, math.abs(steerOutput) * 1.2)        
         if rawDamping > maxDamp then rawDamping = maxDamp end
         if rawDamping < -maxDamp then rawDamping = -maxDamp end
     end
@@ -875,6 +879,30 @@ function DecisionModule.calculateSpeedControl(self, perceptionData, steerInput, 
     local currentSpeed = perceptionData.Telemetry.speed
     local targetSpeed = self:getTargetSpeed(perceptionData,steerInput) -- Recalculated here
     
+    -- [[ FIX: WRONG WAY RECOVERY ]]
+    -- User Request: Slow to stop/crawl if facing backwards or > 80 deg (dot < 0.17)
+    local nav = perceptionData.Navigation
+    local isWrongWay = false
+    
+    if nav and nav.closestPointData and nav.closestPointData.baseNode then
+        -- Check alignment with path
+        local carDir = self.Driver.shape:getAt()
+        local pathDir = nav.closestPointData.baseNode.dir -- Assuming node has .dir
+        -- Optimization: If node dir missing, use P2 - P1 
+        if not pathDir and nav.closestPointData.nextNode then
+             pathDir = (nav.closestPointData.nextNode.pos - nav.closestPointData.baseNode.pos):normalize()
+        end
+        
+        if pathDir then
+             local dot = carDir:dot(pathDir)
+             if dot < 0.2 then -- Angle > 78 degrees
+                 isWrongWay = true
+                 targetSpeed = 0 -- Force stop
+                 -- print(self.Driver.id, "WRONG WAY DETECTED (Spin)! Braking.")
+             end
+        end
+    end
+    
     local speedError = targetSpeed - currentSpeed
     local throttle = 0.0
     local brake = 0.0
@@ -893,12 +921,12 @@ function DecisionModule.calculateSpeedControl(self, perceptionData, steerInput, 
     if controlSignal > 0 then 
         throttle = math.min(controlSignal, 1.0)
         brake = 0.0
-    elseif controlSignal < 0 then 
-        brake = math.min(math.abs(controlSignal), 1.0)
+    end
+    
+    -- Absolute override for spin safety
+    if isWrongWay then
         throttle = 0.0
-    else 
-        throttle = 0.0
-        brake = 0.0 
+        brake = 1.0
     end
     
     -- [[ NEW: FRICTION BUDGETER (Kamm Circle) ]]
