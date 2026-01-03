@@ -223,7 +223,7 @@ function DecisionModule:updateTrackState(perceptionData)
     -- [UPDATED] Update the scan every 4 ticks (0.1 seconds) to save CPU
     if tick % 4 == 0 or not self.cachedMinRadius then
         self.cachedMinRadius, self.cachedDist, self.cachedApex, self.cachedTurnDir, self.cachedMinWidth = self.Driver
-        .Perception:scanTrackCurvature(SCAN_DISTANCE)
+            .Perception:scanTrackCurvature(SCAN_DISTANCE)
     end
 
     local rawRadius = self.cachedMinRadius or 1000.0
@@ -458,8 +458,8 @@ function DecisionModule:getDebugLines(angles, interest, danger, bestIdx, count)
         local speed = velocity:length()
         if speed > 1.0 then
             local velDir = velocity:normalize()
-            table.insert(lines, { s = centerPos + (up * 2), e = centerPos + (up * 2) + (velDir * 5), c = 3 })  -- Green Arrow (Velocity)
-            table.insert(lines, { s = centerPos + (up * 2), e = centerPos + (up * 2) + (fwd * 5), c = 1 })     -- Blue Arrow (Heading)
+            table.insert(lines, { s = centerPos + (up * 2), e = centerPos + (up * 2) + (velDir * 5), c = 3 }) -- Green Arrow (Velocity)
+            table.insert(lines, { s = centerPos + (up * 2), e = centerPos + (up * 2) + (fwd * 5), c = 1 })    -- Blue Arrow (Heading)
         end
     end
 
@@ -522,6 +522,10 @@ function DecisionModule:handleCorneringStrategy(perceptionData, dt)
 
         self.cornerSetupBias = setupSide * 0.80
         self.cornerSetupWeight = smoothUrgency
+
+        -- DEBUG: Check why we might be stuck outside
+        print(string.format("SETUP: Dist:%.1f TurnIn:%.1f Side:%d W:%.2f", distToCrit, turnInDist, setupSide,
+            smoothUrgency))
     end
 end
 
@@ -634,7 +638,7 @@ function DecisionModule.checkUtility(self, perceptionData, dt)
 
     -- AI Active Check: Don't check for "stuck" if the AI isn't even trying to race
     local isAIActive = self.Driver.active or self.Driver.isRacing or self.Driver.racing or self.Driver.caution or
-    self.Driver.formation or (self.pitState > 0)
+        self.Driver.formation or (self.pitState > 0)
     if not isAIActive then
         self.stuckTimer = 0.0
         return false
@@ -754,7 +758,7 @@ function DecisionModule.determineStrategy(self, perceptionData, dt)
                     local bestBias = self:findBestOvertakeGap(perceptionData)
                     self.dynamicOvertakeBias = bestBias
                     -- Calculate new gap if closing in
-                elseif closestOpponent.closingSpeed > 1.0 then  -- Modified for new ClosingSpeed sign (Positive = Closing)
+                elseif closestOpponent.closingSpeed > 1.0 then -- Modified for new ClosingSpeed sign (Positive = Closing)
                     local bestBias = self:findBestOvertakeGap(perceptionData)
                     self.currentMode = "OvertakeDynamic"
                     self.dynamicOvertakeBias = bestBias
@@ -839,7 +843,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt, isUnstable)
     self.dbg_TargetBias = finalBias
     self.dbg_TrackHalfWidth = halfWidth
     self.dbg_TargetLatMeters = finalBias * halfWidth *
-    -1                                                    -- Convert to meters (Right is positive? Check coordinate system)
+        -1 -- Convert to meters (Right is positive? Check coordinate system)
 
     -- 4. CALCULATE TARGET POINT
     local perpDir = nil
@@ -932,7 +936,7 @@ end
 
 function DecisionModule.calculateSpeedControl(self, perceptionData, steerInput, isUnstable)
     local isAIActive = self.Driver.active or self.Driver.isRacing or self.Driver.racing or self.Driver.caution or
-    self.Driver.formation or (self.pitState > 0)
+        self.Driver.formation or (self.pitState > 0)
     if not isAIActive then
         return 0.0, 1.0, 0.0 -- 0 Throttle, 1.0 Brake (Hold), 0 Target Speed
     end
@@ -956,9 +960,9 @@ function DecisionModule.calculateSpeedControl(self, perceptionData, steerInput, 
 
         if pathDir then
             local dot = carDir:dot(pathDir)
-            if dot < 0.2 then    -- Angle > 78 degrees
+            if dot < 0.2 then   -- Angle > 78 degrees
                 isWrongWay = true
-                targetSpeed = 0  -- Force stop
+                targetSpeed = 0 -- Force stop
                 -- print(self.Driver.id, "WRONG WAY DETECTED (Spin)! Braking.")
             end
         end
@@ -1056,7 +1060,7 @@ function DecisionModule.server_onFixedUpdate(self, perceptionData, dt)
         local steerInput = (self.controls and self.controls.steer) or 0
         if (yawRate > 0.5 and steerInput < -0.3) or (yawRate < -0.5 and steerInput > 0.3) then
             isUnstable = true
-            slideSeverity = math.max(slideSeverity, 0.5)  -- Treat as medium severity
+            slideSeverity = math.max(slideSeverity, 0.5) -- Treat as medium severity
         end
     end
 
@@ -1141,7 +1145,7 @@ function DecisionModule.server_onFixedUpdate(self, perceptionData, dt)
         local P_Term = (self.latestDebugData and self.latestDebugData.rawP) or 0
         local D_Term = (self.latestDebugData and self.latestDebugData.rawD) or 0
         local LookDist = (self.latestDebugData and self.latestDebugData.targetPoint and (self.latestDebugData.targetPoint - tm.location):length()) or
-        0
+            0
 
         -- Add "UNSTABLE" tag to log if active
         local modeStr = self.currentMode or "Race"
