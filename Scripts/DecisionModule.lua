@@ -221,7 +221,7 @@ function DecisionModule:updateTrackState(perceptionData)
     
     -- [UPDATED] Update the scan every 4 ticks (0.1 seconds) to save CPU
     if tick % 4 == 0 or not self.cachedMinRadius then
-         self.cachedMinRadius, self.cachedDist, self.cachedApex = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
+         self.cachedMinRadius, self.cachedDist, self.cachedApex, self.cachedTurnDir = self.Driver.Perception:scanTrackCurvature(SCAN_DISTANCE)
     end
     
     local rawRadius = self.cachedMinRadius or 1000.0
@@ -259,6 +259,19 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
     local effectiveRadius = self.smoothedRadius
     local distToApex = self.cachedDist or 0.0
     local currentSpeed = perceptionData.Telemetry.speed or 0.0
+    
+    -- [[ FIX: INSIDE LINE PENALTY ]]
+    -- If we are entering on the "Inside", reduce effective radius.
+    -- Inside = TurnDirection * TrackBias > 0.
+    local turnDir = self.cachedTurnDir or 0
+    local myBias = perceptionData.Navigation.trackPositionBias or 0
+    local insideFactor = turnDir * myBias 
+    
+    if insideFactor > 0.1 then
+        -- Penalty maxes at 30% reduction for hugs
+        local penalty = math.min(insideFactor * 0.3, 0.4) 
+        effectiveRadius = effectiveRadius * (1.0 - penalty)
+    end
 
     -- 1. PHYSICS SETUP
     local friction = self.dynamicGripFactor or 0.8
@@ -987,6 +1000,12 @@ end
 function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
     local controls = {}
     controls.resetCar = self:checkUtility(perceptionData,dt)
+    
+    if controls.resetCar then
+        -- Clear PID State on Reset
+        self.integralSpeedError = 0.0
+        self.steerIntegral = 0.0
+    end
 
     self:updateTrackState(perceptionData)
 
@@ -1069,7 +1088,7 @@ function DecisionModule.server_onFixedUpdate(self,perceptionData,dt)
             -- [[ NEW: COLLISION RESET ]]
             -- Clear Integrals to prevent wind-up spin
             self.integralSpeedError = 0.0
-            self.integralSteeringError = 0.0 -- (If you had one)
+            self.steerIntegral = 0.0 -- [FIX] Updated variable name
             self.stuckTimer = 0.0 -- Reset stuck timer to give player a chance
         end
     end

@@ -246,6 +246,8 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
         local pE = self:getPointInDistance(currentNode, currentT, currentDist + 15.0, self.chain)
         local radiusAhead = self:calculateCurvatureRadius(pC, pD, pE)
 
+        local effectiveRadius = math.min(radiusCurrent or 999.0, radiusAhead or 999.0)
+        
         -- [[ FIX: CRITICAL POINT SEARCH ]]
         -- Instead of finding the absolute tightest radius (which might be 100m away),
         -- find the point that restricts speed the MOST (Considering we can brake).
@@ -260,12 +262,21 @@ function PerceptionModule:scanTrackCurvature(scanDistance)
             minSustainedRadius = effectiveRadius
             distToApex = currentDist
             apexLocation = pB
+            
+            -- Determine Turn Direction (Z component of cross product)
+            -- V1 (In), V2 (Out). Cross Z > 0 = Left, < 0 = Right (in SM usually? Verify standard).
+            -- SM: X=Right, Y=Fwd, Z=Up? No.
+            -- Using Perception standard: X/Y plane.
+            local v1 = (pB - pA):normalize()
+            local v2 = (pC - pB):normalize()
+            local cross = v1:cross(v2).z
+            self.detectedTurnDir = (cross > 0.001) and -1 or ((cross < -0.001) and 1 or 0) -- -1 Left, 1 Right
         end
         
         currentDist = currentDist + scanStep
     end
     
-    return minSustainedRadius, distToApex, apexLocation
+    return minSustainedRadius, distToApex, apexLocation, self.detectedTurnDir or 0
 end
 
 function PerceptionModule.get_world_rotations(self) 
