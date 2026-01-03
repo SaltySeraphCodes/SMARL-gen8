@@ -948,6 +948,9 @@ function DecisionModule.calculateSpeedControl(self, perceptionData, steerInput, 
     if controlSignal > 0 then 
         throttle = math.min(controlSignal, 1.0)
         brake = 0.0
+    else
+        throttle = 0.0
+        brake = math.min(math.abs(controlSignal), 1.0)
     end
     
     -- Absolute override for spin safety
