@@ -467,7 +467,8 @@ function TuningOptimizer:runMicroBrakeTest(tel, dt)
         if self.testTimer > 0.3 then -- Pulse complete
             self.testState = 2
             self.testTimer = 0
-            self.driver.Decision.overrideBrake = 0.0
+            self.driver.Decision.overrideBrake = nil -- [FIX] Release overrides properly
+            self.driver.Decision.overrideThrottle = nil
             
             -- Calculate Decel
             local dv = (self.startSpeed or 0) - (tel.speed or 0) -- Delta V
