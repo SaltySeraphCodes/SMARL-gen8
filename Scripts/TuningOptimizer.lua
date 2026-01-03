@@ -330,11 +330,14 @@ function TuningOptimizer:recordFrame(perceptionData, dt)
          -- Fetch Targets
          local tgtLat = self.driver.Decision.dbg_TargetLatMeters or 0.0
          local tgtSpd = self.driver.Decision.currentTargetSpeed or 0.0
+         local rad = self.driver.Decision.dbg_Radius or 999
+         local dist = self.driver.Decision.dbg_Dist or 0
          
-         print(string.format("TELEMETRY: [%s] Spd:%.1f/%.1f, LatPos:%.1f->%.1f, Thr:%.2f, Brk:%.2f, Steer:%.2f, LatG:%.2f, Grip:%.2f", 
+         print(string.format("TELEMETRY: [%s] Spd:%.1f/%.1f, LatPos:%.1f->%.1f, Rad:%.1f Dist:%.1f, Thr:%.2f, Brk:%.2f, Steer:%.2f, LatG:%.2f, Grip:%.2f", 
             mode,
             currentSpeed, tgtSpd,
             latPos, tgtLat,
+            rad, dist,
             self.driver.Decision.throttle or 0, 
             self.driver.Decision.brake or 0, 
             self.driver.Decision.steer or 0, 
