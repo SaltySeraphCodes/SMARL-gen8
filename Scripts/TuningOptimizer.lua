@@ -140,7 +140,10 @@ function TuningOptimizer:applyProfile(profile)
     -- Load Grip Profile
     if profile.learnedGrip then 
         self.learnedGrip = profile.learnedGrip 
-        print(string.format("Optimizer: Loaded Grip Profile: %.2f Gs", self.learnedGrip))
+        -- If we have a saved grip value and setup matches, assume we don't need to re-calibrate
+        self.microBrakeDone = true 
+        self.steeringTestDone = true
+        print(string.format("Optimizer: Loaded Grip Profile: %.2f Gs (Skipping Calibration)", self.learnedGrip))
     end
 end
 
@@ -295,9 +298,12 @@ function TuningOptimizer:recordFrame(perceptionData, dt)
     
     -- [[ PHASE 2: MICRO-BRAKE TEST ]]
     -- Startup calibration to find base friction.
-    if not self.microBrakeDone and currentSpeed > 8.0 and currentSpeed < 20.0 then
+    -- FIX: Ensure we finish the test if started, even if speed drops below 8.0
+    local brakeTestActive = (self.testState and self.testState > 0)
+    if not self.microBrakeDone and ((currentSpeed > 8.0 and currentSpeed < 20.0) or brakeTestActive) then
         self:runMicroBrakeTest(tel, dt)
-    elseif self.microBrakeDone and not self.steeringTestDone and currentSpeed > 10.0 then
+    local steerTestActive = (self.steerState and self.steerState > 0)
+    elseif self.microBrakeDone and not self.steeringTestDone and (currentSpeed > 10.0 or steerTestActive) then
         self:runSteeringTest(tel, dt)
     end
 end
