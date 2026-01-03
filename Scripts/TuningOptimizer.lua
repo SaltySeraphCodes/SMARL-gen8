@@ -213,7 +213,7 @@ function TuningOptimizer:reportCrash()
 end
 
 function TuningOptimizer:recordFrame(perceptionData, dt)
-    if self.learningLocked then return end
+    -- if self.learningLocked then return end -- MOVED DOWN to allow calibration
     if not perceptionData or not perceptionData.Telemetry then return end
     if self.learningCoolDown and self.learningCoolDown > 0 then
         self.learningCoolDown = self.learningCoolDown - 1
@@ -304,18 +304,38 @@ function TuningOptimizer:recordFrame(perceptionData, dt)
         self:runMicroBrakeTest(tel, dt)
     local steerTestActive = (self.steerState and self.steerState > 0)
     elseif self.microBrakeDone and not self.steeringTestDone and (currentSpeed > 10.0 or steerTestActive) then
-        self:runSteeringTest(tel, dt)
+        self:runSteeringTest(tel, dt, perceptionData)
     end
+    
+    -- [[ PHASE 3: ADAPTIVE LEARNING (LOCKABLE) ]]
+    if self.learningLocked then return end
 end
 
-function TuningOptimizer:runSteeringTest(tel, dt)
+function TuningOptimizer:runSteeringTest(tel, dt, perceptionData)
     if self.steerState == nil then self.steerState = 0 end
     
-    -- STATE 0: WAIT FOR STABLE STRAIGHT
+    -- STATE 0: WAIT FOR STABLE STRAIGHT AND SAFE TRACK
     if self.steerState == 0 then
         local yawRate = 0
         if tel.angularVelocity then yawRate = math.abs(tel.angularVelocity.z) end
-        if yawRate < 0.05 then 
+        
+        -- Safety Checks
+        local isStraight = true
+        if perceptionData and perceptionData.Navigation then
+            -- Require a straight track (Radius > 150m or 0 means infinity)
+             local rad = math.abs(perceptionData.Navigation.longCurveRadius or 0)
+             if rad > 0 and rad < 150 then isStraight = false end
+        end
+        
+        -- Also check Wall Margins if available
+        local isSafeWidth = true
+        if perceptionData and perceptionData.WallAvoidance then
+             local wa = perceptionData.WallAvoidance
+             -- Require at least 4m on both sides
+             if wa.marginLeft < 4.0 or wa.marginRight < 4.0 then isSafeWidth = false end
+        end
+
+        if yawRate < 0.05 and isStraight and isSafeWidth then 
             self.steerState = 1 
             self.steerTimer = 0
         end
