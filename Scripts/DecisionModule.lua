@@ -349,7 +349,7 @@ function DecisionModule:calculateContextBias(perceptionData, preferredBias)
             if racer.isAhead and racer.distance < LOOKAHEAD_RANGE then
                 local toOp = racer.location - telemetry.location
                 local fwd = telemetry.rotations.at
-                local right = telemetry.rotations.right * -1.0 -- [FIX] Right Vector points Left physically
+                local right = telemetry.rotations.right
                 
                 local dx = toOp:dot(right)
                 local dy = toOp:dot(fwd)
@@ -835,7 +835,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local carPos = telemetry.location
     local vecToTarget = targetPoint - carPos
     
-    local localY = vecToTarget:dot(telemetry.rotations.right) * -1.0 -- [FIX] Right Vector points Left physically? Invert to fix Reference Frame.
+    local localY = vecToTarget:dot(telemetry.rotations.right)
     self.dbg_PP_Y = localY
     local distSq = vecToTarget:length2()
     local curvature = (2.0 * localY) / distSq
@@ -854,7 +854,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     -- Clamp I-term
     self.steerIntegral = math.max(math.min(self.steerIntegral, 0.15), -0.15)
 
-    local steerOutput = (curvature * 3.5) + self.steerIntegral -- [FIX] Increased P-Gain (3.2->3.5) + I-term
+    local steerOutput = (curvature * -3.5) - self.steerIntegral -- [FIX] Negative Gain for Stability
     
     -- CLAMP DAMPING: 
     -- Prevent Damping from ever exceeding 80% of the Steering Input.
