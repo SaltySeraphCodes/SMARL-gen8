@@ -120,7 +120,8 @@ function getSign(x)
 end
 
 function ratioConversion(a, b, c, d, x)
-    return c + (d - c) * (x - b) / (a - b)
+    if math.abs(b - a) < 0.0001 then return c end
+    return c + (d - c) * (x - a) / (b - a)
 end
 
 function getDistance(vec1, vec2)

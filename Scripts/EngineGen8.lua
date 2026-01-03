@@ -520,22 +520,22 @@ function Engine._calculateBaseRPMIncrement(self)
         -- Accelerating Forward
         if self.curGear > 0 then
             local gearAccel = self:getGearAccel(self.curGear)
-            increment = ratioConversion(0, 1, gearAccel, 0, input)
+            increment = ratioConversion(0, 1, 0, gearAccel, input)
             
         elseif self.curGear < 0 then
              -- Moving forward but in reverse gear (braking/reversing direction)
              if self.curRPM > 0 then
-                 increment = -ratioConversion(0, 1, stats.MAX_ACCEL, 0, input)
+                 increment = -ratioConversion(0, 1, 0, stats.MAX_ACCEL, input)
              else
                  -- Reversing
                  local revAccel = self:getGearAccel(self.curGear)
-                 increment = ratioConversion(0, 1, revAccel, 0, input)
+                 increment = ratioConversion(0, 1, 0, revAccel, input)
              end
         end
         
     elseif input < 0 then
         -- Braking (Input is negative)
-        local brakeForce = ratioConversion(0, -1, -stats.MAX_BRAKE, 0, input)
+        local brakeForce = ratioConversion(0, -1, 0, -stats.MAX_BRAKE, input)
         
         if self.curRPM > 10 then
             increment = brakeForce -- Reduce positive RPM

@@ -596,6 +596,13 @@ function DecisionModule.checkUtility(self,perceptionData, dt)
     local maxDot = math.cos(MAX_TILT_RAD) 
     if upDot < maxDot then self.isFlipped = true else self.isFlipped = false end
     
+    -- AI Active Check: Don't check for "stuck" if the AI isn't even trying to race
+    local isAIActive = self.Driver.active or self.Driver.isRacing or self.Driver.racing or self.Driver.caution or self.Driver.formation or (self.pitState > 0)
+    if not isAIActive then
+        self.stuckTimer = 0.0
+        return false 
+    end
+
     -- Stuck Logic
     local spd = telemetry.speed or 0
     -- Stuck if slow AND Throttle is high (trying to move)
@@ -860,6 +867,11 @@ end
 
 
 function DecisionModule.calculateSpeedControl(self, perceptionData, steerInput, isUnstable)
+    local isAIActive = self.Driver.active or self.Driver.isRacing or self.Driver.racing or self.Driver.caution or self.Driver.formation or (self.pitState > 0)
+    if not isAIActive then
+        return 0.0, 1.0, 0.0 -- 0 Throttle, 1.0 Brake (Hold), 0 Target Speed
+    end
+
     local currentSpeed = perceptionData.Telemetry.speed
     local targetSpeed = self:getTargetSpeed(perceptionData,steerInput) -- Recalculated here
     
