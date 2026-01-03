@@ -226,9 +226,15 @@ function DriverGen8.server_onFixedUpdate(self, dt)
         decisionData = self.Decision:server_onFixedUpdate(perceptionData, dt)
         self.decisionData = decisionData
 
-    if self.Decision.latestDebugData then
-             -- Debug data syncing logic can go here
-    end
+    -- 3. DECISION DEBUG SYNC
+    if self.Decision and self.Decision.latestDebugData then
+        -- [FIX] Sync Debug Visualization to Client
+        if not self.visTimer then self.visTimer = 0 end
+        self.visTimer = self.visTimer + dt
+        if self.visTimer > 0.1 then -- 10Hz Update Rate
+             self.network:sendToClients("cl_updateDebugRays", self.Decision.latestDebugData)
+             self.visTimer = 0
+        end
     end
 
     -- 3.5 GUIDANCE (TRAJECTORY LAYER) [[ NEW ]]

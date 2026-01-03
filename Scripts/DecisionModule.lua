@@ -797,7 +797,8 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     targetBias = math.max(math.min(targetBias, maxBias), -maxBias)
     
     -- Smooth
-    local lerpRate = 0.15 
+    -- Smooth
+    local lerpRate = 0.10 -- [FIX] Slower smoothing to reduce target jitters (Was 0.15)
     self.smoothedBias = (self.smoothedBias or 0) * (1.0 - lerpRate) + targetBias * lerpRate
     local finalBias = self.smoothedBias
 
@@ -834,7 +835,7 @@ function DecisionModule.calculateSteering(self, perceptionData, dt,isUnstable)
     local distSq = vecToTarget:length2()
     local curvature = (2.0 * localY) / distSq
     
-    local steerOutput = curvature * 3.8 --This is the gain
+    local steerOutput = curvature * 3.2 -- [FIX] Reduced Gain (Was 3.8) to stop oscillation
     
     -- CLAMP DAMPING: 
     -- Prevent Damping from ever exceeding 80% of the Steering Input.
