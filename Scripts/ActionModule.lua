@@ -81,7 +81,7 @@ function ActionModule.setSteering(self, steerFactor, currentSpeed)
     
     -- [DEBUG] Verify Final Command
     if math.abs(steerFactor) > 0.05 then
-        print(string.format("ACTION: SteerIn:%.2f -> Out:%.2f (Inv:%s)", rawSteer, steerFactor, tostring(STEERING_INVERTED)))
+        --print(string.format("ACTION: SteerIn:%.2f -> Out:%.2f (Inv:%s)", rawSteer, steerFactor, tostring(STEERING_INVERTED)))
     end
     
     local bearings = sm.interactable.getBearings(self.Driver.interactable)
