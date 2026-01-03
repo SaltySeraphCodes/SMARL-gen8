@@ -7,34 +7,5 @@
 		"lapsLeft" : 10.0,
 		"status" : 1.0
 	},
-	"rt" : 
-	[
-		
-		{
-			"bestLap" : 0.0,
-			"dist" : 551.3307290077209,
-			"finished" : false,
-			"fl" : 99.0,
-			"gapDist" : 0.0,
-			"gapTime" : 0.0,
-			"id" : 53857.0,
-			"interval" : 0.0,
-			"lap" : 0.0,
-			"lastLap" : 0.0,
-			"locX" : -331.1114807128906,
-			"locY" : -404.2145080566406,
-			"locZ" : 1.091326951980591,
-			"name" : "Racer 53857",
-			"owner" : 53857.0,
-			"pitState" : 0.0,
-			"place" : 1.0,
-			"primary_color" : "#000000",
-			"prog" : 0.2186581309105214,
-			"secondary_color" : "#000000",
-			"speed" : 0.001222595106810331,
-			"st" : [ 0.0, 0.0, 0.0 ],
-			"th" : 98.0,
-			"tt" : 2.0
-		}
-	]
+	"rt" : null
 }
