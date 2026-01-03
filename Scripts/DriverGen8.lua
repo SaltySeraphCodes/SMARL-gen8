@@ -207,7 +207,7 @@ function DriverGen8.server_onFixedUpdate(self, dt)
         end
     end
     if perceptionData and self.Optimizer then
-        self.Optimizer:recordFrame(perceptionData)
+        self.Optimizer:recordFrame(perceptionData, dt)
     end
 
     self:calculatePrecisePosition()

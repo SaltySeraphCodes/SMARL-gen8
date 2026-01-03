@@ -33,6 +33,7 @@ function UIManager:create()
     self.gui:setButtonCallback("BtnFuelMultAdd", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnFuelMultSub", "cl_onSettingsChange")
     self.gui:setButtonCallback("BtnQualifying", "cl_onToggleSetting")
+    self.gui:setButtonCallback("BtnLearning", "cl_onBtnLearning")
     self.gui:setButtonCallback("PopUpYes", "cl_onPopUpResponse")
     self.gui:setButtonCallback("PopUpNo", "cl_onPopUpResponse")
     self.gui:setOnCloseCallback("cl_onClose")
@@ -117,6 +118,13 @@ function UIManager:onFixedUpdate()
     self.gui:setText("ValFuelMult", string.format("%.1fx", fuelMult))
     self.gui:setText("BtnQualifying", "Quali: " .. (quali and "ON" or "OFF"))
     
+    local learningLocked = meta.learningLocked or false
+    -- We invert logic for the button text: if Locked, Learning is OFF (or Restricted)
+    -- Actually user wants "Learning Lock" button or "Learning" button?
+    -- User asked: "Learning Lock button". So if ON -> Locked. If OFF -> Unlocked.
+    -- Let's stick to "LEARN: ON" (Unlocked) vs "LEARN: LOCK" (Locked)
+    self.gui:setText("BtnLearning", "LEARN: " .. (learningLocked and "LOCK" or "ON"))
+    
     -- 5. Update Entries Button
     -- Entries state is likely managed by TwitchManager logic but needs client visibility
     -- If not synced, default to unknown or check RC flag
@@ -164,6 +172,10 @@ end
 
 function UIManager:cl_onBtnEntries()
     self.RC.network:sendToServer("sv_toggleEntries")
+end
+
+function UIManager:cl_onBtnLearning()
+    self.RC.network:sendToServer("sv_toggleLearningLock")
 end
 
 function UIManager:cl_onClose()

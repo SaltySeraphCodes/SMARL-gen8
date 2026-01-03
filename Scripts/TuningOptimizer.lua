@@ -209,7 +209,9 @@ function TuningOptimizer:reportCrash()
     self:saveProfile() 
 end
 
-function TuningOptimizer:recordFrame(perceptionData)
+function TuningOptimizer:recordFrame(perceptionData, dt)
+    if self.learningLocked then return end
+    if not perceptionData or not perceptionData.Telemetry then return end
     if self.learningCoolDown and self.learningCoolDown > 0 then
         self.learningCoolDown = self.learningCoolDown - 1
         return -- IGNORE ALL DATA while recovering

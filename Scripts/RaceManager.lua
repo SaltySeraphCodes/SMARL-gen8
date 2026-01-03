@@ -67,6 +67,12 @@ function RaceManager.setState(self, newState)
         shouldLock = false -- Always unlock when stopped so we can tune in testing
     end
 
+    -- Update RC property to sync with UI
+    if self.RC then 
+        self.RC.learningLocked = shouldLock 
+        self.RC:sv_syncRaceData()
+    end
+
     -- Broadcast the Lock Command
     self:broadcastCommand({ type = "set_learning_lock", value = shouldLock })
 

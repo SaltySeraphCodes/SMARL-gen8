@@ -14,7 +14,7 @@
                 <Property key="Caption" value="Lap: - / -" />
                 <Property key="FontName" value="SM_HeaderLarge" />
                 <Property key="TextAlign" value="Right VCenter" />
-                <Property key="TextColour" value="0.7 0.7 0.7" />
+                <Property key="TextColour" value="1 1 1" />
             </Widget>
         </Widget>
 
@@ -27,7 +27,7 @@
                     <Property key="Caption" value="DIRECTOR" />
                     <Property key="FontName" value="SM_HeaderSmall_Medium" />
                     <Property key="TextAlign" value="Center" />
-                    <Property key="TextColour" value="0.2 0.2 0.2" />
+                    <Property key="TextColour" value="1 1 1" />
                 </Widget>
 
                 <!-- Status Buttons -->
@@ -77,7 +77,7 @@
                     <Property key="Caption" value="MATCH RULES" />
                     <Property key="FontName" value="SM_HeaderSmall_Medium" />
                     <Property key="TextAlign" value="Center" />
-                    <Property key="TextColour" value="0.2 0.2 0.2" />
+                    <Property key="TextColour" value="1 1 1" />
                 </Widget>
                 
                 <!-- Row 1: Laps -->
@@ -86,13 +86,13 @@
                         <Property key="Caption" value="Laps:" />
                         <Property key="FontName" value="SM_TextLabel" />
                         <Property key="TextAlign" value="Left VCenter" />
-                        <Property key="TextColour" value="0.2 0.2 0.2" />
+                        <Property key="TextColour" value="1 1 1" />
                     </Widget>
                     <Widget type="Button" skin="SecondaryButton" name="BtnLapsSub" position_real="0.5 0 0.1 1"><Property key="Caption" value="-" /></Widget>
                     <Widget type="TextBox" skin="TextBox" name="ValLaps" position_real="0.6 0 0.2 1">
                         <Property key="Caption" value="10" />
                         <Property key="TextAlign" value="Center VCenter" />
-                        <Property key="TextColour" value="0.1 0.1 0.1" />
+                        <Property key="TextColour" value="1 1 1" />
                     </Widget>
                     <Widget type="Button" skin="SecondaryButton" name="BtnLapsAdd" position_real="0.8 0 0.1 1"><Property key="Caption" value="+" /></Widget>
                 </Widget>
@@ -103,13 +103,13 @@
                         <Property key="Caption" value="Handicap:" />
                         <Property key="FontName" value="SM_TextLabel" />
                         <Property key="TextAlign" value="Left VCenter" />
-                        <Property key="TextColour" value="0.2 0.2 0.2" />
+                        <Property key="TextColour" value="1 1 1" />
                     </Widget>
                     <Widget type="Button" skin="SecondaryButton" name="BtnHandiSub" position_real="0.5 0 0.1 1"><Property key="Caption" value="-" /></Widget>
                     <Widget type="TextBox" skin="TextBox" name="ValHandi" position_real="0.6 0 0.2 1">
                         <Property key="Caption" value="1.0" />
                         <Property key="TextAlign" value="Center VCenter" />
-                        <Property key="TextColour" value="0.1 0.1 0.1" />
+                        <Property key="TextColour" value="1 1 1" />
                     </Widget>
                     <Widget type="Button" skin="SecondaryButton" name="BtnHandiAdd" position_real="0.8 0 0.1 1"><Property key="Caption" value="+" /></Widget>
                 </Widget>
@@ -120,22 +120,28 @@
                         <Property key="Caption" value="Draft Str:" />
                         <Property key="FontName" value="SM_TextLabel" />
                         <Property key="TextAlign" value="Left VCenter" />
-                        <Property key="TextColour" value="0.2 0.2 0.2" />
+                        <Property key="TextColour" value="1 1 1" />
                     </Widget>
                     <Widget type="Button" skin="SecondaryButton" name="BtnDraftSub" position_real="0.5 0 0.1 1"><Property key="Caption" value="-" /></Widget>
                     <Widget type="TextBox" skin="TextBox" name="ValDraft" position_real="0.6 0 0.2 1">
                         <Property key="Caption" value="1.0" />
                         <Property key="TextAlign" value="Center VCenter" />
-                        <Property key="TextColour" value="0.1 0.1 0.1" />
+                        <Property key="TextColour" value="1 1 1" />
                     </Widget>
                     <Widget type="Button" skin="SecondaryButton" name="BtnDraftAdd" position_real="0.8 0 0.1 1"><Property key="Caption" value="+" /></Widget>
                 </Widget>
 
-                 <!-- Row 4: Qualifying -->
+                <!-- Row 4: Qualifying & Learning -->
                 <Widget type="Widget" skin="PanelEmpty" position_real="0 0.42 1 0.12">
-                      <Widget type="Button" skin="SecondaryButton" name="BtnQualifying" position_real="0 0 1 0.8">
+                      <Widget type="Button" skin="SecondaryButton" name="BtnQualifying" position_real="0 0 0.55 0.8">
                         <Property key="Caption" value="QUALIFYING: OFF" />
                         <Property key="FontName" value="SM_ButtonSmall" />
+                        <Property key="TextColour" value="1 1 1" />
+                    </Widget>
+                    <Widget type="Button" skin="SecondaryButton" name="BtnLearning" position_real="0.58 0 0.42 0.8">
+                        <Property key="Caption" value="LEARN: ON" />
+                        <Property key="FontName" value="SM_ButtonSmall" />
+                        <Property key="TextColour" value="1 1 1" />
                     </Widget>
                 </Widget>
 
@@ -150,7 +156,7 @@
                     <Property key="Caption" value="SIMULATION" />
                     <Property key="FontName" value="SM_HeaderSmall_Medium" />
                     <Property key="TextAlign" value="Center" />
-                    <Property key="TextColour" value="0.2 0.2 0.2" />
+                    <Property key="TextColour" value="1 1 1" />
                 </Widget>
 
                 <!-- TIRE SETTINGS -->
@@ -170,7 +176,7 @@
                     <Widget type="TextBox" skin="TextBox" name="ValWearMult" position_real="0.7 0 0.2 0.8">
                         <Property key="Caption" value="1.0x" />
                         <Property key="TextAlign" value="Center VCenter" />
-                        <Property key="TextColour" value="0.1 0.1 0.1" />
+                        <Property key="TextColour" value="1 1 1" />
                          <Property key="FontName" value="SM_LabelTiny" />
                     </Widget>
                     <Widget type="Button" skin="SecondaryButton" name="BtnWearMultAdd" position_real="0.9 0 0.1 0.8"><Property key="Caption" value="+" /></Widget>
@@ -186,7 +192,7 @@
                     <Widget type="TextBox" skin="TextBox" position_real="0.32 0 0.25 0.8">
                         <Property key="Caption" value="(Burn)" />
                         <Property key="TextAlign" value="Center VCenter" />
-                        <Property key="TextColour" value="0.5 0.5 0.5" />
+                        <Property key="TextColour" value="1 1 1" />
                         <Property key="FontName" value="SM_LabelTiny" />
                     </Widget>
 
@@ -195,7 +201,7 @@
                     <Widget type="TextBox" skin="TextBox" name="ValFuelMult" position_real="0.7 0 0.2 0.8">
                         <Property key="Caption" value="1.0x" />
                         <Property key="TextAlign" value="Center VCenter" />
-                        <Property key="TextColour" value="0.1 0.1 0.1" />
+                        <Property key="TextColour" value="1 1 1" />
                         <Property key="FontName" value="SM_LabelTiny" />
                     </Widget>
                     <Widget type="Button" skin="SecondaryButton" name="BtnFuelMultAdd" position_real="0.9 0 0.1 0.8"><Property key="Caption" value="+" /></Widget>
@@ -211,7 +217,7 @@
                 <Property key="Caption" value="SMARL Gen 8 System Ready." />
                 <Property key="FontName" value="SM_LabelTiny" />
                 <Property key="TextAlign" value="Left VCenter" />
-                <Property key="TextColour" value="0.6 0.6 0.6" />
+                <Property key="TextColour" value="1 1 1" />
             </Widget>
         </Widget>
 

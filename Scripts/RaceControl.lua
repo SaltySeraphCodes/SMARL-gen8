@@ -57,6 +57,7 @@ function RaceControl.server_init(self)
     self.handiCapMultiplier = 1.0
     self.draftStrength = 1.0
     self.entriesOpen = true
+    self.learningLocked = false
     
     self.tickTimer = 0
     self.dataOutputTimer = 0
@@ -149,7 +150,9 @@ function RaceControl.sv_syncRaceData(self)
         fuelEnabled = self.RaceManager and self.RaceManager.fuelUsageEnabled or false,
         fuelMult = self.RaceManager and self.RaceManager.fuelUsageMultiplier or 1.0,
         qualifying = self.RaceManager and self.RaceManager.qualifying or false,
-        entries = self.entriesOpen or false
+        entries = self.entriesOpen or false,
+        learningLocked = self.learningLocked or false,
+        learningLocked = self.learningLocked or false
     }
     self.network:setClientData(data)
 end
@@ -242,6 +245,17 @@ end
 
 function RaceControl.sv_toggleEntries(self)
     self.entriesOpen = not self.entriesOpen
+    self:sv_syncRaceData()
+end
+
+function RaceControl.sv_toggleLearningLock(self)
+    self.learningLocked = not self.learningLocked
+    
+    -- Propagate to all cars immediately
+    if self.RaceManager then
+        self.RaceManager:broadcastCommand({ type = "set_learning_lock", value = self.learningLocked })
+    end
+    
     self:sv_syncRaceData()
 end
 
