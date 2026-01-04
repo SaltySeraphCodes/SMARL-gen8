@@ -228,15 +228,10 @@ function DecisionModule:updateTrackState(perceptionData)
 
     local rawRadius = self.cachedMinRadius or 1000.0
 
-    -- [FIX] KINK REJECTION
-    -- If the radius drops suddenly (e.g. from 1000 to 50), do not apply it instantly.
-    -- Require it to persist for a few frames, or blend it slower.
-
+    -- [FIX] KINK REJECTION (Relaxed)
+    -- If the radius drops suddenly, blend slightly faster to catch the turn.
     if rawRadius < self.smoothedRadius then
-        -- Instead of snapping instantly, we interpolate down.
-        -- This acts as a low-pass filter.
-        -- If it's a 1-frame kink, smoothedRadius won't drop all the way down before it clears.
-        local dropRate = 0.2 -- 20% blend per update
+        local dropRate = 0.4 -- [FIX] Increased from 0.2 to 0.4 for faster reaction
         self.smoothedRadius = self.smoothedRadius + (rawRadius - self.smoothedRadius) * dropRate
 
         self.radiusHoldTimer = 1.0
@@ -287,17 +282,19 @@ function DecisionModule.getTargetSpeed(self, perceptionData, steerInput)
         friction = friction * thinFactor
     end
 
-    -- Conservative Factor: Treat the corner as 10% tighter than it looks
-    local safetyRadius = math.max(effectiveRadius * 0.9, 10.0)
+    -- Conservative Factor: Treat the corner as slightly tighter, but relax on straights.
+    local safetyRadius = effectiveRadius
+    if effectiveRadius < 200.0 then
+        safetyRadius = effectiveRadius * 0.9 -- Only buffer tight turns
+    end
 
     -- 2. CALCULATE MAX CORNERING SPEED (v^2/r = u*g)
     local lateralGrip = 18.0
     if self.Driver.Optimizer then
         -- Scale the optimizer's cornerLimit (usually 1.0-3.5) to G-force units
         -- [[ FIX: USE LEARNED GRIP WITH MARGIN ]]
-        -- Use the lesser of our Safety Limit (cornerLimit) or our Actual Grip (learnedGrip)
-        -- Apply 0.80 factor (Was 0.90) for significant margin.
-        local effectiveGrip = math.min(self.Driver.Optimizer.cornerLimit, self.Driver.Optimizer.learnedGrip * 0.80)
+        -- Relaxed Safety Margin: 0.90 instead of 0.80 to allow higher corner speeds
+        local effectiveGrip = math.min(self.Driver.Optimizer.cornerLimit, self.Driver.Optimizer.learnedGrip * 0.90)
         lateralGrip = effectiveGrip * 10.0
     end
     -- note: friction is redundant if we assume learnedGrip accounts for surface, but we keep it for now.
@@ -493,14 +490,28 @@ function DecisionModule:handleCorneringStrategy(perceptionData, dt)
 
     if turnDir == 0 then return end -- No turn detected
 
-    -- [[ FIX: DYNAMIC TURN-IN ]]
+    -- [[ FIX: DYNAMIC TURN-IN (Physics Based) ]]
     -- Calculate Turn-In distance based on Speed and Grip.
-    -- High Speed / Low Grip requires earlier turn-in.
+    -- Distance = ReactionTime + (LateralDeccel required)
+    -- We want to start turning roughly when: Distance ~ Speed * 1.5s
     local friction = self.dynamicGripFactor or 0.8
-    local turnInDist = math.max(15.0, (speed * 0.5) / math.sqrt(friction))
+    -- Dynamic Formula:
+    -- Low Speed (20m/s): 10m minimum
+    -- High Speed (80m/s): Needs ~60m+
+
+    -- [[ FIX: PERSONA SCALING ]]
+    local aggression = (self.Driver and self.Driver.carAggression) or 0.8
+    -- Aggressive (1.0) -> Multiplier 0.6 (Late Brake/Late Turn)
+    -- Cautious (0.0) -> Multiplier 0.9 (Early Turn)
+    local aggFactor = 0.9 - (aggression * 0.3)
+
+    local turnInDist = math.max(10.0, speed * aggFactor)
+
+    -- If low grip, start earlier
+    if friction < 0.6 then turnInDist = turnInDist * 1.3 end
 
     -- 1. APEX PHASE (In the turn or very close)
-    if radius < 80.0 or distToCrit < turnInDist then
+    if radius < 80.0 and distToCrit < turnInDist then
         -- TARGET: INSIDE (Hit the Apex)
         self.cornerSetupBias = turnDir * 0.85
         self.cornerSetupWeight = 0.80
@@ -508,8 +519,10 @@ function DecisionModule:handleCorneringStrategy(perceptionData, dt)
     end
 
     -- 2. ENTRY PHASE (Approaching a turn)
-    local lookaheadTime = 3.5
-    local triggerDist = math.max(40.0, speed * lookaheadTime)
+    -- Reduce lookahead to prevent hugging too early.
+    -- Was 3.5s, now 2.0s max.
+    local lookaheadTime = 2.0
+    local triggerDist = math.max(30.0, speed * lookaheadTime)
 
     if distToCrit < triggerDist and distToCrit > turnInDist then
         -- TARGET: OUTSIDE (Opposite to Turn)
@@ -518,14 +531,16 @@ function DecisionModule:handleCorneringStrategy(perceptionData, dt)
         -- Normalized Distance: 0.0 (Close/Turn-In) to 1.0 (Far/Start)
         local normDist = (distToCrit - turnInDist) / (triggerDist - turnInDist)
 
-        local smoothUrgency = math.sin(normDist * math.pi)
+        -- Progressive Weight: Don't snap to 0.80.
+        -- As we get closer (normDist -> 0), weight -> 0.8
+        -- At start (normDist -> 1), weight -> 0.2
+        local urgency = 0.2 + (0.6 * (1.0 - normDist))
 
-        self.cornerSetupBias = setupSide * 0.80
-        self.cornerSetupWeight = smoothUrgency
+        self.cornerSetupBias = setupSide * 0.90 -- Aim WIDE
+        self.cornerSetupWeight = urgency
 
         -- DEBUG: Check why we might be stuck outside
-        print(string.format("SETUP: Dist:%.1f TurnIn:%.1f Side:%d W:%.2f", distToCrit, turnInDist, setupSide,
-            smoothUrgency))
+        -- print(string.format("SETUP: Dist:%.1f TurnIn:%.1f Side:%d W:%.2f", distToCrit, turnInDist, setupSide, urgency))
     end
 end
 
